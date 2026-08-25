@@ -49,9 +49,16 @@ Next, in order:
    about 200 MB of memory and very little else.
 
 The Shelly is read over a websocket it pushes on, so a reading appears the
-moment it changes. The Waveshare is polled, five times a second by default,
-because Modbus has no way for a device to speak first. Eight bits at that rate
-is nothing on the wire.
+moment it changes.
+
+The Waveshare is polled, five times a second by default. That is not a shortcut
+taken to save effort: Modbus is a master and slave protocol and a slave is never
+allowed to speak first, in RTU or in TCP. The connection is held open, which
+saves the handshake and nothing else. The module's MQTT mode does not help
+either; it carries Modbus frames rather than publishing events, so it would be
+the same poll with a broker added to the alarm path. Eight bits at five times a
+second is about a hundred bytes a second, and the worst case delay in noticing a
+float is one poll interval.
 
 Both devices need a fixed address, either static or a DHCP reservation. PitWatch
 holds a connection open to the Shelly and reconnects when it drops, but it does

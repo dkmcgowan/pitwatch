@@ -1,10 +1,29 @@
 """Reading the panel's dry contacts from a Waveshare Ethernet I/O module.
 
-Unlike the Shelly, this one is polled. Modbus is a request and response
-protocol with no way for a device to speak first, and the module's own MQTT
-mode is not documented well enough to rely on for an alarm path. Eight bits five
-times a second is nothing on the wire, and it is the difference between catching
-a two second lag float call and never knowing it happened.
+Unlike the Shelly, this one is polled, and that is not a shortcut. It is worth
+writing down why, because "surely we can just subscribe to it" is a reasonable
+thing to think and the answer is no on every route the module offers.
+
+* **The socket is already open.** This is Modbus TCP over a connection held for
+  the life of the reader, not a connect per read. Keeping it open saves the
+  handshake and nothing else, because Modbus is master and slave by design: a
+  slave may only answer, never speak first. There is no unsolicited response in
+  the specification, in RTU or in TCP.
+* **MQTT does not fix it, and would make it worse.** The broker is not fixed to
+  Alibaba: it is a target address and port set in VirCom, so a local Mosquitto
+  works fine. But the module's MQTT mode is a transparent pipe for Modbus
+  frames, not an event publisher. You publish the same `01 02 00 00 00 08` and
+  it publishes the reply back. That is the same poll with a broker hop of extra
+  latency and a second daemon that can die between us and an alarm.
+* **The other two documented routes are also request and response.** The
+  advanced applications are Alibaba MQTT, WaveshareCloud and HTTP GET/POST.
+  There is no change of state upload, no active reporting and no report by
+  exception anywhere in the register map or the documentation.
+
+So it polls. The cost is about a hundred bytes a second on a LAN, and the worst
+case detection delay is one poll interval, which the float debounce already
+dwarfs. If a module ever does turn up that pushes, the reader is behind an
+interface and this becomes the fallback.
 
 The register map, confirmed against Waveshare's development protocol page for
 the Modbus POE ETH IO 8CH:

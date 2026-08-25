@@ -122,6 +122,37 @@ Then open `http://<your-host>:8080` and follow the setup.
 The database is not published on a host port, on purpose. Nothing outside the
 stack needs to reach it.
 
+### When the container cannot reach your devices
+
+The usual symptom is the **Test connection** button timing out on a device your
+Docker host can ping perfectly well. The test button walks up the stack and
+tells you which rung it fell off, so read that first: whether the name resolved,
+whether a TCP connection opened, whether HTTP answered, and whether the
+websocket did.
+
+Two causes account for almost all of it.
+
+**An mDNS name.** If you entered something ending in `.local`, your machine
+resolves it by multicast and a container cannot, because Docker's DNS does not
+do multicast. Use the IP address, and give the device a DHCP reservation so it
+keeps it.
+
+**The container cannot route to your LAN.** A timeout rather than a refusal
+usually means this: a host firewall dropping forwarded traffic off the Docker
+bridge, a device on an isolated Wi-Fi network, or a bridge subnet that overlaps
+your LAN. Rather than working out which, put the application on the host's
+network, where it has exactly the reachability the host has:
+
+```sh
+docker compose -f docker-compose.host.yml up -d
+```
+
+That file is in the repository and handles the two things that change with host
+networking: there is no port mapping any more, so set `PITWATCH_PORT` rather
+than `PITWATCH_HOST_PORT`, and the application reaches the database on
+`127.0.0.1` instead of by service name. The database is published on loopback
+only, so nothing on your LAN can reach Postgres.
+
 ### Changing the port
 
 Set `PITWATCH_HOST_PORT` in `.env` and `docker compose up -d`. That moves only

@@ -1,0 +1,63 @@
+# PitWatch with the application on the host's network.
+#
+# Use this instead of docker-compose.yml when the container cannot reach your
+# Shelly or your Waveshare on the LAN, which shows up as the test button timing
+# out on a device your Docker host can ping perfectly well. Rather than working
+# out which firewall or bridge subnet is in the way, this puts the application
+# directly on the host's network, where it has exactly the reachability the host
+# has.
+#
+# Two things change, and both are here rather than left as an exercise:
+#
+# * There is no port mapping any more, so PITWATCH_HOST_PORT does nothing.
+#   PITWATCH_PORT is what the application binds, and on host networking that is
+#   a host port directly. Set that one instead.
+# * The application can no longer reach the database as `db`, because it is not
+#   on the compose network. So the database publishes on loopback and the
+#   application connects to 127.0.0.1. It is published on 127.0.0.1 rather than
+#   on all interfaces on purpose: nothing on your LAN should be able to reach
+#   Postgres.
+#
+#   docker compose -f docker-compose.host.yml up -d
+
+name: pitwatch
+
+services:
+  db:
+    image: timescale/timescaledb:2.29.2-pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pitwatch
+      POSTGRES_USER: pitwatch
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      TIMESCALEDB_TELEMETRY: "off"
+    volumes:
+      - pitwatch-db:/var/lib/postgresql/data
+    ports:
+      # Loopback only. The application reaches it here because it is on the
+      # host's network. Nothing else can.
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pitwatch -d pitwatch"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  app:
+    image: ghcr.io/dkmcgowan/pitwatch:0.1.0
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PITWATCH_DATABASE_URL: postgresql://pitwatch:${POSTGRES_PASSWORD}@127.0.0.1:5432/pitwatch
+      # On host networking this is the port on the host. There is no mapping to
+      # move it with, so this is the one to change.
+      PITWATCH_PORT: ${PITWATCH_PORT:-8080}
+      PITWATCH_TIMEZONE: ${PITWATCH_TIMEZONE:-America/New_York}
+      PITWATCH_LOG_LEVEL: ${PITWATCH_LOG_LEVEL:-INFO}
+
+volumes:
+  pitwatch-db:

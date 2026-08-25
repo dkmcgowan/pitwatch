@@ -30,9 +30,54 @@
     return node.innerHTML;
   }
 
+  function renderSteps(steps) {
+    if (!steps || !steps.length) {
+      return "";
+    }
+    // Every rung that was tried, in order, with the one that stopped it marked.
+    // Where it stops is the diagnosis, so all of them are shown rather than
+    // only the failure.
+    return (
+      '<table class="probe steps"><tbody>' +
+      steps
+        .map(function (step) {
+          return (
+            "<tr><td>" +
+            (step.ok ? '<span class="on">OK</span>' : '<span class="bad">FAILED</span>') +
+            "</td><th scope=\"row\">" +
+            escape(step.step) +
+            "</th><td class=\"muted\">" +
+            escape(step.detail) +
+            "</td></tr>"
+          );
+        })
+        .join("") +
+      "</tbody></table>"
+    );
+  }
+
+  function showClampReadings(channels) {
+    [1, 2].forEach(function (pump) {
+      const select = document.querySelector('[data-clamp="' + pump + '"]');
+      const cell = document.querySelector('[data-clamp-reading="' + pump + '"]');
+      if (!select || !cell) {
+        return;
+      }
+      const reading = channels[select.value] || {};
+      cell.textContent =
+        typeof reading.current === "number" ? "now " + amps(reading.current) : "";
+    });
+  }
+
   function render(result) {
     if (!result.ok) {
-      show(escape(result.error || "Could not reach the device"), "bad");
+      show(
+        renderSteps(result.steps) +
+          "<p>" +
+          escape(result.error || "Could not reach the device") +
+          "</p>",
+        "bad"
+      );
       return;
     }
     const rows = [0, 1]
@@ -44,9 +89,7 @@
         return (
           "<tr><th scope=\"row\">Clamp " +
           (channel + 1) +
-          " (em1:" +
-          channel +
-          ")</th><td class=\"mono\">" +
+          "</th><td class=\"mono\">" +
           escape(amps(reading.current)) +
           "</td><td class=\"mono\">" +
           escape(
@@ -61,15 +104,22 @@
       })
       .join("");
 
+    // Put each clamp's live current next to the pump it is currently assigned
+    // to. Reading two numbers in a table and mapping them back onto two
+    // dropdowns is exactly the kind of small translation that gets done wrong
+    // at the end of a long day in a boiler room.
+    showClampReadings(result.channels || {});
+
     show(
-      "<p>Connected to <strong>" +
+      renderSteps(result.steps) +
+        "<p>Connected to <strong>" +
         escape(result.model || result.id || "the device") +
         "</strong>, firmware " +
         escape(result.firmware || "unknown") +
         ".</p><table class=\"probe\"><tbody>" +
         rows +
         "</tbody></table><p class=\"hint\">Start a pump by hand and watch which " +
-        "reading moves. That clamp is the one on that pump.</p>",
+        "reading moves. That clamp is the one on that pump; set it above.</p>",
       "good"
     );
   }
@@ -224,4 +274,38 @@
   // Leaving the page with a timer running would keep polling a device for
   // nothing, and on a phone that is somebody's battery.
   window.addEventListener("pagehide", stop);
+})();
+
+// Keeping the two clamp selects opposite each other.
+//
+// The form only ever submits pump 1, and the server derives pump 2 from it, so
+// there is no state here that can be wrong. This exists purely so the page
+// shows both pumps and lets you change either one, rather than telling you
+// about one and leaving the other to be inferred, which reads like a trick.
+// With JavaScript off, pump 1 still submits correctly and pump 2 still displays
+// the right thing; it just will not move on its own.
+
+(function () {
+  "use strict";
+
+  const first = document.querySelector('[data-clamp="1"]');
+  const second = document.querySelector('[data-clamp="2"]');
+  if (!first || !second) {
+    return;
+  }
+
+  function opposite(value) {
+    return value === "0" ? "1" : "0";
+  }
+
+  first.addEventListener("change", function () {
+    second.value = opposite(first.value);
+  });
+
+  // Changing pump 2 is really changing pump 1, since only one of them is a
+  // stored setting. Doing it this way round means the control that looks
+  // editable is editable.
+  second.addEventListener("change", function () {
+    first.value = opposite(second.value);
+  });
 })();

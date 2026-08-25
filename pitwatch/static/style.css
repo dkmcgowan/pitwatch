@@ -471,3 +471,10 @@ body.stale main::before {
   font-weight: 600;
   opacity: 1;
 }
+
+table.clamps, table.steps { min-width: 0; }
+table.clamps th[scope="row"] { white-space: nowrap; padding-left: 0; }
+table.clamps td { border-bottom: none; }
+table.clamps select { min-width: 11rem; }
+table.steps td, table.steps th { border-bottom: none; padding: 0.15rem 0.6rem 0.15rem 0; }
+table.steps th { font-weight: 500; }

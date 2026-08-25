@@ -28,11 +28,13 @@ import hashlib
 import json
 import logging
 import secrets
+import socket
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+import httpx2
 import websockets
 from websockets.exceptions import WebSocketException
 
@@ -411,17 +413,118 @@ def _log_events(frame: dict) -> None:
 
 
 async def probe(settings: ShellySettings) -> dict:
-    """Connect once, read both clamps, and disconnect.
+    """Work out what a device is doing, one layer at a time.
 
-    This is what the setup wizard's test button calls. It returns what the
-    device says about itself and the live current on each clamp, which is
-    enough for someone standing at the panel to start a pump by hand and see
-    which of the two numbers moves.
+    This is what the setup wizard's test button calls, and it deliberately does
+    not answer with a single yes or no. "Could not connect" is not a diagnosis,
+    and the person reading it is usually standing in a boiler room. So it walks
+    up the stack and reports every rung:
+
+    1. Does the name resolve? The single most common failure is an mDNS name
+       like `shellyemg3-a1b2c3.local`, which the host resolves and a container
+       cannot, because Docker's DNS does not do multicast. That looks like the
+       network being broken when it is only the name.
+    2. Does a TCP connection open? Separates routing and firewalls from
+       everything above them.
+    3. Does HTTP RPC answer? Proves the device is a Shelly and is willing to
+       talk, and surfaces an authentication requirement as itself rather than as
+       a timeout.
+    4. Does the websocket work? This is the one ingest actually uses. If HTTP
+       works and this does not, the problem is a proxy or a firmware setting,
+       not the network, and saying so saves an hour.
+
+    Every rung that passed is reported even when a later one fails, because
+    where it stops is the diagnosis.
     """
+    host = settings.host.strip()
+    steps: list[dict] = []
+
+    def record(name: str, ok: bool, detail: str) -> None:
+        steps.append({"step": name, "ok": ok, "detail": detail})
+
+    def answer(ok: bool, error: str | None = None, **extra) -> dict:
+        return {"ok": ok, "steps": steps, "error": error, **extra}
+
+    # 1. Name resolution.
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(host, 80, proto=socket.IPPROTO_TCP)
+        addresses = sorted({info[4][0] for info in infos})
+        record("Resolve the address", True, ", ".join(addresses))
+    except socket.gaierror as error:
+        hint = ""
+        if host.endswith(".local"):
+            hint = (
+                " Names ending in .local are mDNS, which resolves on your "
+                "machine but not inside a container. Use the IP address, or "
+                "give the device a DHCP reservation and a real DNS name."
+            )
+        record("Resolve the address", False, f"{error}.{hint}")
+        return answer(False, f"Could not resolve {host}.{hint}")
+
+    # 2. TCP.
+    try:
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, 80), timeout=CONNECT_TIMEOUT_S
+        )
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+        record("Open a connection to port 80", True, "connected")
+    except TimeoutError:
+        record("Open a connection to port 80", False, "timed out")
+        return answer(
+            False,
+            f"The name resolved but {host} never answered on port 80. A timeout "
+            "here, on a device your Docker host can reach, almost always means "
+            "the container cannot get out to your LAN rather than that the "
+            "device is down. See 'When the container cannot reach your devices' "
+            "in the README.",
+        )
+    except OSError as error:
+        record("Open a connection to port 80", False, str(error))
+        return answer(False, f"Could not connect to {host}: {error}")
+
+    # 3. HTTP RPC. Authentication shows up here as a 401 rather than as a
+    #    puzzling websocket failure later.
+    try:
+        async with httpx2.AsyncClient(timeout=REQUEST_TIMEOUT_S) as client:
+            response = await client.post(
+                f"http://{host}/rpc",
+                json={"id": 1, "src": CLIENT_ID, "method": "Shelly.GetDeviceInfo"},
+            )
+        if response.status_code == 401:
+            record("Ask over HTTP", False, "the device wants a password")
+            return answer(
+                False,
+                "The Shelly is asking for a password. Put it in the device "
+                "password box; the user name is always admin.",
+            )
+        body = response.json()
+        info = body.get("result") or {}
+        record(
+            "Ask over HTTP",
+            True,
+            f"{info.get('model') or info.get('id') or 'answered'}, "
+            f"firmware {info.get('ver') or 'unknown'}",
+        )
+    except httpx2.HTTPError as error:
+        record("Ask over HTTP", False, str(error))
+        return answer(
+            False,
+            f"{host} accepted a connection but did not answer a Shelly RPC "
+            f"request: {error}. Is this really a Shelly?",
+        )
+    except ValueError as error:
+        record("Ask over HTTP", False, f"the reply was not JSON: {error}")
+        return answer(False, f"{host} answered, but not with JSON. Is this really a Shelly?")
+
+    # 4. The websocket, which is the one that matters.
     connection = ShellyConnection(settings)
     try:
         await connection.open()
         info = await connection.request("Shelly.GetDeviceInfo")
+        record("Open the websocket", True, "connected and answered")
+
         channels = {}
         for channel in (0, 1):
             status = await connection.request("EM1.GetStatus", {"id": channel})
@@ -432,12 +535,25 @@ async def probe(settings: ShellySettings) -> dict:
                 "pf": status.get("pf"),
                 "errors": status.get("errors") or [],
             }
-        return {
-            "ok": True,
-            "model": info.get("model"),
-            "id": info.get("id"),
-            "firmware": info.get("ver"),
-            "channels": channels,
-        }
+        record("Read both clamps", True, "both answered")
+        return answer(
+            True,
+            None,
+            model=info.get("model"),
+            id=info.get("id"),
+            firmware=info.get("ver"),
+            channels=channels,
+        )
+    except ShellyAuthError as error:
+        record("Open the websocket", False, str(error))
+        return answer(False, str(error))
+    except (ShellyError, WebSocketException, OSError, TimeoutError) as error:
+        record("Open the websocket", False, str(error))
+        return answer(
+            False,
+            f"HTTP worked but the websocket did not: {error}. The device is "
+            "reachable, so this is usually a proxy in the way rather than the "
+            "network.",
+        )
     finally:
         await connection.close()

@@ -38,15 +38,48 @@
 </div>
 
 <div class="field">
-  <label for="shelly_pump1_channel">Which clamp is on pump 1</label>
-  <select id="shelly_pump1_channel" name="shelly_pump1_channel">
-    <option value="0" {% if shelly.pump1_channel == 0 %}selected{% endif %}>Clamp 1 (em1:0)</option>
-    <option value="1" {% if shelly.pump1_channel == 1 %}selected{% endif %}>Clamp 2 (em1:1)</option>
-  </select>
-  <p class="hint">Pump 2 gets the other one. The clamps are identical and the
-    device has no idea which motor it is measuring, so this is the one thing it
-    cannot work out for itself. Use the test button, start a pump by hand, and
-    see which reading moves.</p>
+  <label>Which clamp is on which pump</label>
+  <p class="hint">The clamps are identical and the device has no idea which
+    motor it is around, so this is the one thing it cannot work out for itself.
+    Press <strong>Test connection</strong>, start a pump by hand, and see which
+    reading moves.</p>
+
+  {# Both pumps are shown and both are pickable, because being told about one
+     and having the other inferred reads like a trick. Only pump 1 is submitted;
+     the two selects are tied together in the browser so they can never name the
+     same clamp, and the server derives pump 2 from pump 1 regardless. The
+     invariant does not depend on the JavaScript running. #}
+  <div class="table-scroll">
+  <table class="clamps">
+    <tbody>
+      <tr>
+        <th scope="row">Pump 1</th>
+        <td>
+          <select id="shelly_pump1_channel" name="shelly_pump1_channel" data-clamp="1">
+            <option value="0" {% if shelly.pump1_channel == 0 %}selected{% endif %}>Clamp 1 (em1:0)</option>
+            <option value="1" {% if shelly.pump1_channel == 1 %}selected{% endif %}>Clamp 2 (em1:1)</option>
+          </select>
+        </td>
+        <td class="mono muted" data-clamp-reading="1"></td>
+      </tr>
+      <tr>
+        <th scope="row">Pump 2</th>
+        <td>
+          {# Not submitted. It mirrors pump 1 so the page shows the whole
+             picture, and it is disabled for keyboard and screen reader users
+             rather than silently ignored. #}
+          <select id="shelly_pump2_channel" data-clamp="2" aria-describedby="clamp-note">
+            <option value="0" {% if shelly.pump2_channel == 0 %}selected{% endif %}>Clamp 1 (em1:0)</option>
+            <option value="1" {% if shelly.pump2_channel == 1 %}selected{% endif %}>Clamp 2 (em1:1)</option>
+          </select>
+        </td>
+        <td class="mono muted" data-clamp-reading="2"></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="hint" id="clamp-note">There are only two clamps, so changing either
+    one swaps the other. You cannot put both pumps on the same clamp.</p>
 </div>
 
 <div class="field">

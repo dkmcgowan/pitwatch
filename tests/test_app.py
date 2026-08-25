@@ -94,3 +94,26 @@ def test_the_image_health_check_follows_the_bind_port():
 
     assert "PITWATCH_PORT=8080" in dockerfile
     assert "${PITWATCH_PORT}/healthz" in dockerfile
+
+
+def test_the_host_network_compose_does_not_reach_the_database_by_service_name():
+    """Host networking takes the container off the compose network.
+
+    An app on host networking cannot resolve `db`, so this file has to point at
+    127.0.0.1 and the database has to publish there. Getting that wrong is a
+    container that starts, retries the database forever, and never says why in
+    a way anyone would connect to networking.
+    """
+    compose = (Path(__file__).parent.parent / "docker-compose.host.yml").read_text(encoding="utf-8")
+
+    assert "network_mode: host" in compose
+    assert "@127.0.0.1:5432/pitwatch" in compose
+    assert "@db:5432" not in compose
+    # Loopback only. Postgres has no business being on the LAN.
+    assert '"127.0.0.1:5432:5432"' in compose
+    # There is no port mapping to move, so the bind port is the one that counts.
+    # The file may still mention PITWATCH_HOST_PORT in a comment explaining that
+    # it does nothing here, which is worth saying; what it must not do is
+    # substitute it.
+    assert "PITWATCH_PORT: ${PITWATCH_PORT:-8080}" in compose
+    assert "${PITWATCH_HOST_PORT" not in compose

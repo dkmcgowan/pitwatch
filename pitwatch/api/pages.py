@@ -196,7 +196,7 @@ async def settings_save(request: Request, section: str, user: auth.SignedIn) -> 
             case "site":
                 await store.put(forms.site_from(form))
             case "shelly":
-                await store.put(forms.shelly_from(form))
+                await store.put(forms.shelly_from(form, store.shelly))
             case "waveshare":
                 await store.put(forms.waveshare_from(form))
             case "pumps":

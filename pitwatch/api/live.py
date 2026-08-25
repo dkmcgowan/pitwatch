@@ -15,7 +15,9 @@ from pydantic import ValidationError
 from pitwatch import auth
 from pitwatch.api import forms
 from pitwatch.ingest import shelly as shelly_ingest
-from pitwatch.ingest.sink import LiveState
+from pitwatch.ingest import waveshare as waveshare_ingest
+from pitwatch.ingest.sink import LiveIo, LiveState
+from pitwatch.schemas import SIGNAL_LABELS, Signal
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -34,6 +36,7 @@ async def state(request: Request) -> JSONResponse:
     """
     store: SettingsStore = request.app.state.settings
     live: LiveState = request.app.state.live
+    live_io: LiveIo = request.app.state.live_io
     pool = request.app.state.pool
 
     shelly = store.shelly
@@ -48,11 +51,16 @@ async def state(request: Request) -> JSONResponse:
         for row in await pool.fetch("SELECT * FROM device_status")
     }
 
+    run_signal = {1: Signal.PUMP1_RUN, 2: Signal.PUMP2_RUN}
+    overload_signal = {1: Signal.PUMP1_OVERLOAD, 2: Signal.PUMP2_OVERLOAD}
+
     def pump_state(number: int) -> dict:
         channel = shelly.pump1_channel if number == 1 else shelly.pump2_channel
         sample = live.samples.get(channel)
         settings = pumps.for_pump(number)
         current = sample.current if sample else None
+        drawing = current is not None and current >= settings.running_amps
+        contact = live_io.state_of(run_signal[number])
         return {
             "name": settings.name,
             "channel": channel,
@@ -61,14 +69,39 @@ async def state(request: Request) -> JSONResponse:
             "act_power": sample.act_power if sample else None,
             "pf": sample.pf if sample else None,
             "reading_at": sample.ts.isoformat() if sample else None,
-            "running": current is not None and current >= settings.running_amps,
+            # Two independent answers to the same question, reported separately
+            # rather than merged. When they disagree, that disagreement is the
+            # interesting thing: a closed contactor drawing nothing is a motor
+            # that is not turning.
+            "drawing_current": drawing,
+            "run_contact": contact,
+            "running": drawing or bool(contact),
+            "overload_tripped": live_io.state_of(overload_signal[number]),
             "nameplate_amps": settings.nameplate_amps,
+        }
+
+    def signal_state(signal: Signal) -> dict:
+        changed = live_io.changed_at(signal)
+        return {
+            "label": SIGNAL_LABELS[signal],
+            # None means nothing is wired to it, which is not the same as off.
+            "state": live_io.state_of(signal),
+            "changed_at": changed.isoformat() if changed else None,
         }
 
     return JSONResponse(
         {
             "site": store.site.model_dump(mode="json"),
             "pumps": {"1": pump_state(1), "2": pump_state(2)},
+            "floats": {
+                signal.value: signal_state(signal)
+                for signal in (
+                    Signal.LEAD_FLOAT,
+                    Signal.LAG_FLOAT,
+                    Signal.HIGH_WATER,
+                    Signal.PANEL_ALARM,
+                )
+            },
             "devices": devices,
             "updated_at": live.updated_at.isoformat() if live.updated_at else None,
         }
@@ -106,6 +139,34 @@ async def test_shelly(request: Request) -> JSONResponse:
         return JSONResponse(
             {"ok": False, "error": f"Could not reach {settings.host}: {error}"}, status_code=200
         )
+
+
+@router.post("/test/waveshare", include_in_schema=False)
+async def test_waveshare(request: Request) -> JSONResponse:
+    """Read the eight inputs once and report them, raw and interpreted.
+
+    The setup page calls this on a short timer while the channel map is open,
+    so someone at the panel can lift a float by hand and watch a row change.
+    That is by far the fastest way to get the mapping right, and reading the
+    wire labels is how it ends up wrong.
+    """
+    pool = request.app.state.pool
+    if await auth.any_user_exists(pool):
+        auth.require_user(request)
+
+    form = await request.form()
+    try:
+        settings = forms.waveshare_from(form)
+    except (ValueError, ValidationError) as error:
+        return JSONResponse({"ok": False, "error": str(error)}, status_code=400)
+
+    if not settings.host:
+        return JSONResponse({"ok": False, "error": "Enter an address first"}, status_code=400)
+
+    result = await waveshare_ingest.probe(settings)
+    for channel in result.get("channels", []):
+        channel["label"] = SIGNAL_LABELS[Signal(channel["signal"])]
+    return JSONResponse(result)
 
 
 def register(app) -> None:

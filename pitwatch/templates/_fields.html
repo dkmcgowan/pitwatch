@@ -29,6 +29,11 @@
            placeholder="{% if shelly.password %}unchanged{% else %}none set{% endif %}">
     <p class="hint">Only if you have turned on authentication in the Shelly's
       own web interface. The user name is always <code>admin</code>.</p>
+    {% if shelly.password %}
+    <label class="hint">
+      <input type="checkbox" name="shelly_clear_password"> Clear the stored password
+    </label>
+    {% endif %}
   </div>
 </div>
 
@@ -126,6 +131,14 @@
   {% endfor %}
   </tbody>
 </table>
+</div>
+
+<div class="field">
+  <button type="button" class="button secondary" data-test-waveshare>Watch the inputs live</button>
+  <p class="hint">Reads the module twice a second and shows what each input is
+    doing. Lift a float or push a contactor in by hand and watch which row
+    changes; that is the channel it is on.</p>
+  <div class="test-result" data-waveshare-result hidden></div>
 </div>
 {% endmacro %}
 

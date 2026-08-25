@@ -77,17 +77,20 @@ def site_from(form: FormData) -> SiteSettings:
     )
 
 
-def shelly_from(form: FormData) -> ShellySettings:
-    pump1_channel = integer(form, "shelly_pump1_channel", 0)
+def shelly_from(form: FormData, existing: ShellySettings | None = None) -> ShellySettings:
+    # Same rule as the SMTP password: the stored device password is never sent
+    # to a browser, so an empty box means leave it alone.
+    password = optional_text(form, "shelly_password")
+    if password is None and existing is not None and not checkbox(form, "shelly_clear_password"):
+        password = existing.password
+
     return ShellySettings(
         enabled=checkbox(form, "shelly_enabled"),
         host=text(form, "shelly_host"),
         mode=text(form, "shelly_mode", "client") or "client",
-        password=optional_text(form, "shelly_password"),
-        pump1_channel=pump1_channel,
-        # One choice, not two. Asking twice invites a form where both pumps are
-        # on clamp 0, and the second answer is always the first one inverted.
-        pump2_channel=1 - pump1_channel,
+        password=password,
+        # Pump 2 is not asked for. It is always the other clamp.
+        pump1_channel=integer(form, "shelly_pump1_channel", 0),
         heartbeat_s=integer(form, "shelly_heartbeat_s", 30),
     )
 

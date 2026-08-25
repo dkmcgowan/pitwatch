@@ -26,7 +26,7 @@ from pitwatch.api import live as live_api
 from pitwatch.api import pages
 from pitwatch.config import Config, get_config
 from pitwatch.db import lifespan_pool
-from pitwatch.ingest.sink import LiveState
+from pitwatch.ingest.sink import LiveIo, LiveState
 from pitwatch.ingest.supervisor import Supervisor
 from pitwatch.settings import SettingsStore, seed_from_environment
 
@@ -66,12 +66,14 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
             await seed_from_environment(store, config)
 
             live = LiveState()
-            supervisor = Supervisor(pool, store, live)
+            live_io = LiveIo()
+            supervisor = Supervisor(pool, store, live, live_io)
 
             app.state.config = config
             app.state.pool = pool
             app.state.settings = store
             app.state.live = live
+            app.state.live_io = live_io
             app.state.supervisor = supervisor
 
             await supervisor.start()

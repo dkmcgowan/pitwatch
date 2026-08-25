@@ -28,6 +28,8 @@ from datetime import UTC, datetime
 import asyncpg
 
 from pitwatch.ingest.shelly import EmSample
+from pitwatch.ingest.waveshare import IoEvent
+from pitwatch.schemas import Signal
 
 log = logging.getLogger(__name__)
 
@@ -72,6 +74,41 @@ class LiveState:
     def current_for(self, channel: int) -> float | None:
         sample = self.samples.get(channel)
         return sample.current if sample else None
+
+
+@dataclass
+class LiveIo:
+    """The current state of every contact, and when it last changed.
+
+    Keyed by channel rather than by signal, because a channel with nothing
+    wired to it is still a channel, and because the setup page wants to show
+    all eight regardless of what they are mapped to.
+    """
+
+    states: dict[int, IoEvent] = field(default_factory=dict)
+    updated_at: datetime | None = None
+
+    def update(self, event: IoEvent) -> None:
+        self.states[event.channel] = event
+        self.updated_at = datetime.now(UTC)
+
+    def state_of(self, signal: Signal) -> bool | None:
+        """Whether a signal is currently asserted, or None if it is not wired.
+
+        None is not False and the difference matters: a rule that treats an
+        unwired high water float as "not flooding" is a rule that will never
+        fire and will look like it is working.
+        """
+        for event in self.states.values():
+            if event.signal is signal:
+                return event.state
+        return None
+
+    def changed_at(self, signal: Signal) -> datetime | None:
+        for event in self.states.values():
+            if event.signal is signal:
+                return event.ts
+        return None
 
 
 class SampleSink:
@@ -210,3 +247,72 @@ async def record_device_status(
         online,
         error,
     )
+
+
+class IoSink:
+    """Writes contact transitions, and keeps the current state in memory.
+
+    Not batched, unlike the samples. These arrive a few times a day rather than
+    a few times a second, and every one of them is something a person would
+    want to see immediately. Buffering an alarm for a second to save a round
+    trip would be trading the wrong thing.
+    """
+
+    def __init__(self, pool: asyncpg.Pool, live: LiveIo) -> None:
+        self._pool = pool
+        self._live = live
+
+    async def submit(self, events: list[IoEvent]) -> None:
+        for event in events:
+            self._live.update(event)
+        try:
+            async with self._pool.acquire() as connection, connection.transaction():
+                await connection.executemany(
+                    """
+                    INSERT INTO io_event (ts, channel, signal, state, raw)
+                    VALUES ($1, $2, $3, $4, $5)
+                    """,
+                    [(e.ts, e.channel, e.signal.value, e.state, e.raw) for e in events],
+                )
+                await connection.executemany(
+                    """
+                    INSERT INTO io_state (channel, signal, state, raw, changed_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, now())
+                    ON CONFLICT (channel) DO UPDATE SET
+                        signal     = excluded.signal,
+                        state      = excluded.state,
+                        raw        = excluded.raw,
+                        changed_at = excluded.changed_at,
+                        updated_at = now()
+                    """,
+                    [(e.channel, e.signal.value, e.state, e.raw, e.ts) for e in events],
+                )
+        except (asyncpg.PostgresError, OSError) as error:
+            # The in memory state is already updated, so the dashboard and the
+            # alert rules still see the truth. Only the history has a hole, and
+            # saying so is better than pretending the event never happened.
+            log.error("Could not write %d contact event(s): %s", len(events), error)
+
+    async def prime(self) -> dict[int, bool]:
+        """Load what the contacts were doing when the container last stopped.
+
+        Handed to the reader so that a restart does not replay every contact as
+        a fresh transition, while a contact that genuinely changed during the
+        outage still registers as one.
+        """
+        rows = await self._pool.fetch(
+            "SELECT channel, signal, state, raw, changed_at FROM io_state"
+        )
+        known = {}
+        for row in rows:
+            known[row["channel"]] = row["state"]
+            self._live.states[row["channel"]] = IoEvent(
+                ts=row["changed_at"],
+                channel=row["channel"],
+                signal=Signal(row["signal"]),
+                state=row["state"],
+                raw=row["raw"],
+            )
+        if rows:
+            log.info("Primed %d contact state(s) from the database", len(rows))
+        return known

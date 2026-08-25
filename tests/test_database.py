@@ -132,6 +132,7 @@ async def test_settings_survive_a_reload(pool, store):
 
     assert fresh.shelly.host == "10.0.0.9"
     assert fresh.shelly.pump1_channel == 1
+    # Derived, not stored, so the two pumps can never end up on one clamp.
     assert fresh.shelly.pump2_channel == 0
 
 

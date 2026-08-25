@@ -80,8 +80,8 @@
         {% set index = recipients|length + loop.index %}
         <tr>
           <td><input type="text" name="recipient_{{ index }}_name" placeholder="Name"></td>
-          <td><input type="email" name="recipient_{{ index }}_email" placeholder="you@example.com"></td>
-          <td><input type="tel" name="recipient_{{ index }}_phone" placeholder="+15551234567"></td>
+          <td><input type="email" name="recipient_{{ index }}_email" placeholder="name@example.com"></td>
+          <td><input type="tel" name="recipient_{{ index }}_phone" placeholder="+12125550142"></td>
           <td>
             <select name="recipient_{{ index }}_min_severity">
               <option value="info">Everything</option>

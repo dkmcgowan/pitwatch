@@ -307,3 +307,6 @@ table.channels td input[type="number"] { max-width: 8rem; }
 
 table.probe { min-width: 0; }
 table.probe td, table.probe th { border-bottom: none; padding: 0.2rem 0.6rem 0.2rem 0; }
+
+.test-result .on { color: var(--ok); }
+.test-result thead th { padding-bottom: 0.35rem; }

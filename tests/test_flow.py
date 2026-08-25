@@ -278,9 +278,13 @@ def test_recipients_are_saved_and_removed(client):
             "recipient_2_min_severity": "critical",
         },
     )
+    # Asserting on the value attribute rather than on the number appearing
+    # anywhere in the page. The empty rows carry example numbers as
+    # placeholders, and a bare substring search finds those too, which reads as
+    # a saved recipient that is not there.
     page = client.get("/settings").text
-    assert "david@example.com" in page
-    assert "+15551234567" in page
+    assert 'value="david@example.com"' in page
+    assert 'value="+15551234567"' in page
 
     # Clearing a name removes that row.
     client.post(
@@ -295,8 +299,8 @@ def test_recipients_are_saved_and_removed(client):
         },
     )
     page = client.get("/settings").text
-    assert "david@example.com" in page
-    assert "+15551234567" not in page
+    assert 'value="david@example.com"' in page
+    assert 'value="+15551234567"' not in page
 
 
 def test_a_recipient_with_no_way_to_be_reached_is_dropped(client):
@@ -304,7 +308,54 @@ def test_a_recipient_with_no_way_to_be_reached_is_dropped(client):
 
     client.post("/settings/recipients", data={"recipient_1_name": "Nobody"})
 
-    assert client.get("/settings").text.count("Nobody") == 0
+    assert 'value="Nobody"' not in client.get("/settings").text
+
+
+def test_the_shelly_password_is_kept_when_the_box_is_left_empty(client):
+    """Same rule as SMTP, and easier to get wrong because it is a device.
+
+    Saving the Shelly section to change the clamp mapping must not silently
+    drop the device password and leave ingest unable to authenticate.
+    """
+    client.post("/setup", data=SETUP_FORM)
+    client.post(
+        "/settings/shelly",
+        data=SETUP_FORM | {"shelly_password": "the-device-password"},
+    )
+
+    client.post("/settings/shelly", data=SETUP_FORM | {"shelly_pump1_channel": "0"})
+
+    store = client.app.state.settings
+    assert store.shelly.password == "the-device-password"
+    assert store.shelly.pump1_channel == 0
+
+
+def test_the_shelly_password_can_be_cleared_on_purpose(client):
+    client.post("/setup", data=SETUP_FORM)
+    client.post("/settings/shelly", data=SETUP_FORM | {"shelly_password": "the-device-password"})
+
+    client.post("/settings/shelly", data=SETUP_FORM | {"shelly_clear_password": "on"})
+
+    assert client.app.state.settings.shelly.password is None
+
+
+def test_the_shelly_password_never_reaches_the_browser(client):
+    client.post("/setup", data=SETUP_FORM)
+    client.post("/settings/shelly", data=SETUP_FORM | {"shelly_password": "the-device-password"})
+
+    assert "the-device-password" not in client.get("/settings").text
+
+
+def test_the_waveshare_test_button_reports_a_module_it_cannot_reach(client):
+    client.post("/setup", data=SETUP_FORM)
+
+    response = client.post(
+        "/api/test/waveshare",
+        data={"waveshare_host": "192.0.2.1", "waveshare_timeout_s": "1"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is False
 
 
 def test_health_is_healthy_once_the_database_is_up(client):

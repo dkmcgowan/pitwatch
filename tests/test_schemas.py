@@ -57,12 +57,26 @@ def test_channel_numbers_outside_the_module_are_rejected():
         ChannelMap(channel=9)
 
 
-def test_both_pumps_cannot_share_a_clamp():
-    with pytest.raises(ValidationError, match="cannot share one clamp"):
-        ShellySettings(pump1_channel=1, pump2_channel=1)
-
-
 def test_shelly_defaults_put_one_pump_on_each_clamp():
     settings = ShellySettings()
 
     assert {settings.pump1_channel, settings.pump2_channel} == {0, 1}
+
+
+def test_pump_two_is_always_the_other_clamp():
+    """There is no way to configure both pumps onto one clamp.
+
+    An earlier version stored both channel numbers and validated that they
+    differed, which is a check that can be failed. Deriving the second one
+    removes the state rather than guarding it.
+    """
+    assert ShellySettings(pump1_channel=0).pump2_channel == 1
+    assert ShellySettings(pump1_channel=1).pump2_channel == 0
+
+
+def test_a_stored_pump2_channel_from_an_older_version_is_ignored():
+    settings = ShellySettings.model_validate(
+        {"host": "10.0.0.9", "pump1_channel": 1, "pump2_channel": 1}
+    )
+
+    assert settings.pump2_channel == 0

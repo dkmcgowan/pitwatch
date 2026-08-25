@@ -108,20 +108,22 @@ class ShellySettings(BaseModel):
     mode: str = Field(default="client", pattern="^(client|outbound)$")
     # Only set when the device has a password on its local web interface.
     password: str | None = None
-    # Which em1 instance is on which pump. The clamps are interchangeable and
+    # Which em1 instance is on pump 1. The clamps are interchangeable and
     # nothing on the device says which motor it is around, so this is asked
     # rather than assumed.
+    #
+    # There is deliberately no pump2_channel field. The device has exactly two
+    # clamps, so the second answer is always the first one inverted, and storing
+    # it separately only creates a state where both pumps are on clamp 0 and
+    # every reading is wrong in a way that looks plausible.
     pump1_channel: int = Field(default=0, ge=0, le=1)
-    pump2_channel: int = Field(default=1, ge=0, le=1)
     # The device pushes on change. This poll exists only to notice that it has
     # stopped pushing, which a silent socket does not tell us.
     heartbeat_s: int = Field(default=30, ge=5, le=600)
 
-    @model_validator(mode="after")
-    def channels_differ(self) -> ShellySettings:
-        if self.pump1_channel == self.pump2_channel:
-            raise ValueError("The two pumps cannot share one clamp")
-        return self
+    @property
+    def pump2_channel(self) -> int:
+        return 1 - self.pump1_channel
 
 
 class PumpSettings(BaseModel):

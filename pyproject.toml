@@ -1,0 +1,39 @@
+[project]
+name = "pitwatch"
+version = "0.1.0"
+description = "Monitoring and alerting for a duplex ejector pump panel"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "David McGowan" }]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["pitwatch*"]
+
+[tool.setuptools.package-data]
+pitwatch = ["migrations/*.sql", "static/*", "templates/*"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "BLE", "RUF"]
+ignore = [
+    # Long lines in SQL literals and log messages are more readable unwrapped.
+    "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+# The whole job of this script is to hold the characters it is looking for.
+"scripts/check_style.py" = ["RUF001", "RUF003"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = ["error"]

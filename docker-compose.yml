@@ -1,0 +1,59 @@
+# PitWatch, two containers: the application and its database.
+#
+# Copy .env.example to .env, set POSTGRES_PASSWORD to something of your own,
+# then `docker compose up -d` and open http://<host>:8080.
+#
+# The database is not published on a host port. Nothing outside this stack needs
+# to reach Postgres, and an ejector pump monitor is not worth exposing a
+# database to the network for. Uncomment the ports block below if you want to
+# point a client at it, and understand what you are doing when you do.
+
+name: pitwatch
+
+services:
+  db:
+    # Not the -oss tag. Compression, retention policies and continuous
+    # aggregate refresh are Timescale Community License features and the -oss
+    # build does not have them, so migration 003 would fail on it.
+    image: timescale/timescaledb:2.29.2-pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pitwatch
+      POSTGRES_USER: pitwatch
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # Timescale's tuning script runs on first boot and picks settings from the
+      # container's memory limit.
+      TIMESCALEDB_TELEMETRY: "off"
+    volumes:
+      - pitwatch-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pitwatch -d pitwatch"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    # ports:
+    #   - "5432:5432"
+
+  app:
+    image: ghcr.io/dkmcgowan/pitwatch:latest
+    # Building from a checkout instead of pulling the published image:
+    # build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PITWATCH_DATABASE_URL: postgresql://pitwatch:${POSTGRES_PASSWORD}@db:5432/pitwatch
+      PITWATCH_TIMEZONE: ${PITWATCH_TIMEZONE:-America/New_York}
+      PITWATCH_LOG_LEVEL: ${PITWATCH_LOG_LEVEL:-INFO}
+      # Optional. Set these and the first boot comes up already pointed at the
+      # hardware, so the setup wizard has less to ask. They are read once, when
+      # the settings are empty; after that the settings page is in charge.
+      PITWATCH_SEED_SHELLY_HOST: ${SHELLY_HOST:-}
+      PITWATCH_SEED_WAVESHARE_HOST: ${WAVESHARE_HOST:-}
+    ports:
+      - "${PITWATCH_PORT:-8080}:8080"
+
+volumes:
+  pitwatch-db:

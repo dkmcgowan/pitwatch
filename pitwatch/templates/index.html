@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% set active = 'dashboard' %}
+{% block content %}
+
+{% if not setup_complete %}
+<section class="card notice">
+  <h1>Nothing is configured yet</h1>
+  <p>
+    PitWatch is running and the database is ready, but it does not know where
+    your Shelly EM or your Waveshare I/O module are, or which contact is wired
+    to which channel.
+  </p>
+  <p>
+    <a class="button" href="/setup">Start setup</a>
+  </p>
+</section>
+{% else %}
+<section class="card">
+  <h1>{{ site.name }}</h1>
+  <p class="muted">The dashboard lands here in a later release.</p>
+</section>
+{% endif %}
+
+{% endblock %}

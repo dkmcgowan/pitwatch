@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="PitWatch">
+  <rect width="64" height="64" rx="12" fill="#1f6feb"/>
+  <!-- A pit with water in it and a float riding on top. -->
+  <path d="M14 16v28a4 4 0 0 0 4 4h28a4 4 0 0 0 4-4V16" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  <path d="M14 36c4 0 4-3 8-3s4 3 8 3 4-3 8-3 4 3 8 3" fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="32" cy="26" r="5" fill="#ffffff"/>
+</svg>

@@ -9,21 +9,33 @@ Ethernet I/O module and turns that one contact into a page that says *pump 2 has
 been drawing 14.2 A for four minutes, the high water float is wet, and both
 pumps are running*.
 
-> **Early. Nothing here has run against real hardware yet.** The schema, the
-> container and the web application are written; the Shelly and Waveshare
-> readers are next, and the I/O module in the reference installation is not
-> wired up. This sentence gets edited when that stops being true.
+> **Early, and not yet proven against real hardware.** Setup, both device
+> readers and the live dashboard are written and tested, including against a
+> real TimescaleDB in CI. Neither reader has yet talked to an actual Shelly or
+> an actual Waveshare, and the I/O module in the reference installation is not
+> wired up. This paragraph gets edited when that stops being true.
 
 ## What it does
 
-- Reads running current from both motors, continuously, and keeps the history.
+Working now:
+
+- Reads running current from both motors continuously, over a websocket the
+  Shelly pushes to, and keeps the history.
 - Reads the float switches, the run contacts and the overload contacts from the
   panel's own dry contacts.
-- Records every pump run: when it started, how long it ran, what it actually
-  drew once the starting surge had passed, and how that compares to last month.
-- Works out which pump is lead and which is lag, which the panel knows but does
-  not tell anyone.
-- Sends email and SMS when something is wrong, saying what is wrong.
+- A live dashboard laid out like the panel: both pumps side by side with their
+  current, the floats in the order they sit in the pit, and whether each device
+  is actually talking.
+- A setup page that walks you through it, including a live view of the I/O
+  module so you can lift a float by hand and see which channel it is on.
+
+Next, in order:
+
+- Recording every pump run: how long it ran, and what it actually drew once the
+  starting surge had passed.
+- Working out which pump is lead and which is lag, which the panel knows but
+  does not tell anyone.
+- Alerts, and sending them by email and SMS.
 
 ## What you need
 
@@ -35,6 +47,11 @@ pumps are running*.
    network.
 4. **Somewhere to run Docker.** A NAS, a small server, a Raspberry Pi. It needs
    about 200 MB of memory and very little else.
+
+The Shelly is read over a websocket it pushes on, so a reading appears the
+moment it changes. The Waveshare is polled, five times a second by default,
+because Modbus has no way for a device to speak first. Eight bits at that rate
+is nothing on the wire.
 
 Both devices need a fixed address, either static or a DHCP reservation. PitWatch
 holds a connection open to the Shelly and reconnects when it drops, but it does
@@ -143,18 +160,20 @@ set, or when its run contact is closed. Both, ideally. When only one of the two
 says so, that is itself worth telling you about: a closed contactor with no
 current is a motor that is not turning.
 
-**What a run actually drew.** A motor pulls six to eight times its running
-current for a fraction of a second when it starts. Averaging that in makes every
-healthy pump look overloaded, so the first couple of seconds of each run are
-left out of the average. The peak is still recorded, on its own, because a
-starting surge that climbs month over month is a bearing on the way out.
+**What a run actually drew** (designed, not yet built). A motor pulls six to
+eight times its running current for a fraction of a second when it starts.
+Averaging that in makes every healthy pump look overloaded, so the first couple
+of seconds of each run are left out of the average. The peak is still recorded,
+on its own, because a starting surge that climbs month over month is a bearing
+on the way out.
 
-**Lead and lag.** The controller alternates: it starts one pump this time and
-the other next time, so wear is even. Its display says `P1:Lead P2:Lag` and then
-flips. It does not put that on a contact anywhere, so PitWatch works it out.
-Whichever pump started first last cycle was lead, so the other one is lead next.
-A high water call, where both pumps start more or less together, does not update
-the assignment, because there is no first pump to read.
+**Lead and lag** (designed, not yet built). The controller alternates: it starts
+one pump this time and the other next time, so wear is even. Its display says
+`P1:Lead P2:Lag` and then flips. It does not put that on a contact anywhere, so
+PitWatch works it out. Whichever pump started first last cycle was lead, so the
+other one is lead next. A high water call, where both pumps start more or less
+together, does not update the assignment, because there is no first pump to
+read.
 
 **Only one phase is measured.** In the reference installation the clamps are on
 L1 of each motor. Three phase power figures derived from one phase are labeled
@@ -162,6 +181,9 @@ as derived, everywhere they appear, because they are an estimate that assumes
 balanced phases and will not notice a single phasing fault.
 
 ## Alerts
+
+**Not built yet.** This is the design, and the settings pages already collect
+what it needs.
 
 | Alert | Fires when |
 | --- | --- |

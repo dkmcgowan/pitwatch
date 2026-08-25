@@ -455,3 +455,74 @@ def test_unwired_signals_report_as_unknown_rather_than_off(client):
 
     assert floats["high_water"]["state"] is None
     assert floats["lead_float"]["state"] is None, "wired, but nothing has been read yet"
+
+
+SHELLY_ONLY_FORM = {
+    key: value
+    for key, value in SETUP_FORM.items()
+    # Everything except the Waveshare section, which is how you set this up
+    # while the I/O module is still in the post.
+    if not key.startswith(("waveshare_", "channel_"))
+}
+
+
+def test_setup_works_with_only_the_clamps_configured(client):
+    """The Waveshare is optional, and starting without it is a normal path.
+
+    Waiting on hardware is the usual case, not an edge case: the clamps go on
+    in ten minutes and the I/O module needs the panel opened up.
+    """
+    response = client.post("/setup", data=SHELLY_ONLY_FORM, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert client.get("/").status_code == 200
+
+    state = client.get("/api/state").json()
+    assert state["pumps"]["1"]["name"] == "North pump"
+    assert state["devices"]["shelly"]["configured"] is True
+
+
+def test_an_unconfigured_device_is_not_reported_as_a_fault(client):
+    """Not set up and not reachable are different answers.
+
+    Painting a red fault for a device nobody has configured teaches whoever
+    reads this page to ignore the one place that goes red when it matters.
+    """
+    client.post("/setup", data=SHELLY_ONLY_FORM)
+
+    waveshare = client.get("/api/state").json()["devices"]["waveshare"]
+
+    assert waveshare["configured"] is False
+    assert waveshare["online"] is False
+    assert waveshare["last_error"] is None
+
+
+def test_every_contact_reads_as_unknown_without_the_io_module(client):
+    client.post("/setup", data=SHELLY_ONLY_FORM)
+
+    state = client.get("/api/state").json()
+
+    for reading in state["floats"].values():
+        assert reading["state"] is None
+    for pump in state["pumps"].values():
+        assert pump["run_contact"] is None
+        assert pump["overload_tripped"] is None
+
+
+def test_adding_the_io_module_later_does_not_need_a_restart(client):
+    """The supervisor watches the settings and restarts the reader itself.
+
+    This is the whole reason device addresses live in the database rather than
+    in the environment.
+    """
+    client.post("/setup", data=SHELLY_ONLY_FORM)
+    assert client.get("/api/state").json()["devices"]["waveshare"]["configured"] is False
+
+    client.post(
+        "/settings/waveshare",
+        data={key: value for key, value in SETUP_FORM.items() if key != "shelly_host"},
+    )
+
+    state = client.get("/api/state").json()
+    assert state["devices"]["waveshare"]["configured"] is True
+    assert client.app.state.settings.waveshare.host == "192.168.1.51"

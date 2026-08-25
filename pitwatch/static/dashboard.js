@@ -140,6 +140,14 @@
         detail.textContent = "";
         return;
       }
+      // Deliberately not set up is not a fault. Starting with only the clamps
+      // wired is a normal way to run, and painting that red would train
+      // somebody to ignore the one place that goes red when it matters.
+      if (!device.configured) {
+        setPill(pill, "Not set up", "idle");
+        detail.textContent = "";
+        return;
+      }
       if (device.online) {
         setPill(pill, "Connected", "ok");
         detail.textContent = "";

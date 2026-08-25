@@ -36,7 +36,10 @@ services:
     #   - "5432:5432"
 
   app:
-    image: ghcr.io/dkmcgowan/pitwatch:latest
+    # Pin a release tag on anything you are relying on. `latest` follows main
+    # and will change under you, which is fine while trying it out and is the
+    # wrong thing to leave a pump alarm running on.
+    image: ghcr.io/dkmcgowan/pitwatch:0.1.0
     # Building from a checkout instead of pulling the published image:
     # build: .
     restart: unless-stopped

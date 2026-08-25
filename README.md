@@ -91,7 +91,7 @@ services:
       start_period: 30s
 
   app:
-    image: ghcr.io/dkmcgowan/pitwatch:latest
+    image: ghcr.io/dkmcgowan/pitwatch:0.1.0
     restart: unless-stopped
     depends_on:
       db:
@@ -136,6 +136,17 @@ Each channel has an **invert** switch next to it. Get this wrong and an alarm
 reads as permanently on, then goes quiet at the moment it matters, so it is
 worth checking against the panel rather than guessing. See
 [Wiring the I/O module](#wiring-the-io-module) below.
+
+**You can skip the Waveshare entirely to start with.** Leave its box unticked
+and its address empty. The clamps go on in ten minutes; the I/O module needs the
+panel opened up, so starting with current only is the normal way in rather than
+an edge case. You get live amps, per pump running state and the history straight
+away. The contacts show as **not wired** and the module shows as **not set up**
+rather than as a fault, and no rule that depends on a contact will fire on
+nothing.
+
+Add it later on the settings page. The reader starts on its own when you save,
+without restarting the container.
 
 The signals PitWatch understands:
 
@@ -316,6 +327,34 @@ Both of those need the `ports` block on the `db` service uncommented.
 
 Migrations are plain SQL in `pitwatch/migrations`, applied in name order at
 startup and recorded in `schema_migration`. There are no down migrations.
+
+## Container images
+
+You do not need to build anything. Images are built by GitHub Actions and
+published to `ghcr.io/dkmcgowan/pitwatch`, public and pullable without signing
+in, for `linux/amd64` and `linux/arm64`.
+
+| Tag | What it is |
+| --- | --- |
+| `latest` | The tip of `main`. Moves whenever something is merged. |
+| `main` | The same image, named after the branch. |
+| `0.1.0` | A tagged release. Never moves. |
+| `0.1` | The newest patch release on that minor line. |
+
+Pin a release tag on anything you are relying on. `latest` is fine for trying it
+out and is exactly the wrong thing to leave a pump alarm running on, because it
+changes under you.
+
+A push to `main` builds `latest` and `main`. Pushing a `v*` git tag additionally
+builds the version tags:
+
+```sh
+git tag -a v0.2.0 -m "Version 0.2.0"
+git push origin v0.2.0
+```
+
+To build it yourself instead, the compose file has a commented `build: .` on the
+app service. Swap it for the `image:` line and `docker compose build`.
 
 ## License
 

@@ -44,11 +44,20 @@ async def build_state(app) -> dict:
     shelly = store.shelly
     pumps = store.pumps
 
+    # "Not set up" and "should be talking and is not" are different answers and
+    # the dashboard has to be able to tell them apart. Running with only the
+    # clamps connected is a normal way to start, and it should not paint a red
+    # fault on the page for a device nobody has configured yet.
+    configured = {
+        "shelly": bool(shelly.enabled and shelly.host),
+        "waveshare": bool(store.waveshare.enabled and store.waveshare.host),
+    }
     devices = {
         row["device"]: {
+            "configured": configured.get(row["device"], False),
             "online": row["online"],
             "last_seen": row["last_seen"].isoformat() if row["last_seen"] else None,
-            "last_error": row["last_error"],
+            "last_error": row["last_error"] if configured.get(row["device"]) else None,
         }
         for row in await pool.fetch("SELECT * FROM device_status")
     }

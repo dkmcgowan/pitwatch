@@ -56,7 +56,18 @@ services:
       PITWATCH_SEED_SHELLY_HOST: ${SHELLY_HOST:-}
       PITWATCH_SEED_WAVESHARE_HOST: ${WAVESHARE_HOST:-}
     ports:
-      - "${PITWATCH_PORT:-8080}:8080"
+      # Left of the colon is the port on your host, and the only one worth
+      # changing. Right of it is the port inside the container, which stays
+      # 8080: nothing else is in there to collide with, and the image's health
+      # check expects it.
+      #
+      # Deliberately not called PITWATCH_PORT. That name is the application's
+      # own setting for which port to bind, and it is already set to 8080 in the
+      # image. Using it here as well would mean the same name meant the host
+      # side in one file and the container side in another, and anyone who
+      # passed it through to the app would map a port the app was no longer
+      # listening on.
+      - "${PITWATCH_HOST_PORT:-8080}:8080"
 
 volumes:
   pitwatch-db:

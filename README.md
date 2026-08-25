@@ -100,7 +100,7 @@ services:
       PITWATCH_DATABASE_URL: postgresql://pitwatch:${POSTGRES_PASSWORD}@db:5432/pitwatch
       PITWATCH_TIMEZONE: ${PITWATCH_TIMEZONE:-America/New_York}
     ports:
-      - "${PITWATCH_PORT:-8080}:8080"
+      - "${PITWATCH_HOST_PORT:-8080}:8080"
 
 volumes:
   pitwatch-db:
@@ -109,7 +109,7 @@ volumes:
 ```sh
 # .env
 POSTGRES_PASSWORD=pick-something-here
-PITWATCH_PORT=8080
+PITWATCH_HOST_PORT=8080
 PITWATCH_TIMEZONE=America/New_York
 ```
 
@@ -121,6 +121,19 @@ Then open `http://<your-host>:8080` and follow the setup.
 
 The database is not published on a host port, on purpose. Nothing outside the
 stack needs to reach it.
+
+### Changing the port
+
+Set `PITWATCH_HOST_PORT` in `.env` and `docker compose up -d`. That moves only
+the host side; the container keeps listening on 8080, which is what its health
+check expects.
+
+There is a separate `PITWATCH_PORT` that changes the port the application itself
+binds to, inside the container. You almost never want it. It matters in two
+cases: running with `network_mode: host`, where there is no port mapping to do
+the moving, and running `python -m pitwatch` directly without Docker. Setting
+both to different values is how you end up with a mapping to a port nothing is
+listening on.
 
 ## Set it up
 

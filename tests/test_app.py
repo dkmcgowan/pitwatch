@@ -107,13 +107,46 @@ def test_the_host_network_compose_does_not_reach_the_database_by_service_name():
     compose = (Path(__file__).parent.parent / "docker-compose.host.yml").read_text(encoding="utf-8")
 
     assert "network_mode: host" in compose
-    assert "@127.0.0.1:5432/pitwatch" in compose
     assert "@db:5432" not in compose
     # Loopback only. Postgres has no business being on the LAN.
-    assert '"127.0.0.1:5432:5432"' in compose
+    assert '"127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"' in compose
     # There is no port mapping to move, so the bind port is the one that counts.
     # The file may still mention PITWATCH_HOST_PORT in a comment explaining that
     # it does nothing here, which is worth saying; what it must not do is
     # substitute it.
     assert "PITWATCH_PORT: ${PITWATCH_PORT:-8080}" in compose
     assert "${PITWATCH_HOST_PORT" not in compose
+
+
+def test_the_host_network_compose_publishes_and_connects_on_the_same_port():
+    """The one thing that breaks if the database port is made settable.
+
+    On host networking the published port is not just for outside tools, it is
+    the port the application itself dials. Parameterising the mapping and
+    leaving 5432 hardcoded in the connection string would work perfectly until
+    somebody set the variable, and then fail as a container that starts and
+    retries the database forever.
+    """
+    compose = (Path(__file__).parent.parent / "docker-compose.host.yml").read_text(encoding="utf-8")
+
+    mapping = '"127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"'
+    dsn = "@127.0.0.1:${POSTGRES_HOST_PORT:-5432}/pitwatch"
+
+    assert mapping in compose
+    assert dsn in compose
+    # Neither reference may hardcode the port while the other reads a variable.
+    assert "@127.0.0.1:5432/" not in compose
+
+
+def test_the_bridge_compose_reaches_the_database_by_service_name():
+    """Publishing is optional there and the application must never depend on it.
+
+    Container to container the port is always 5432 whatever is published on the
+    host, so an install that never uncomments the ports block still works.
+    """
+    compose = (Path(__file__).parent.parent / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "@db:5432/pitwatch" in compose
+    # The publish block stays commented out by default.
+    assert '\n    #   - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"' in compose
+    assert '\n    ports:\n      - "127.0.0.1:' not in compose

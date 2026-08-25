@@ -32,8 +32,17 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+    # Publishing the database is optional and off by default. The application
+    # does not need it: on this bridge network it reaches Postgres as `db:5432`,
+    # container to container, and that never changes whatever you do here.
+    #
+    # Uncomment only to point a client such as psql or pgAdmin at it, and
+    # understand that you are putting a database on the network when you do.
+    # Set POSTGRES_HOST_PORT in .env if 5432 is already taken. Binding to
+    # 127.0.0.1 keeps it on this machine; drop that prefix to expose it to the
+    # LAN, which you probably should not.
     # ports:
-    #   - "5432:5432"
+    #   - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
 
   app:
     # Pin a release tag on anything you are relying on. `latest` follows main

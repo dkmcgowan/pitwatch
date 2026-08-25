@@ -16,7 +16,8 @@
 #   on the compose network. So the database publishes on loopback and the
 #   application connects to 127.0.0.1. It is published on 127.0.0.1 rather than
 #   on all interfaces on purpose: nothing on your LAN should be able to reach
-#   Postgres.
+#   Postgres. Set POSTGRES_HOST_PORT if 5432 is already taken on this host;
+#   both the mapping and the connection string read it.
 #
 #   docker compose -f docker-compose.host.yml up -d
 
@@ -35,8 +36,14 @@ services:
       - pitwatch-db:/var/lib/postgresql/data
     ports:
       # Loopback only. The application reaches it here because it is on the
-      # host's network. Nothing else can.
-      - "127.0.0.1:5432:5432"
+      # host's network. Nothing else can, on this host or off it.
+      #
+      # The port is settable because 5432 is often already taken by another
+      # Postgres. Note that here, unlike in the bridge setup, this is not just
+      # for outside tools: it is the port the application itself connects to, so
+      # POSTGRES_HOST_PORT below and the one in PITWATCH_DATABASE_URL have to be
+      # the same. They both read the same variable so they cannot drift.
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pitwatch -d pitwatch"]
       interval: 10s
@@ -52,7 +59,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      PITWATCH_DATABASE_URL: postgresql://pitwatch:${POSTGRES_PASSWORD}@127.0.0.1:5432/pitwatch
+      PITWATCH_DATABASE_URL: postgresql://pitwatch:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_HOST_PORT:-5432}/pitwatch
       # On host networking this is the port on the host. There is no mapping to
       # move it with, so this is the one to change.
       PITWATCH_PORT: ${PITWATCH_PORT:-8080}

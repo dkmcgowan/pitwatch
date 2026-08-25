@@ -110,6 +110,7 @@ volumes:
 # .env
 POSTGRES_PASSWORD=pick-something-here
 PITWATCH_HOST_PORT=8080
+POSTGRES_HOST_PORT=5432
 PITWATCH_TIMEZONE=America/New_York
 ```
 
@@ -119,8 +120,11 @@ docker compose up -d
 
 Then open `http://<your-host>:8080` and follow the setup.
 
-The database is not published on a host port, on purpose. Nothing outside the
-stack needs to reach it.
+The database is not published on a host port, on purpose. The application
+reaches it as `db:5432`, container to container, and nothing outside the stack
+needs to. There is a commented out `ports` block on the `db` service if you want
+to point psql or pgAdmin at it; `POSTGRES_HOST_PORT` sets which host port that
+uses, for when 5432 is already taken.
 
 ### When the container cannot reach your devices
 
@@ -153,11 +157,21 @@ than `PITWATCH_HOST_PORT`, and the application reaches the database on
 `127.0.0.1` instead of by service name. The database is published on loopback
 only, so nothing on your LAN can reach Postgres.
 
-### Changing the port
+`POSTGRES_HOST_PORT` moves the database off 5432 if that is taken on the host.
+In this setup it is not only for outside tools: it is the port the application
+itself dials, so the mapping and the connection string both read that one
+variable and cannot drift apart.
+
+### Changing the ports
 
 Set `PITWATCH_HOST_PORT` in `.env` and `docker compose up -d`. That moves only
 the host side; the container keeps listening on 8080, which is what its health
 check expects.
+
+`POSTGRES_HOST_PORT` does the same for the database, and matters only where the
+database is published at all: always in the host networking setup, and in the
+bridge setup only if you uncomment its `ports` block. In the bridge setup the
+application always reaches Postgres as `db:5432` regardless.
 
 There is a separate `PITWATCH_PORT` that changes the port the application itself
 binds to, inside the container. You almost never want it. It matters in two

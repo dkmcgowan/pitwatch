@@ -23,7 +23,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from pitwatch import __version__, auth
 from pitwatch.api import live as live_api
-from pitwatch.api import pages
+from pitwatch.api import pages, stream
 from pitwatch.config import Config, get_config
 from pitwatch.db import lifespan_pool
 from pitwatch.ingest.sink import LiveIo, LiveState
@@ -112,6 +112,7 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
 
     pages.register(app)
     live_api.register(app)
+    stream.register(app)
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz(request: Request) -> JSONResponse:
@@ -133,15 +134,23 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
 
     @app.get("/", include_in_schema=False)
     async def index(request: Request) -> HTMLResponse:
+        """The dashboard, or an invitation to set up if nothing is configured.
+
+        Readable without signing in, on the argument that a superintendent at a
+        wall tablet should not have to type a password to see whether the pit
+        is full. Changing anything still needs an account.
+        """
         store: SettingsStore = request.app.state.settings
+        if not await auth.any_user_exists(request.app.state.pool):
+            return templates.TemplateResponse(
+                request,
+                "index.html",
+                {"site": store.site, "user": None, "setup_complete": False},
+            )
         return templates.TemplateResponse(
             request,
-            "index.html",
-            {
-                "site": store.site,
-                "user": auth.current_user(request),
-                "setup_complete": await auth.any_user_exists(request.app.state.pool),
-            },
+            "dashboard.html",
+            {"site": store.site, "user": auth.current_user(request)},
         )
 
     return app

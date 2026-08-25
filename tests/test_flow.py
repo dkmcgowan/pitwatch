@@ -395,3 +395,63 @@ def test_the_shelly_test_button_reports_a_device_it_cannot_reach(client):
 
     assert response.status_code == 200
     assert response.json()["ok"] is False
+
+
+def test_the_dashboard_replaces_the_setup_prompt_once_configured(client):
+    client.post("/setup", data=SETUP_FORM)
+
+    page = client.get("/").text
+
+    assert "Basement pit" in page
+    assert "North pump" not in page, "names arrive over the live feed, not in the markup"
+    assert 'data-pump="1"' in page
+    assert 'data-pump="2"' in page
+
+
+def test_the_dashboard_is_readable_without_signing_in(client):
+    """Deliberate. Reading is open, changing anything is not."""
+    client.post("/setup", data=SETUP_FORM)
+    client.post("/logout")
+
+    assert client.get("/").status_code == 200
+
+
+def test_the_live_feed_sends_the_same_shape_the_api_does(client):
+    client.post("/setup", data=SETUP_FORM)
+    from_api = client.get("/api/state").json()
+
+    with client.websocket_connect("/ws/state") as socket:
+        from_socket = socket.receive_json()
+
+    # updated_at moves between the two reads; everything else has to match, or
+    # the page has two renderers pretending to be one.
+    from_api.pop("updated_at", None)
+    from_socket.pop("updated_at", None)
+    assert from_socket == from_api
+
+
+def test_the_live_feed_reports_a_pump_with_no_readings_as_unknown(client):
+    """No clamp data is not the same as zero amps.
+
+    Zero amps is a pump that is sitting there working fine. A dashboard that
+    renders a dead meter as a healthy idle pump is the specific failure this
+    whole project exists to avoid.
+    """
+    client.post("/setup", data=SETUP_FORM)
+
+    pump = client.get("/api/state").json()["pumps"]["1"]
+
+    assert pump["current"] is None
+    assert pump["running"] is False
+    assert pump["drawing_current"] is False
+    assert pump["run_contact"] is None
+
+
+def test_unwired_signals_report_as_unknown_rather_than_off(client):
+    form = SETUP_FORM | {"channel_3_signal": "unused"}
+    client.post("/setup", data=form)
+
+    floats = client.get("/api/state").json()["floats"]
+
+    assert floats["high_water"]["state"] is None
+    assert floats["lead_float"]["state"] is None, "wired, but nothing has been read yet"

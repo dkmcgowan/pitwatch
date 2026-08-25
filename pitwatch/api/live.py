@@ -25,19 +25,21 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
 
-@router.get("/state", include_in_schema=False)
-async def state(request: Request) -> JSONResponse:
-    """Everything the dashboard needs in one request.
+async def build_state(app) -> dict:
+    """Everything the dashboard needs, in one snapshot.
 
-    One endpoint rather than several because the pieces have to agree with each
+    One payload rather than several because the pieces have to agree with each
     other. A page that fetched currents and float states separately could show
     a pump running against a pit that had already emptied, and someone would
     reasonably believe it.
+
+    Shared by the GET endpoint below and by the websocket in api/stream.py, so
+    the first paint and every update are built the same way.
     """
-    store: SettingsStore = request.app.state.settings
-    live: LiveState = request.app.state.live
-    live_io: LiveIo = request.app.state.live_io
-    pool = request.app.state.pool
+    store: SettingsStore = app.state.settings
+    live: LiveState = app.state.live
+    live_io: LiveIo = app.state.live_io
+    pool = app.state.pool
 
     shelly = store.shelly
     pumps = store.pumps
@@ -89,23 +91,26 @@ async def state(request: Request) -> JSONResponse:
             "changed_at": changed.isoformat() if changed else None,
         }
 
-    return JSONResponse(
-        {
-            "site": store.site.model_dump(mode="json"),
-            "pumps": {"1": pump_state(1), "2": pump_state(2)},
-            "floats": {
-                signal.value: signal_state(signal)
-                for signal in (
-                    Signal.LEAD_FLOAT,
-                    Signal.LAG_FLOAT,
-                    Signal.HIGH_WATER,
-                    Signal.PANEL_ALARM,
-                )
-            },
-            "devices": devices,
-            "updated_at": live.updated_at.isoformat() if live.updated_at else None,
-        }
-    )
+    return {
+        "site": store.site.model_dump(mode="json"),
+        "pumps": {"1": pump_state(1), "2": pump_state(2)},
+        "floats": {
+            signal.value: signal_state(signal)
+            for signal in (
+                Signal.LEAD_FLOAT,
+                Signal.LAG_FLOAT,
+                Signal.HIGH_WATER,
+                Signal.PANEL_ALARM,
+            )
+        },
+        "devices": devices,
+        "updated_at": live.updated_at.isoformat() if live.updated_at else None,
+    }
+
+
+@router.get("/state", include_in_schema=False)
+async def state(request: Request) -> JSONResponse:
+    return JSONResponse(await build_state(request.app))
 
 
 @router.post("/test/shelly", include_in_schema=False)

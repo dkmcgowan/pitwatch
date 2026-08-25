@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% set active = 'dashboard' %}
+{% block title %}{{ site.name }}{% endblock %}
+
+{% block content %}
+
+{# Everything below is filled in by dashboard.js from /api/state and then kept
+   up to date over a websocket. The markup is here rather than built in
+   JavaScript so that the page has a shape before the first reply arrives, and
+   so that a browser with JavaScript off still shows the labels and the "no
+   data" state rather than a blank page. #}
+
+<div class="banner" data-banner hidden></div>
+
+<section class="panel" aria-label="Pump status">
+  {% for number in [1, 2] %}
+  <article class="pump" data-pump="{{ number }}">
+    <header>
+      <h2 data-name>Pump {{ number }}</h2>
+    </header>
+
+    <div class="readout">
+      <span class="amps" data-amps>--</span>
+      <span class="unit">A</span>
+    </div>
+
+    <div class="state" data-state>
+      <span class="pill pill-idle" data-run-pill>No data</span>
+    </div>
+
+    {# Live readings only, for now. Run history, the average that ignores
+       inrush, and the lead and lag inference all come from pump_run, which the
+       run detector has not been written to fill in yet. Showing those as
+       permanent dashes would be worse than not showing them. #}
+    <dl class="detail">
+      <div><dt>Run contact</dt><dd data-contact>--</dd></div>
+      <div><dt>Overload</dt><dd data-overload>--</dd></div>
+      <div><dt>Volts</dt><dd data-voltage>--</dd></div>
+      <div><dt>Power</dt><dd data-power>--</dd></div>
+    </dl>
+  </article>
+  {% endfor %}
+</section>
+
+<section class="card">
+  <h2>The pit</h2>
+  {# Ordered bottom to top, the way the floats sit in the pit, so the display
+     reads like the thing it is describing. #}
+  <div class="floats" data-floats>
+    <div class="float" data-float="high_water">
+      <span class="float-name">High water</span>
+      <span class="pill pill-idle" data-float-pill>No data</span>
+      <span class="float-since muted" data-float-since></span>
+    </div>
+    <div class="float" data-float="lag_float">
+      <span class="float-name">Lag float</span>
+      <span class="pill pill-idle" data-float-pill>No data</span>
+      <span class="float-since muted" data-float-since></span>
+    </div>
+    <div class="float" data-float="lead_float">
+      <span class="float-name">Lead float</span>
+      <span class="pill pill-idle" data-float-pill>No data</span>
+      <span class="float-since muted" data-float-since></span>
+    </div>
+    <div class="float" data-float="panel_alarm">
+      <span class="float-name">Panel alarm</span>
+      <span class="pill pill-idle" data-float-pill>No data</span>
+      <span class="float-since muted" data-float-since></span>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Devices</h2>
+  <div class="devices">
+    <div class="device" data-device="shelly">
+      <span class="device-name">Shelly EM</span>
+      <span class="pill pill-idle" data-device-pill>Unknown</span>
+      <span class="muted" data-device-detail></span>
+    </div>
+    <div class="device" data-device="waveshare">
+      <span class="device-name">Waveshare I/O</span>
+      <span class="pill pill-idle" data-device-pill>Unknown</span>
+      <span class="muted" data-device-detail></span>
+    </div>
+  </div>
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', path='dashboard.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,443 @@
+"""Talking to a Shelly EM Gen3 over its local RPC websocket.
+
+The device pushes. PitWatch opens a socket to ``ws://<addr>/rpc``, sends one
+request so the device knows who to send notifications to, and then reads
+``NotifyStatus`` frames as the readings change. There is no polling loop in the
+normal path; the only scheduled request is a heartbeat whose job is to notice
+that the device has gone quiet, which a socket that is merely idle looks
+exactly like.
+
+Two things about the protocol are worth knowing before reading the code:
+
+* Notifications are gated. The device sends nothing until the client has sent
+  at least one request frame carrying a ``src``, and it then addresses
+  notifications to that ``src``. Connecting and waiting produces silence.
+* Authentication, when the device has a password, is digest over the same
+  socket: the first request comes back as a 401 error carrying a nonce, and the
+  request is sent again with an ``auth`` object. On the websocket channel the
+  HA2 half of the digest is the literal string "dummy_method:dummy_uri", which
+  looks like a placeholder somebody forgot to replace and is in fact the
+  specified value.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import hashlib
+import json
+import logging
+import secrets
+import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+
+import websockets
+from websockets.exceptions import WebSocketException
+
+from pitwatch.schemas import ShellySettings
+
+log = logging.getLogger(__name__)
+
+# The device puts this in the dst field of everything it sends us.
+CLIENT_ID = "pitwatch"
+
+# Shelly's local account has exactly one user name and it is not configurable.
+AUTH_USERNAME = "admin"
+
+CONNECT_TIMEOUT_S = 10
+REQUEST_TIMEOUT_S = 10
+
+
+@dataclass(frozen=True, slots=True)
+class EmSample:
+    """One reading from one clamp.
+
+    ``channel`` is the em1 instance the device reported, 0 or 1. Mapping that to
+    a pump happens later, from settings, because nothing on the device knows
+    which motor a clamp is around.
+    """
+
+    ts: datetime
+    channel: int
+    current: float | None
+    voltage: float | None
+    act_power: float | None
+    aprt_power: float | None
+    pf: float | None
+    freq: float | None
+
+    @classmethod
+    def from_status(cls, channel: int, status: dict, ts: datetime) -> EmSample:
+        def number(key: str) -> float | None:
+            value = status.get(key)
+            return float(value) if isinstance(value, int | float) else None
+
+        return cls(
+            ts=ts,
+            channel=channel,
+            current=number("current"),
+            voltage=number("voltage"),
+            act_power=number("act_power"),
+            aprt_power=number("aprt_power"),
+            pf=number("pf"),
+            freq=number("freq"),
+        )
+
+
+class ShellyError(Exception):
+    """Anything the device refused to do."""
+
+
+class ShellyAuthError(ShellyError):
+    """The device wants a password, or did not like the one it was given."""
+
+
+def digest_response(challenge: dict, password: str, cnonce: str, nc: int) -> dict:
+    """Build the auth object for a digest challenge on the websocket channel."""
+    realm = challenge.get("realm", "")
+    nonce = challenge.get("nonce", "")
+
+    def sha256(value: str) -> str:
+        return hashlib.sha256(value.encode()).hexdigest()
+
+    ha1 = sha256(f"{AUTH_USERNAME}:{realm}:{password}")
+    # Specified as a literal on this channel. See the module docstring.
+    ha2 = sha256("dummy_method:dummy_uri")
+    nc_hex = f"{nc:08x}"
+    response = sha256(f"{ha1}:{nonce}:{nc_hex}:{cnonce}:auth:{ha2}")
+
+    return {
+        "realm": realm,
+        "username": AUTH_USERNAME,
+        "nonce": nonce,
+        "cnonce": cnonce,
+        "nc": nc_hex,
+        "response": response,
+        "algorithm": "SHA-256",
+    }
+
+
+def parse_notify_status(frame: dict) -> list[EmSample]:
+    """Pull clamp readings out of a NotifyStatus or NotifyFullStatus frame.
+
+    A delta frame carries only what changed, so a frame with a voltage and no
+    current is normal and produces a sample with a null current rather than
+    being dropped. Filling the gap from the last known value would invent
+    readings, and this is a meter.
+    """
+    params = frame.get("params") or {}
+    # The device timestamps its own notifications in Unix seconds. Trusting it
+    # keeps the readings in the order the device saw them even when a burst
+    # arrives together, and the clock check in ShellyReader catches a device
+    # whose time is wrong.
+    reported = params.get("ts")
+    ts = (
+        datetime.fromtimestamp(reported, tz=UTC)
+        if isinstance(reported, int | float)
+        else datetime.now(UTC)
+    )
+
+    samples = []
+    for key, value in params.items():
+        if not key.startswith("em1:") or not isinstance(value, dict):
+            continue
+        try:
+            channel = int(key.split(":", 1)[1])
+        except ValueError:  # pragma: no cover -- the device does not do this
+            log.debug("Ignoring a component key that is not numbered: %r", key)
+            continue
+        samples.append(EmSample.from_status(channel, value, ts))
+    return samples
+
+
+class ShellyConnection:
+    """One open websocket to one device, with request and response matching."""
+
+    def __init__(self, settings: ShellySettings) -> None:
+        self._settings = settings
+        self._socket: websockets.ClientConnection | None = None
+        self._next_id = 0
+        self._pending: dict[int, asyncio.Future[dict]] = {}
+        self._nonce_count = 0
+
+    @property
+    def url(self) -> str:
+        return f"ws://{self._settings.host}/rpc"
+
+    async def open(self) -> None:
+        self._socket = await asyncio.wait_for(
+            websockets.connect(self.url, open_timeout=CONNECT_TIMEOUT_S, max_queue=64),
+            timeout=CONNECT_TIMEOUT_S,
+        )
+        log.info("Connected to the Shelly at %s", self._settings.host)
+
+    async def close(self) -> None:
+        if self._socket is not None:
+            with contextlib.suppress(WebSocketException, OSError):
+                await self._socket.close()
+            self._socket = None
+        for future in self._pending.values():
+            if not future.done():
+                future.cancel()
+        self._pending.clear()
+
+    async def request(self, method: str, params: dict | None = None) -> dict:
+        """Send an RPC request and wait for its answer, retrying once with auth.
+
+        The retry is not a loop. A second 401 means the password is wrong, and
+        hammering a device with a bad password is how you end up locked out of
+        it.
+        """
+        result = await self._send(method, params)
+        if "error" not in result:
+            return result.get("result") or {}
+
+        error = result["error"]
+        if error.get("code") != 401:
+            raise ShellyError(f"{method} failed: {error.get('message', error)}")
+
+        if not self._settings.password:
+            raise ShellyAuthError(
+                "The Shelly is asking for a password. Add it in the settings page."
+            )
+
+        challenge = _challenge_from(error)
+        self._nonce_count += 1
+        auth = digest_response(
+            challenge, self._settings.password, secrets.token_hex(8), self._nonce_count
+        )
+        result = await self._send(method, params, auth=auth)
+        if "error" in result:
+            raise ShellyAuthError("The Shelly rejected the password")
+        return result.get("result") or {}
+
+    async def _send(self, method: str, params: dict | None, auth: dict | None = None) -> dict:
+        if self._socket is None:
+            raise ShellyError("Not connected")
+
+        self._next_id += 1
+        request_id = self._next_id
+        frame: dict = {"id": request_id, "src": CLIENT_ID, "method": method}
+        if params is not None:
+            frame["params"] = params
+        if auth is not None:
+            frame["auth"] = auth
+
+        future: asyncio.Future[dict] = asyncio.get_running_loop().create_future()
+        self._pending[request_id] = future
+        try:
+            await self._socket.send(json.dumps(frame))
+            return await asyncio.wait_for(future, timeout=REQUEST_TIMEOUT_S)
+        except TimeoutError as error:
+            raise ShellyError(f"{method} timed out") from error
+        finally:
+            self._pending.pop(request_id, None)
+
+    async def frames(self):
+        """Yield notification frames, resolving responses as they go by."""
+        if self._socket is None:
+            raise ShellyError("Not connected")
+        async for message in self._socket:
+            try:
+                frame = json.loads(message)
+            except json.JSONDecodeError:
+                log.warning("Ignoring a frame that is not JSON")
+                continue
+            if not isinstance(frame, dict):
+                continue
+
+            request_id = frame.get("id")
+            if request_id in self._pending:
+                future = self._pending[request_id]
+                if not future.done():
+                    future.set_result(frame)
+                continue
+            if frame.get("method"):
+                yield frame
+
+
+def _challenge_from(error: dict) -> dict:
+    """Dig the digest challenge out of a 401 error frame.
+
+    Firmware has shipped it both as a JSON string in ``message`` and as an
+    object, so both are accepted.
+    """
+    message = error.get("message")
+    if isinstance(message, dict):
+        return message
+    if isinstance(message, str):
+        try:
+            parsed = json.loads(message)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
+
+
+class ShellyReader:
+    """Keeps a connection to the device up and feeds samples to a sink."""
+
+    def __init__(
+        self,
+        settings: ShellySettings,
+        on_samples: Callable[[list[EmSample]], Awaitable[None]],
+        on_status: Callable[[bool, str | None], Awaitable[None]] | None = None,
+    ) -> None:
+        self._settings = settings
+        self._on_samples = on_samples
+        self._on_status = on_status
+        self._last_frame_at = 0.0
+
+    async def run(self, stop: asyncio.Event) -> None:
+        """Connect, read, reconnect. Returns when stop is set.
+
+        Backoff climbs to a minute. Faster than that against a device that is
+        off is just noise in the log, and slower means a device that comes back
+        after a power cut is not seen for too long.
+        """
+        delay = 1.0
+        while not stop.is_set():
+            connection = ShellyConnection(self._settings)
+            try:
+                await connection.open()
+                await self._pump(connection, stop)
+                delay = 1.0
+            except asyncio.CancelledError:
+                raise
+            except (ShellyError, WebSocketException, OSError, TimeoutError) as error:
+                await self._report(False, str(error))
+                log.warning(
+                    "Shelly at %s: %s. Retrying in %.0fs",
+                    self._settings.host,
+                    error,
+                    delay,
+                )
+            finally:
+                await connection.close()
+
+            if stop.is_set():
+                return
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(stop.wait(), timeout=delay)
+            delay = min(delay * 2, 60.0)
+
+    async def _pump(self, connection: ShellyConnection, stop: asyncio.Event) -> None:
+        # This request is what makes the device start sending notifications, as
+        # well as proving the password. Its answer is the current reading, so
+        # the dashboard is populated before the first change arrives rather than
+        # showing nothing until the pump next runs.
+        info = await connection.request("Shelly.GetDeviceInfo")
+        log.info(
+            "Shelly %s, firmware %s",
+            info.get("model") or info.get("id") or "unknown",
+            info.get("ver") or "unknown",
+        )
+        await self._report(True, None)
+        await self._seed_current_readings(connection)
+
+        self._last_frame_at = time.monotonic()
+        heartbeat = asyncio.create_task(self._heartbeat(connection, stop))
+        try:
+            async for frame in connection.frames():
+                self._last_frame_at = time.monotonic()
+                method = frame.get("method")
+                if method in ("NotifyStatus", "NotifyFullStatus"):
+                    samples = parse_notify_status(frame)
+                    if samples:
+                        await self._on_samples(samples)
+                elif method == "NotifyEvent":
+                    _log_events(frame)
+                if stop.is_set():
+                    return
+        finally:
+            heartbeat.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat
+
+    async def _seed_current_readings(self, connection: ShellyConnection) -> None:
+        now = datetime.now(UTC)
+        samples = []
+        for channel in (0, 1):
+            status = await connection.request("EM1.GetStatus", {"id": channel})
+            if status:
+                samples.append(EmSample.from_status(channel, status, now))
+        if samples:
+            await self._on_samples(samples)
+
+    async def _heartbeat(self, connection: ShellyConnection, stop: asyncio.Event) -> None:
+        """Notice a socket that is open but has stopped carrying anything.
+
+        A device that has crashed, or a NAT that has dropped the mapping,
+        leaves a socket that reads as fine and never delivers again. The only
+        way to tell that apart from a pump that simply has not run is to ask.
+        """
+        interval = float(self._settings.heartbeat_s)
+        while not stop.is_set():
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(stop.wait(), timeout=interval)
+            if stop.is_set():
+                return
+            if time.monotonic() - self._last_frame_at < interval:
+                continue
+            # Raising out of here would not reach the reader loop, so a failure
+            # closes the socket and lets the read side end instead.
+            try:
+                await connection.request("EM1.GetStatus", {"id": 0})
+                self._last_frame_at = time.monotonic()
+            except (ShellyError, WebSocketException, OSError) as error:
+                log.warning("Shelly heartbeat failed, reconnecting: %s", error)
+                await connection.close()
+                return
+
+    async def _report(self, online: bool, error: str | None) -> None:
+        if self._on_status is not None:
+            await self._on_status(online, error)
+
+
+def _log_events(frame: dict) -> None:
+    """Log the device's own events.
+
+    These are things like a restart or a component error. Nothing reads them
+    yet; they are logged so that a gap in the readings can be explained later.
+    """
+    for event in (frame.get("params") or {}).get("events", []):
+        if isinstance(event, dict):
+            log.info(
+                "Shelly event %s on %s", event.get("event", "?"), event.get("component", "device")
+            )
+
+
+async def probe(settings: ShellySettings) -> dict:
+    """Connect once, read both clamps, and disconnect.
+
+    This is what the setup wizard's test button calls. It returns what the
+    device says about itself and the live current on each clamp, which is
+    enough for someone standing at the panel to start a pump by hand and see
+    which of the two numbers moves.
+    """
+    connection = ShellyConnection(settings)
+    try:
+        await connection.open()
+        info = await connection.request("Shelly.GetDeviceInfo")
+        channels = {}
+        for channel in (0, 1):
+            status = await connection.request("EM1.GetStatus", {"id": channel})
+            channels[channel] = {
+                "current": status.get("current"),
+                "voltage": status.get("voltage"),
+                "act_power": status.get("act_power"),
+                "pf": status.get("pf"),
+                "errors": status.get("errors") or [],
+            }
+        return {
+            "ok": True,
+            "model": info.get("model"),
+            "id": info.get("id"),
+            "firmware": info.get("ver"),
+            "channels": channels,
+        }
+    finally:
+        await connection.close()

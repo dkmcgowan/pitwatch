@@ -21,9 +21,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from pitwatch import __version__
+from pitwatch import __version__, auth
+from pitwatch.api import live as live_api
+from pitwatch.api import pages
 from pitwatch.config import Config, get_config
 from pitwatch.db import lifespan_pool
+from pitwatch.ingest.sink import LiveState
+from pitwatch.ingest.supervisor import Supervisor
 from pitwatch.settings import SettingsStore, seed_from_environment
 
 log = logging.getLogger(__name__)
@@ -61,13 +65,22 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
             await store.load()
             await seed_from_environment(store, config)
 
+            live = LiveState()
+            supervisor = Supervisor(pool, store, live)
+
             app.state.config = config
             app.state.pool = pool
             app.state.settings = store
+            app.state.live = live
+            app.state.supervisor = supervisor
 
+            await supervisor.start()
             log.info("PitWatch %s is up on port %d", __version__, config.port)
-            yield
-            log.info("Shutting down")
+            try:
+                yield
+            finally:
+                log.info("Shutting down")
+                await supervisor.stop()
 
     app = FastAPI(
         title="PitWatch",
@@ -89,6 +102,14 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
     )
 
     app.mount("/static", StaticFiles(directory=str(PACKAGE_ROOT / "static")), name="static")
+
+    # Every template gets the version and the signed in user without each route
+    # having to remember to pass them.
+    templates.env.globals["version"] = __version__
+    app.state.templates = templates
+
+    pages.register(app)
+    live_api.register(app)
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz(request: Request) -> JSONResponse:
@@ -115,9 +136,9 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
             request,
             "index.html",
             {
-                "version": __version__,
                 "site": store.site,
-                "setup_complete": await store.is_setup_complete(),
+                "user": auth.current_user(request),
+                "setup_complete": await auth.any_user_exists(request.app.state.pool),
             },
         )
 

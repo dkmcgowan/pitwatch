@@ -187,3 +187,123 @@ input:focus, select:focus {
 }
 
 code, .mono { font-family: var(--mono); font-size: 0.92em; }
+
+/* Forms ------------------------------------------------------------------- */
+
+.field { margin-bottom: 1rem; }
+
+.field > label {
+  display: block;
+  font-weight: 550;
+  margin-bottom: 0.3rem;
+}
+
+/* A checkbox label reads as one line, not as a heading over a control. */
+.field > label > input[type="checkbox"] {
+  margin-right: 0.4rem;
+  vertical-align: -1px;
+}
+
+.hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  max-width: 62ch;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0 1.25rem;
+}
+
+fieldset.field {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem 1rem;
+}
+
+fieldset.field legend {
+  padding: 0 0.4rem;
+  font-weight: 650;
+}
+
+fieldset.field label {
+  display: block;
+  font-weight: 550;
+  margin: 0.75rem 0 0.3rem;
+}
+
+.narrow { max-width: 24rem; }
+
+.error, .saved {
+  padding: 0.7rem 1rem;
+  border-radius: var(--radius);
+  margin: 0 0 var(--gap);
+  border: 1px solid;
+}
+
+.error {
+  color: var(--crit);
+  border-color: color-mix(in srgb, var(--crit) 40%, transparent);
+  background: color-mix(in srgb, var(--crit) 10%, transparent);
+}
+
+.saved {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+}
+
+/* Tables ------------------------------------------------------------------ */
+
+/* Wide tables scroll inside their own box. The page body never scrolls
+   sideways, which on a phone is the difference between usable and not. */
+.table-scroll { overflow-x: auto; margin-bottom: 1rem; }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 32rem;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+thead th {
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+td.center, th.center { text-align: center; }
+
+table.channels th[scope="row"] { font-family: var(--mono); white-space: nowrap; }
+table.channels td input[type="number"] { max-width: 8rem; }
+
+/* Test results ------------------------------------------------------------ */
+
+.test-result {
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.test-result p { margin: 0 0 0.5rem; }
+.test-result p:last-child { margin-bottom: 0; }
+
+.test-result.good { border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.test-result.bad { border-color: color-mix(in srgb, var(--crit) 45%, transparent); }
+
+.test-result .bad { color: var(--crit); }
+
+table.probe { min-width: 0; }
+table.probe td, table.probe th { border-bottom: none; padding: 0.2rem 0.6rem 0.2rem 0; }

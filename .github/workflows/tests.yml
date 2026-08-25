@@ -15,6 +15,31 @@ jobs:
   test:
     name: pytest
     runs-on: ubuntu-latest
+
+    # The real thing, not a stand in. The migrations create hypertables,
+    # continuous aggregates and retention policies, none of which plain
+    # Postgres has and none of which a mock would catch being wrong.
+    services:
+      db:
+        image: timescale/timescaledb:2.29.2-pg17
+        env:
+          POSTGRES_DB: pitwatch_test
+          POSTGRES_USER: pitwatch
+          POSTGRES_PASSWORD: pitwatch
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pitwatch -d pitwatch_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      PITWATCH_TEST_DATABASE_URL: postgresql://pitwatch:pitwatch@localhost:5432/pitwatch_test
+      # Turns a missing database into a failure rather than a quiet skip, which
+      # is the difference between CI covering the migrations and CI pretending to.
+      PITWATCH_REQUIRE_DATABASE: "1"
+
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

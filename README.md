@@ -208,14 +208,32 @@ pytest
 `scripts/check_style.py` enforces the two prose rules CI cares about: American
 spellings, and no typographic punctuation in tracked files.
 
-To run against a local database without building the image:
+Most of the test suite needs a database and skips itself without one. The tests
+that matter most are in that group, because the migrations create hypertables,
+continuous aggregates and retention policies, and nothing short of a real
+TimescaleDB can tell you whether they work. Point the suite at one and it runs
+them:
+
+```sh
+docker compose up -d db
+export PITWATCH_TEST_DATABASE_URL=postgresql://pitwatch:PASSWORD@localhost:5432/pitwatch
+pytest
+```
+
+CI does exactly this against a Timescale service container, and sets
+`PITWATCH_REQUIRE_DATABASE=1` so that a missing database is a failure there
+rather than a quiet skip. The test database has its schema dropped and rebuilt
+between tests, so do not point it at anything you want to keep.
+
+To run the application itself against a local database without building the
+image:
 
 ```sh
 docker compose up -d db
 PITWATCH_DATABASE_URL=postgresql://pitwatch:PASSWORD@localhost:5432/pitwatch python -m pitwatch
 ```
 
-That needs the `ports` block on the `db` service uncommented.
+Both of those need the `ports` block on the `db` service uncommented.
 
 Migrations are plain SQL in `pitwatch/migrations`, applied in name order at
 startup and recorded in `schema_migration`. There are no down migrations.

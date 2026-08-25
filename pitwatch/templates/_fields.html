@@ -1,0 +1,229 @@
+{# Field groups shared between the setup page and the settings page.
+
+   Setup shows them all in one form and saves everything at once. Settings
+   shows each one in its own form so that saving the SMTP password does not
+   also rewrite the channel map. The markup is identical either way, which is
+   the whole reason this file exists. #}
+
+{% macro shelly_fields(shelly) %}
+<div class="field">
+  <label>
+    <input type="checkbox" name="shelly_enabled" {% if shelly.enabled %}checked{% endif %}>
+    Read current from a Shelly EM
+  </label>
+</div>
+
+<div class="grid">
+  <div class="field">
+    <label for="shelly_host">Address</label>
+    <input type="text" id="shelly_host" name="shelly_host" value="{{ shelly.host }}"
+           placeholder="192.168.1.50" autocomplete="off">
+    <p class="hint">The IP address or host name of the Shelly. Give it a static
+      address or a DHCP reservation; PitWatch does not go looking for a device
+      that has moved.</p>
+  </div>
+
+  <div class="field">
+    <label for="shelly_password">Device password</label>
+    <input type="password" id="shelly_password" name="shelly_password" autocomplete="new-password"
+           placeholder="{% if shelly.password %}unchanged{% else %}none set{% endif %}">
+    <p class="hint">Only if you have turned on authentication in the Shelly's
+      own web interface. The user name is always <code>admin</code>.</p>
+  </div>
+</div>
+
+<div class="field">
+  <label for="shelly_pump1_channel">Which clamp is on pump 1</label>
+  <select id="shelly_pump1_channel" name="shelly_pump1_channel">
+    <option value="0" {% if shelly.pump1_channel == 0 %}selected{% endif %}>Clamp 1 (em1:0)</option>
+    <option value="1" {% if shelly.pump1_channel == 1 %}selected{% endif %}>Clamp 2 (em1:1)</option>
+  </select>
+  <p class="hint">Pump 2 gets the other one. The clamps are identical and the
+    device has no idea which motor it is measuring, so this is the one thing it
+    cannot work out for itself. Use the test button, start a pump by hand, and
+    see which reading moves.</p>
+</div>
+
+<div class="field">
+  <button type="button" class="button secondary" data-test-shelly>Test connection</button>
+  <div class="test-result" data-shelly-result hidden></div>
+</div>
+{% endmacro %}
+
+
+{% macro waveshare_fields(waveshare, signals) %}
+<div class="field">
+  <label>
+    <input type="checkbox" name="waveshare_enabled" {% if waveshare.enabled %}checked{% endif %}>
+    Read the panel contacts from a Waveshare I/O module
+  </label>
+</div>
+
+<div class="grid">
+  <div class="field">
+    <label for="waveshare_host">Address</label>
+    <input type="text" id="waveshare_host" name="waveshare_host" value="{{ waveshare.host }}"
+           placeholder="192.168.1.51" autocomplete="off">
+  </div>
+  <div class="field">
+    <label for="waveshare_port">Modbus TCP port</label>
+    <input type="number" id="waveshare_port" name="waveshare_port" value="{{ waveshare.port }}" min="1" max="65535">
+  </div>
+  <div class="field">
+    <label for="waveshare_unit_id">Unit address</label>
+    <input type="number" id="waveshare_unit_id" name="waveshare_unit_id" value="{{ waveshare.unit_id }}" min="0" max="247">
+  </div>
+  <div class="field">
+    <label for="waveshare_poll_ms">Read every (ms)</label>
+    <input type="number" id="waveshare_poll_ms" name="waveshare_poll_ms" value="{{ waveshare.poll_ms }}" min="50" max="10000">
+    <p class="hint">Modbus has to be asked, so this one is a poll. Five times a
+      second is nothing on the wire and it is the difference between catching a
+      short lag float call and missing it.</p>
+  </div>
+</div>
+
+<h3>What each input is wired to</h3>
+<p class="hint">
+  <strong>Normally closed</strong> is the setting that is easiest to get wrong
+  and worst to get wrong: a normally closed contact sits closed when nothing is
+  happening and opens on the event. Set it backwards and the alarm reads as on
+  forever, then goes quiet at exactly the moment it matters. Check it against
+  the panel rather than guessing.
+</p>
+
+<div class="table-scroll">
+<table class="channels">
+  <thead>
+    <tr>
+      <th>Input</th>
+      <th>Signal</th>
+      <th>Normally closed</th>
+      <th>Debounce (ms)</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for channel in waveshare.channels %}
+    <tr>
+      <th scope="row">DI{{ channel.channel }}</th>
+      <td>
+        <select name="channel_{{ channel.channel }}_signal" aria-label="Signal on input {{ channel.channel }}">
+          {% for value, label in signals %}
+          <option value="{{ value }}" {% if channel.signal.value == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </td>
+      <td class="center">
+        <input type="checkbox" name="channel_{{ channel.channel }}_nc"
+               aria-label="Input {{ channel.channel }} is normally closed"
+               {% if channel.normally_closed %}checked{% endif %}>
+      </td>
+      <td>
+        <input type="number" name="channel_{{ channel.channel }}_debounce"
+               aria-label="Debounce on input {{ channel.channel }}"
+               value="{{ channel.debounce_ms }}" min="0" max="30000" step="50">
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endmacro %}
+
+
+{% macro pump_fields(pumps) %}
+<div class="grid">
+  {% for number, pump in [(1, pumps.pump1), (2, pumps.pump2)] %}
+  <fieldset class="field">
+    <legend>Pump {{ number }}</legend>
+
+    <label for="pump{{ number }}_name">Name</label>
+    <input type="text" id="pump{{ number }}_name" name="pump{{ number }}_name" value="{{ pump.name }}">
+
+    <label for="pump{{ number }}_running_amps">Running above (A)</label>
+    <input type="number" step="0.1" min="0" id="pump{{ number }}_running_amps"
+           name="pump{{ number }}_running_amps" value="{{ pump.running_amps }}">
+    <p class="hint">Not zero. A clamp on a live conductor reads a little noise
+      with the motor off.</p>
+
+    <label for="pump{{ number }}_nameplate_amps">Nameplate full load (A)</label>
+    <input type="number" step="0.1" min="0" id="pump{{ number }}_nameplate_amps"
+           name="pump{{ number }}_nameplate_amps"
+           value="{{ pump.nameplate_amps if pump.nameplate_amps is not none else '' }}">
+
+    <label for="pump{{ number }}_overcurrent_amps">Alert above (A)</label>
+    <input type="number" step="0.1" min="0" id="pump{{ number }}_overcurrent_amps"
+           name="pump{{ number }}_overcurrent_amps"
+           value="{{ pump.overcurrent_amps if pump.overcurrent_amps is not none else '' }}">
+
+    <label for="pump{{ number }}_overcurrent_hold_s">Held for (s)</label>
+    <input type="number" min="1" id="pump{{ number }}_overcurrent_hold_s"
+           name="pump{{ number }}_overcurrent_hold_s" value="{{ pump.overcurrent_hold_s }}">
+
+    <label for="pump{{ number }}_undercurrent_amps">Alert below (A)</label>
+    <input type="number" step="0.1" min="0" id="pump{{ number }}_undercurrent_amps"
+           name="pump{{ number }}_undercurrent_amps"
+           value="{{ pump.undercurrent_amps if pump.undercurrent_amps is not none else '' }}">
+    <p class="hint">Running but barely drawing anything: an impeller spinning in
+      air, a lost coupling, a lost phase. Leave empty to skip the check.</p>
+  </fieldset>
+  {% endfor %}
+</div>
+
+<div class="grid">
+  <div class="field">
+    <label for="inrush_ignore_s">Ignore the first (s) of a run</label>
+    <input type="number" step="0.5" min="0" id="inrush_ignore_s" name="inrush_ignore_s" value="{{ pumps.inrush_ignore_s }}">
+    <p class="hint">A motor pulls six to eight times its running current at
+      start. Averaging that in makes a healthy pump look overloaded. The peak is
+      still recorded separately.</p>
+  </div>
+  <div class="field">
+    <label for="stop_hold_s">A run ends after (s) below threshold</label>
+    <input type="number" step="0.5" min="0.5" id="stop_hold_s" name="stop_hold_s" value="{{ pumps.stop_hold_s }}">
+  </div>
+  <div class="field">
+    <label for="max_runtime_s">Alert on a run longer than (s)</label>
+    <input type="number" min="30" id="max_runtime_s" name="max_runtime_s" value="{{ pumps.max_runtime_s }}">
+  </div>
+  <div class="field">
+    <label for="max_starts_per_hour">Alert above (starts per hour)</label>
+    <input type="number" min="1" id="max_starts_per_hour" name="max_starts_per_hour" value="{{ pumps.max_starts_per_hour }}">
+    <p class="hint">Usually a check valve letting the discharge run back into
+      the pit.</p>
+  </div>
+  <div class="field">
+    <label for="quiet_hours_before_flag">Flag no runs at all after (hours)</label>
+    <input type="number" min="1" id="quiet_hours_before_flag" name="quiet_hours_before_flag" value="{{ pumps.quiet_hours_before_flag }}">
+  </div>
+</div>
+{% endmacro %}
+
+
+{% macro site_fields(site) %}
+<div class="grid">
+  <div class="field">
+    <label for="site_name">Name</label>
+    <input type="text" id="site_name" name="site_name" value="{{ site.name }}">
+  </div>
+  <div class="field">
+    <label for="site_location">Location</label>
+    <input type="text" id="site_location" name="site_location" value="{{ site.location }}"
+           placeholder="123 Example St, basement, rear">
+    <p class="hint">Goes in every alert. Saves a phone call at two in the morning.</p>
+  </div>
+  <div class="field">
+    <label for="site_timezone">Timezone</label>
+    <input type="text" id="site_timezone" name="site_timezone" value="{{ site.timezone }}">
+  </div>
+  <div class="field">
+    <label for="notify_delay_s">Wait (s) before sending an alert</label>
+    <input type="number" min="0" id="notify_delay_s" name="notify_delay_s" value="{{ site.notify_delay_s }}">
+    <p class="hint">Stops a float that bobs once from waking the building.
+      Critical alerts ignore it.</p>
+  </div>
+  <div class="field">
+    <label for="notify_cooldown_s">Do not repeat within (s)</label>
+    <input type="number" min="0" id="notify_cooldown_s" name="notify_cooldown_s" value="{{ site.notify_cooldown_s }}">
+  </div>
+</div>
+{% endmacro %}

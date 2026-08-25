@@ -329,12 +329,63 @@ Each one is raised once and stays open until the condition goes away, so a float
 that chatters twenty times sends one message rather than twenty, and you get an
 all clear when it drains.
 
+## Where the data lives
+
+In a Docker named volume, not in the folder you ran `docker compose` from.
+Nothing is written next to the compose file, which is why there is no database
+file to find there.
+
+```sh
+docker volume ls | grep pitwatch
+docker volume inspect pitwatch_pitwatch-db
+```
+
+The volume is `pitwatch_pitwatch-db`: Compose prefixes the volume name from the
+compose file with the project name. On Linux it lives under
+`/var/lib/docker/volumes/pitwatch_pitwatch-db/_data`. Do not edit it by hand
+while the stack is running; it is a live Postgres data directory.
+
+Both compose files use the same project name and the same volume, so switching
+between the bridge setup and the host networking one keeps your history. So does
+pulling a newer image: `docker compose pull && docker compose up -d` replaces
+the container and reattaches the same volume, and migrations run on start.
+
+**`docker compose down` keeps the volume. `docker compose down -v` deletes it**,
+along with every reading, and there is no undo. That flag is the only routine
+way to lose the data.
+
+### Putting it in the compose folder instead
+
+If you would rather see it next to the compose file, swap the volume for a bind
+mount on the `db` service:
+
+```yaml
+    volumes:
+      - ./data/db:/var/lib/postgresql/data
+```
+
+and drop the top level `volumes:` block. It works, and the trade is real: the
+directory ends up owned by the container's postgres user rather than by you, so
+it is more awkward to move and to back up, and on Docker Desktop for Mac and
+Windows a bind mounted Postgres directory is noticeably slower and occasionally
+unhappy. The named volume is the default for those reasons. Either way, the way
+to take a copy is a dump rather than copying files out from under a running
+database.
+
 ## Backing it up
 
-Everything is in the `pitwatch-db` volume.
+A dump is the thing to keep, not a copy of the volume. It is portable across
+Postgres versions and it is consistent, which a file copy of a running database
+is not.
 
 ```sh
 docker compose exec -T db pg_dump -U pitwatch pitwatch | gzip > pitwatch-$(date +%F).sql.gz
+```
+
+To restore into an empty stack:
+
+```sh
+gunzip -c pitwatch-2026-08-25.sql.gz | docker compose exec -T db psql -U pitwatch pitwatch
 ```
 
 Raw one second readings are kept for 90 days, compressed after the first week.

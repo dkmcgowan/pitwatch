@@ -150,3 +150,21 @@ def test_the_bridge_compose_reaches_the_database_by_service_name():
     # The publish block stays commented out by default.
     assert '\n    #   - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"' in compose
     assert '\n    ports:\n      - "127.0.0.1:' not in compose
+
+
+def test_both_compose_files_share_a_project_and_volume_name():
+    """Switching between bridge and host networking must keep the history.
+
+    They are the same install run two ways, not two installs. A different
+    project name or a different volume name in either file would silently start
+    a second, empty database, and the first sign of it would be a dashboard
+    that had forgotten everything.
+    """
+    root = Path(__file__).parent.parent
+    bridge = (root / "docker-compose.yml").read_text(encoding="utf-8")
+    host = (root / "docker-compose.host.yml").read_text(encoding="utf-8")
+
+    for compose in (bridge, host):
+        assert "\nname: pitwatch\n" in compose
+        assert "\nvolumes:\n  pitwatch-db:\n" in compose
+        assert "- pitwatch-db:/var/lib/postgresql/data" in compose

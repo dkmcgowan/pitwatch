@@ -111,7 +111,7 @@ async def test_settings_round_trip(store):
     saved = WaveshareSettings(
         enabled=True,
         host="192.168.1.51",
-        channels=[ChannelMap(channel=3, signal=Signal.HIGH_WATER, normally_closed=True)],
+        channels=[ChannelMap(channel=3, signal=Signal.HIGH_WATER, invert=True)],
     )
 
     await store.put(saved)
@@ -119,7 +119,7 @@ async def test_settings_round_trip(store):
 
     assert read_back.host == "192.168.1.51"
     assert read_back.channel_for(Signal.HIGH_WATER).channel == 3
-    assert read_back.channel_for(Signal.HIGH_WATER).normally_closed is True
+    assert read_back.channel_for(Signal.HIGH_WATER).invert is True
 
 
 async def test_settings_survive_a_reload(pool, store):

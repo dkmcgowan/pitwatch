@@ -132,9 +132,10 @@ this is the one thing it cannot work out for itself. If you get it backwards,
 pump 1 will show pump 2's current; swap it in the settings page.
 
 **The Waveshare.** Its address, and what each of the eight inputs is wired to.
-Each channel has a **normally closed** switch next to it. Get this wrong and an
-alarm reads as permanently on, then goes quiet at the moment it matters, so it
-is worth checking against the panel with a meter rather than guessing.
+Each channel has an **invert** switch next to it. Get this wrong and an alarm
+reads as permanently on, then goes quiet at the moment it matters, so it is
+worth checking against the panel rather than guessing. See
+[Wiring the I/O module](#wiring-the-io-module) below.
 
 The signals PitWatch understands:
 
@@ -156,6 +157,55 @@ nothing.
 **Your pumps.** The nameplate full load amps off each motor, and the current
 above which a pump counts as running. That second number is not zero: a clamp on
 a live conductor reads a little noise even when the motor is off.
+
+## Wiring the I/O module
+
+> Turn the panel off first, and if you are not comfortable working inside a pump
+> control panel, have an electrician do it. PitWatch only reads; nothing here
+> should change how the panel behaves, and if it does, something is wired wrong.
+
+The Waveshare has `DI1` to `DI8` for the eight signals, plus two common
+terminals, `DICOM` and `DGND`. What you connect `DICOM` to is what decides how
+the inputs behave, and it is the single decision to get right:
+
+| `DICOM` | Input type | Reads as on when |
+| --- | --- | --- |
+| Left floating | Dry contact, passive | The contact closes |
+| To the supply negative | PNP, high level trigger | Voltage is present on `DIn` |
+| To the supply positive | NPN, low level trigger | `DIn` is pulled down |
+
+**If your panel signals voltage** (a control circuit where a live line means the
+thing is happening), tie `DICOM` to that control supply's **common or negative**
+and run each signal to its own `DIn`. This is the PNP row: voltage present reads
+as on, which is what you want. Tie the common to the **panel's** common, not to
+the Waveshare's own power ground, or the optocoupler isolation you are paying
+for stops isolating anything.
+
+**If your panel gives you free dry contacts**, leave `DICOM` disconnected and
+run each contact between `DIn` and `DGND`. The module supplies its own sensing
+current and stays isolated from whatever else the contact is doing.
+
+The inputs accept **5 to 36 V**, and the wet contact modes are specified for
+**DC**. If your control circuit is AC, the bidirectional optocoupler still
+conducts, but it drops out briefly at every zero crossing, 120 times a second on
+60 Hz mains. A poll can land in one of those gaps and read a live signal as off.
+Leave every channel's debounce at a few hundred milliseconds and that
+disappears, because the next poll disagrees and the change is discarded. Do not
+set a channel to zero debounce on an AC circuit.
+
+Each input draws a few milliamps from whatever supplies it, so eight of them is
+a few tens of milliamps on the panel's control transformer. That is usually
+nothing, but it is worth a thought if you are tapping a circuit that is already
+close to its limit or is current limited for a reason.
+
+**Which way round is each signal?** Use the live view on the settings page
+rather than reasoning about it. It reads the module twice a second and shows
+each input both raw and after the invert setting. Lift a float by hand, or run a
+pump, and watch which row changes and which way. In particular, check whether
+your alarm and overload signals are **fail safe**: many panels hold those
+asserted while everything is fine and drop them on the fault, so that a cut wire
+reads as a fault rather than as silence. Those are the channels that need
+**invert** ticked.
 
 **Alerts.** Where to send them. Email needs an SMTP server; SMS needs a
 provider.

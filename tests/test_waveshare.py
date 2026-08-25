@@ -143,19 +143,20 @@ def test_the_first_frame_reports_what_changed_while_we_were_down():
 # -- inversion ---------------------------------------------------------------
 
 
-def test_a_normally_closed_contact_is_inverted():
+def test_an_inverted_channel_reads_the_opposite_of_the_wire():
     """The setting that is worst to get wrong.
 
-    A normally closed overload contact sits closed when the motor is fine.
-    Recording the raw bit would leave the alarm on permanently and turn it off
-    at the moment it trips.
+    A fail safe overload signal is present while the motor is fine and drops on
+    the trip, whether that is a dry contact wired normally closed or a 24 V line
+    that goes away. Recording the raw bit would leave the alarm on permanently
+    and turn it off at the moment it trips.
     """
     reader = WaveshareReader(
         settings_with(
             ChannelMap(
                 channel=7,
                 signal=Signal.PUMP1_OVERLOAD,
-                normally_closed=True,
+                invert=True,
                 debounce_ms=0,
             )
         ),
@@ -170,11 +171,11 @@ def test_a_normally_closed_contact_is_inverted():
     events = reader._apply(bits(di7=False), first=False)
 
     assert len(events) == 1
-    assert events[0].state is True, "an open normally closed contact means tripped"
+    assert events[0].state is True, "the signal going away means tripped"
     assert events[0].raw is False, "the raw bit is recorded as it was read"
 
 
-def test_a_normally_open_contact_is_not_inverted():
+def test_a_plain_channel_is_not_inverted():
     reader = WaveshareReader(
         settings_with(ChannelMap(channel=1, signal=Signal.LEAD_FLOAT, debounce_ms=0)),
         on_events=None,

@@ -89,11 +89,14 @@
 
 <h3>What each input is wired to</h3>
 <p class="hint">
-  <strong>Normally closed</strong> is the setting that is easiest to get wrong
-  and worst to get wrong: a normally closed contact sits closed when nothing is
-  happening and opens on the event. Set it backwards and the alarm reads as on
-  forever, then goes quiet at exactly the moment it matters. Check it against
-  the panel rather than guessing.
+  <strong>Invert</strong> is the setting that is easiest to get wrong and worst
+  to get wrong. Tick it when the input reads the opposite of the signal: a dry
+  contact wired normally closed, or a live line that holds voltage while all is
+  well and drops it on the fault. Alarm and overload contacts are often built
+  that way on purpose, so that a cut wire reads as a fault rather than as
+  silence. Set it backwards and the alarm reads as on forever, then goes quiet
+  at exactly the moment it matters. Use the live view below to check each one
+  against the panel rather than guessing.
 </p>
 
 <div class="table-scroll">
@@ -102,7 +105,7 @@
     <tr>
       <th>Input</th>
       <th>Signal</th>
-      <th>Normally closed</th>
+      <th>Invert</th>
       <th>Debounce (ms)</th>
     </tr>
   </thead>
@@ -118,9 +121,9 @@
         </select>
       </td>
       <td class="center">
-        <input type="checkbox" name="channel_{{ channel.channel }}_nc"
-               aria-label="Input {{ channel.channel }} is normally closed"
-               {% if channel.normally_closed %}checked{% endif %}>
+        <input type="checkbox" name="channel_{{ channel.channel }}_invert"
+               aria-label="Invert input {{ channel.channel }}"
+               {% if channel.invert %}checked{% endif %}>
       </td>
       <td>
         <input type="number" name="channel_{{ channel.channel }}_debounce"

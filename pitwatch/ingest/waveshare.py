@@ -42,9 +42,10 @@ more than they look:
 * **Debounce.** Float switches bounce, and they bounce for longer than most
   contacts because a float bobs. Without this, one call for water writes a
   dozen events and the run detector sees a dozen starts.
-* **Inversion.** A normally closed contact reads closed when nothing is wrong.
-  Recording the raw bit as though it were the signal would leave every such
-  alarm permanently on, and silent at exactly the moment it fires.
+* **Inversion.** A fail safe signal reads asserted when nothing is wrong,
+  whether that is a dry contact wired normally closed or a live line that
+  drops on the fault. Recording the raw bit as though it were the signal would
+  leave every such alarm permanently on, and silent at the moment it fires.
 """
 
 from __future__ import annotations
@@ -233,7 +234,7 @@ class WaveshareReader:
                     continue
                 changed = settled
 
-            state = (not changed) if channel_settings.normally_closed else changed
+            state = (not changed) if channel_settings.invert else changed
             if self._known.get(number) == state:
                 # Same as what is already recorded. On the first frame this is
                 # the normal case and writing an event would be noise; the only
@@ -295,7 +296,7 @@ async def probe(settings: WaveshareSettings) -> dict:
                     "channel": channel_settings.channel,
                     "signal": channel_settings.signal.value,
                     "raw": raw,
-                    "state": (not raw) if channel_settings.normally_closed else raw,
+                    "state": (not raw) if channel_settings.invert else raw,
                 }
             )
         return {"ok": True, "channels": channels}

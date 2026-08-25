@@ -11,7 +11,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import ClassVar
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class Signal(StrEnum):
@@ -49,19 +49,44 @@ SIGNAL_LABELS: dict[Signal, str] = {
 class ChannelMap(BaseModel):
     """One Waveshare digital input.
 
-    ``normally_closed`` is the setting that is easiest to get wrong and worst to
-    get wrong. A normally closed contact reads as closed when nothing is
-    happening and opens on the event, so without this flag every alarm would be
-    permanently on and go quiet at exactly the moment it mattered. Panels are
-    not consistent about which way round they wire an overload relay, so it is
-    per channel rather than global.
+    ``invert`` is the setting that is easiest to get wrong and worst to get
+    wrong, and it covers two arrangements that look different on the wire and
+    mean the same thing here:
+
+    * A dry contact wired normally closed, which sits closed while nothing is
+      happening and opens on the event.
+    * A live signal wired fail safe, which holds voltage while all is well and
+      drops it on the event. Panel alarm and motor overload contacts are often
+      built this way on purpose, so that a cut wire reads the same as a fault.
+
+    Either way the raw reading means the opposite of the signal. Without this
+    flag such an alarm reads as on permanently and goes quiet at exactly the
+    moment it fires. Panels are not consistent, so it is per channel rather
+    than global, and it is worth checking each one against the panel rather
+    than assuming.
     """
+
+    model_config = ConfigDict(populate_by_name=True)
 
     channel: int = Field(ge=1, le=8)
     signal: Signal = Signal.UNUSED
-    normally_closed: bool = False
-    # Contacts bounce, and float switches bounce for longer than most. A state
-    # has to hold for this long before it counts as a change.
+    # Named normally_closed before the reference panel turned out to be a 24 V
+    # wet contact system, where "normally closed" is the wrong vocabulary for
+    # the same behavior. The old name is still accepted so a saved setting is
+    # not silently reset to False, which would invert an alarm.
+    invert: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("invert", "normally_closed"),
+    )
+    # Contacts bounce, and float switches bounce for longer than most because a
+    # float bobs. A state has to hold for this long before it counts.
+    #
+    # This also covers an AC signal. A bidirectional optocoupler fed from an AC
+    # source drops out briefly at every zero crossing, 120 times a second on 60
+    # Hz, so a poll can land in a gap and read a live signal as off. Any
+    # debounce longer than a couple of poll intervals discards that, because the
+    # next poll disagrees and the candidate change is abandoned. Hence a default
+    # that is not zero.
     debounce_ms: int = Field(default=500, ge=0, le=30_000)
 
 

@@ -80,3 +80,17 @@ def test_a_stored_pump2_channel_from_an_older_version_is_ignored():
     )
 
     assert settings.pump2_channel == 0
+
+
+def test_a_setting_saved_under_the_old_name_still_inverts():
+    """The field was renamed from normally_closed to invert.
+
+    Dropping the old name would read as False on the next load, which silently
+    un-inverts an alarm: it would then read as permanently on and go quiet at
+    the moment it fires. Exactly the failure the flag exists to prevent.
+    """
+    channel = ChannelMap.model_validate(
+        {"channel": 7, "signal": "pump1_overload", "normally_closed": True}
+    )
+
+    assert channel.invert is True

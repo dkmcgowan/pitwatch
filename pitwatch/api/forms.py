@@ -102,7 +102,7 @@ def waveshare_from(form: FormData) -> WaveshareSettings:
             ChannelMap(
                 channel=number_,
                 signal=Signal(text(form, f"channel_{number_}_signal", "unused") or "unused"),
-                normally_closed=checkbox(form, f"channel_{number_}_nc"),
+                invert=checkbox(form, f"channel_{number_}_invert"),
                 debounce_ms=integer(form, f"channel_{number_}_debounce", 500),
             )
         )

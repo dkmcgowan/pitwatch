@@ -121,7 +121,9 @@ PITWATCH_TIMEZONE=America/New_York
 docker compose up -d
 ```
 
-Then open `http://<your-host>:8080` and follow the setup.
+Then open `http://<your-host>:8080` and sign in as **`admin`** with the
+password **`pitwatch`**. It will make you change it before anything else opens,
+and then walk you through setup.
 
 The database is not published on a host port, on purpose. The application
 reaches it as `db:5432`, container to container, and nothing outside the stack
@@ -220,9 +222,58 @@ the moving, and running `python -m pitwatch` directly without Docker. Setting
 both to different values is how you end up with a mapping to a port nothing is
 listening on.
 
+## Accounts
+
+Everything needs an account. The first boot creates `admin` with the password
+`pitwatch`, because an appliance nobody can get into is useless, and then
+refuses to open anything except the change password page until that password is
+gone. It is published here, so it is known to everybody, and that is the only
+thing that makes shipping it defensible.
+
+Signing in is throttled per user name and per address, and the session cookie is
+signed and marked HttpOnly. Set `PITWATCH_SECURE_COOKIES=true` when a proxy in
+front is terminating TLS, which marks it Secure so a browser will not send it
+over plain HTTP. Set it if this is reachable from anywhere but your own network.
+
+### People
+
+Everyone who should be told about a pump is a person on the **People** page:
+name, email address, mobile number, and whether they want email, texts, or both.
+Most of them will never sign in. That is the normal case, and it is why a
+password is optional here: the reason a building superintendent is in this list
+is to get a text at two in the morning.
+
+Anyone who also wants to watch the dashboard gets an invitation. Add them, tick
+**email them a link to set a password**, and they get a message with a link that
+works once and expires in three days. If email is not set up yet, the link is
+shown on screen instead so you can send it yourself. Setting a password lets
+them sign in and see live status; it does not make them an administrator, and
+they cannot reach the settings.
+
+Only administrators can change settings or manage people. An administrator
+cannot remove their own rights, disable themselves, or delete their own account,
+because an install with nobody who can change anything needs the database
+editing by hand to recover.
+
+### What a stranger can see
+
+Almost nothing. The exceptions are the login page, the health checks, the static
+files, the password link page, and the **messaging policy** and **privacy**
+pages.
+
+Those last two are public deliberately. A carrier reviewing a toll-free number
+registration has to be able to read how people opt in and out of text messages
+without an account, and so does anybody deciding whether to give you their phone
+number. Putting consent terms behind a login is both a failed registration and
+the wrong thing to do. The login page carries a summary of the same terms,
+because that is the page an unauthenticated visitor actually lands on.
+
+Fill in the site name, location and contact details in settings before pointing
+a carrier at those pages. They are what the pages say.
+
 ## Set it up
 
-Setup runs in the browser the first time you open PitWatch. It asks for:
+Setup runs in the browser once you have signed in. It asks for:
 
 **The Shelly.** Its address, and which of its two clamps is on which pump. The
 clamps are identical and the device has no idea which motor it is measuring, so

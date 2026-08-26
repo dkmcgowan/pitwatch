@@ -230,10 +230,46 @@ refuses to open anything except the change password page until that password is
 gone. It is published here, so it is known to everybody, and that is the only
 thing that makes shipping it defensible.
 
-Signing in is throttled per user name and per address, and the session cookie is
-signed and marked HttpOnly. Set `PITWATCH_SECURE_COOKIES=true` when a proxy in
-front is terminating TLS, which marks it Secure so a browser will not send it
-over plain HTTP. Set it if this is reachable from anywhere but your own network.
+### If it is reachable from the internet
+
+Set these two. Neither is on by default, because both are wrong for somebody
+running this on their own network, and both are necessary once it is not.
+
+| Setting | Why |
+| --- | --- |
+| `PITWATCH_SECURE_COOKIES=true` | Marks the session cookie Secure, so a browser will not send it over plain HTTP. Set it when a proxy in front is terminating TLS. |
+| `PITWATCH_TRUSTED_PROXIES` | Which addresses may say, through `X-Forwarded-For`, who the client is. It defaults to loopback. Set it to your proxy's address if the proxy is on another host, and never to `*`: anybody who can reach the port could then claim to be any address, which defeats the per address throttling. |
+
+What is already true without configuring anything:
+
+- **Passwords** are Argon2id, at the library's own parameters, and rehashed on
+  sign in when those parameters change.
+- **Signing in is throttled**, per user name and per client address, so neither
+  guessing one account nor spraying many is cheap.
+- **Every unsafe request needs a CSRF token.** The cookie is `SameSite=Lax`,
+  which stops another site posting these forms, and there is a token as well,
+  because Lax treats a neighboring subdomain as the same site and is a browser
+  behavior rather than something this enforces.
+- **Changing a password ends every other session** for that account, which is
+  the point of changing it when you think a cookie was taken.
+- **A disabled or deleted account stops working on its next request**, rather
+  than whenever its cookie would have expired.
+- **Security headers** on every response: a content security policy that allows
+  no third party scripts, styles, frames or images at all, `frame-ancestors
+  'none'`, `nosniff`, and a referrer policy that keeps invitation links out of
+  other sites' logs.
+- **Invitation and reset links** are single use, expire in three days, are
+  stored only as a hash, and are invalidated when a new one is issued.
+- **There is no self service password reset**, deliberately. Asking an
+  administrator is one more step and it is also one fewer way to find out
+  whether an address has an account here.
+
+CI runs `pip-audit` against the pinned dependencies on every push, so a library
+going bad is noticed without anything in this repository changing.
+
+What is **not** here: two factor authentication, and any audit log beyond what
+goes to the container log. Neither is hard to add and neither is pretending to
+be there.
 
 ### People
 

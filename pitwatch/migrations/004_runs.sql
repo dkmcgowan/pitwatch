@@ -38,7 +38,16 @@ CREATE TABLE pump_run (
     steady_current  real,
     min_current     real,
     samples         integer,
-    energy_wh       real,
+
+    -- There is deliberately no energy column, and no cost. Watt hours would
+    -- have to come from the meter's power reading, and in this installation
+    -- that reading is not about the motor: the meter's voltage reference is its
+    -- own supply rather than a measured phase. Amps and duration are real
+    -- measurements; anything multiplied by a voltage from somewhere else is a
+    -- plausible looking number about the wrong circuit.
+    --
+    -- This is a monitor. What it is for is noticing that a pump is in trouble,
+    -- not billing anybody for it.
 
     -- What we believed the pump's job was when it started. Recorded rather than
     -- computed on read, so later corrections to the inference do not silently

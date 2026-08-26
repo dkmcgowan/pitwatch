@@ -79,3 +79,26 @@ def test_every_migration_parses_as_postgres():
         except pglast.parser.ParseError as error:  # pragma: no cover -- only on a broken file
             raise AssertionError(f"{path.name} does not parse: {error}") from error
         assert statements, f"{path.name} contains no statements"
+
+
+def test_nothing_records_energy_or_cost():
+    """A monitor, not a meter reading.
+
+    Watt hours could only come from the meter's power figure, which in this
+    installation is not about the motor at all: the voltage reference is the
+    meter's own supply rather than a measured phase. A column for it is an
+    invitation to fill it in with a number that looks right and is not, so
+    there is not one.
+
+    Amps and run duration are real measurements and are what the run detector
+    records instead.
+    """
+    for path in migration_files():
+        sql = path.read_text(encoding="utf-8")
+        statements = [
+            line
+            for line in sql.splitlines()
+            if not line.strip().startswith("--")
+            and any(word in line.lower() for word in ("energy", "kwh", "watt_hour", "cost"))
+        ]
+        assert not statements, f"{path.name}: {statements}"

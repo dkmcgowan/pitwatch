@@ -80,21 +80,6 @@ def test_the_bind_port_defaults_to_the_one_the_image_health_check_uses(monkeypat
     assert Config(_env_file=None).port == 8080
 
 
-def test_the_compose_file_maps_the_host_port_to_the_container_default():
-    """The two port variables have to stay distinct, and stay consistent.
-
-    PITWATCH_PORT is the application's own bind port and is set to 8080 in the
-    image. PITWATCH_HOST_PORT is the compose host mapping. If the compose file
-    ever used PITWATCH_PORT for the host side, passing it through to the app
-    would map a port the app was no longer listening on, and the container would
-    look healthy from inside while being unreachable from outside.
-    """
-    compose = (Path(__file__).parent.parent / "docker-compose.yml").read_text(encoding="utf-8")
-
-    assert '"${PITWATCH_HOST_PORT:-8080}:8080"' in compose
-    assert "${PITWATCH_PORT" not in compose
-
-
 def test_the_image_health_check_follows_the_bind_port():
     """The health check has to use the same port the application binds.
 
@@ -105,80 +90,6 @@ def test_the_image_health_check_follows_the_bind_port():
 
     assert "PITWATCH_PORT=8080" in dockerfile
     assert "${PITWATCH_PORT}/healthz" in dockerfile
-
-
-def test_the_host_network_compose_does_not_reach_the_database_by_service_name():
-    """Host networking takes the container off the compose network.
-
-    An app on host networking cannot resolve `db`, so this file has to point at
-    127.0.0.1 and the database has to publish there. Getting that wrong is a
-    container that starts, retries the database forever, and never says why in
-    a way anyone would connect to networking.
-    """
-    compose = (Path(__file__).parent.parent / "docker-compose.host.yml").read_text(encoding="utf-8")
-
-    assert "network_mode: host" in compose
-    assert "@db:5432" not in compose
-    # Loopback only. Postgres has no business being on the LAN.
-    assert '"127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"' in compose
-    # There is no port mapping to move, so the bind port is the one that counts.
-    # The file may still mention PITWATCH_HOST_PORT in a comment explaining that
-    # it does nothing here, which is worth saying; what it must not do is
-    # substitute it.
-    assert "PITWATCH_PORT: ${PITWATCH_PORT:-8080}" in compose
-    assert "${PITWATCH_HOST_PORT" not in compose
-
-
-def test_the_host_network_compose_publishes_and_connects_on_the_same_port():
-    """The one thing that breaks if the database port is made settable.
-
-    On host networking the published port is not just for outside tools, it is
-    the port the application itself dials. Parameterising the mapping and
-    leaving 5432 hardcoded in the connection string would work perfectly until
-    somebody set the variable, and then fail as a container that starts and
-    retries the database forever.
-    """
-    compose = (Path(__file__).parent.parent / "docker-compose.host.yml").read_text(encoding="utf-8")
-
-    mapping = '"127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"'
-    dsn = "@127.0.0.1:${POSTGRES_HOST_PORT:-5432}/pitwatch"
-
-    assert mapping in compose
-    assert dsn in compose
-    # Neither reference may hardcode the port while the other reads a variable.
-    assert "@127.0.0.1:5432/" not in compose
-
-
-def test_the_bridge_compose_reaches_the_database_by_service_name():
-    """Publishing is optional there and the application must never depend on it.
-
-    Container to container the port is always 5432 whatever is published on the
-    host, so an install that never uncomments the ports block still works.
-    """
-    compose = (Path(__file__).parent.parent / "docker-compose.yml").read_text(encoding="utf-8")
-
-    assert "@db:5432/pitwatch" in compose
-    # The publish block stays commented out by default.
-    assert '\n    #   - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"' in compose
-    assert '\n    ports:\n      - "127.0.0.1:' not in compose
-
-
-def test_both_compose_files_share_a_project_and_volume_name():
-    """Switching between bridge and host networking must keep the history.
-
-    They are the same install run two ways, not two installs. A different
-    project name or a different volume name in either file would silently start
-    a second, empty database, and the first sign of it would be a dashboard
-    that had forgotten everything.
-    """
-    root = Path(__file__).parent.parent
-    bridge = (root / "docker-compose.yml").read_text(encoding="utf-8")
-    host = (root / "docker-compose.host.yml").read_text(encoding="utf-8")
-
-    for compose in (bridge, host):
-        assert "\nname: pitwatch\n" in compose
-        assert "\nvolumes:\n  pitwatch-db:\n" in compose
-        assert "- pitwatch-db:/var/lib/postgresql/data" in compose
 
 
 def test_health_is_plain_ok_and_touches_nothing():
@@ -229,21 +140,17 @@ def test_the_database_image_pins_the_postgres_major_version():
     aggregate refresh are Community License features it lacks, so migration 003
     fails on it.
     """
-    root = Path(__file__).parent.parent
-    checked = 0
-    # The compose files only. The README used to carry a copy of one of them
-    # and it drifted, so it now tells people to fetch the real file instead.
-    for name in ("docker-compose.yml", "docker-compose.host.yml"):
-        text = (root / name).read_text(encoding="utf-8")
-        for line in text.splitlines():
-            stripped = line.strip()
-            if not stripped.startswith("image: timescale/timescaledb:"):
-                continue
-            tag = stripped.split("timescale/timescaledb:", 1)[1].strip()
-            assert tag.endswith("-pg17"), f"{name}: {tag} does not pin the Postgres major"
-            checked += 1
+    compose = (Path(__file__).parent.parent / "docker-compose.yml").read_text(encoding="utf-8")
 
-    assert checked == 2, "both compose files should declare the image"
+    tags = [
+        line.strip().split("timescale/timescaledb:", 1)[1].strip()
+        for line in compose.splitlines()
+        if line.strip().startswith("image: timescale/timescaledb:")
+    ]
+
+    assert tags, "the compose file should declare the database image"
+    for tag in tags:
+        assert tag.endswith("-pg17"), f"{tag} does not pin the Postgres major"
 
 
 def test_the_readme_does_not_carry_a_copy_of_the_compose_file():
@@ -254,45 +161,9 @@ def test_the_readme_does_not_carry_a_copy_of_the_compose_file():
     """
     readme = (Path(__file__).parent.parent / "README.md").read_text(encoding="utf-8")
 
-    install = readme[readme.index("## Install") : readme.index("### What is in .env")]
+    install = readme[readme.index("## Install") : readme.index("## Accounts")]
     assert "services:" not in install, "the README is duplicating the compose file again"
     assert "docker-compose.yml" in install
-    assert "docker-compose.host.yml" in install
-
-
-def test_the_readme_documents_every_setting_the_compose_files_use():
-    """Documentation that drifts is worse than none.
-
-    The README's table is what somebody reads before editing .env. If a compose
-    file starts reading a variable that is not in that table, nobody discovers
-    it except by reading the yaml, which is the thing the table exists to save
-    them from.
-    """
-    root = Path(__file__).parent.parent
-    readme = (root / "README.md").read_text(encoding="utf-8")
-
-    used = set()
-    for name in ("docker-compose.yml", "docker-compose.host.yml"):
-        text = (root / name).read_text(encoding="utf-8")
-        used.update(re.findall(r"\$\{([A-Z_]+)", text))
-
-    missing = sorted(name for name in used if f"`{name}`" not in readme)
-    assert not missing, f"not documented in the README: {missing}"
-
-
-def test_the_env_example_offers_every_setting_the_readme_documents():
-    """The file somebody actually edits should mention the same things."""
-    root = Path(__file__).parent.parent
-    example = (root / ".env.example").read_text(encoding="utf-8")
-
-    used = set()
-    for name in ("docker-compose.yml", "docker-compose.host.yml"):
-        text = (root / name).read_text(encoding="utf-8")
-        used.update(re.findall(r"\$\{([A-Z_]+)", text))
-
-    # SEED_* are pointed at by SHELLY_HOST and WAVESHARE_HOST, which are there.
-    missing = sorted(name for name in used if name not in example)
-    assert not missing, f"not offered in .env.example: {missing}"
 
 
 def test_only_the_database_password_is_required():
@@ -301,8 +172,42 @@ def test_only_the_database_password_is_required():
     A compose file that refuses to start over a setting somebody has no opinion
     about yet is a bad first five minutes.
     """
+    compose = (Path(__file__).parent.parent / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert set(re.findall(r"\$\{([A-Z_]+):\?", compose)) == {"POSTGRES_PASSWORD"}
+
+
+def test_env_holds_only_what_has_no_sensible_default():
+    """One file to edit, one line in it.
+
+    Everything else lives beside a comment in the compose file, where somebody
+    changing it can see what it does. A .env full of settings nobody has an
+    opinion about is a longer first five minutes for no benefit.
+    """
     root = Path(__file__).parent.parent
-    for name in ("docker-compose.yml", "docker-compose.host.yml"):
-        text = (root / name).read_text(encoding="utf-8")
-        required = set(re.findall(r"\$\{([A-Z_]+):\?", text))
-        assert required == {"POSTGRES_PASSWORD"}, f"{name}: {required}"
+    compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
+    example = (root / ".env.example").read_text(encoding="utf-8")
+
+    substituted = set(re.findall(r"\$\{([A-Z_]+)", compose))
+    assert substituted == {"POSTGRES_PASSWORD"}
+
+    offered = {
+        line.split("=", 1)[0].strip()
+        for line in example.splitlines()
+        if "=" in line and not line.strip().startswith("#")
+    }
+    assert offered == {"POSTGRES_PASSWORD"}
+
+
+def test_there_is_one_compose_file():
+    """Two of them meant two things to keep in step, and they did not stay in
+    step. The one that is left runs on the host's network, which is the
+    arrangement least likely to be in the way of talking to a meter on a LAN."""
+    root = Path(__file__).parent.parent
+
+    assert (root / "docker-compose.yml").exists()
+    assert not (root / "docker-compose.host.yml").exists()
+
+    compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "network_mode: host" in compose
+    assert "@127.0.0.1:5432/pitwatch" in compose

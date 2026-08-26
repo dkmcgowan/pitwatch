@@ -1,95 +1,81 @@
-# PitWatch, two containers: the application and its database.
+# PitWatch: the application and its database.
 #
-# Copy .env.example to .env, set POSTGRES_PASSWORD to something of your own,
-# then `docker compose up -d` and open http://<host>:8080.
+# Copy .env.example to .env, put a password in it, then `docker compose up -d`
+# and open http://<host>:8080.
 #
-# The database is not published on a host port. Nothing outside this stack needs
-# to reach Postgres, and an ejector pump monitor is not worth exposing a
-# database to the network for. Uncomment the ports block below if you want to
-# point a client at it, and understand what you are doing when you do.
+# The application runs on the host's network, because its whole job is talking
+# to a meter and an I/O module on your LAN and that is the arrangement least
+# likely to be in the way. Everything is in this file; change what you need to.
 
 name: pitwatch
 
 services:
   db:
-    # Floats Timescale releases, and deliberately pins the Postgres major at 17.
-    # Plain `latest` would follow Postgres majors too, and Postgres refuses to
-    # start on a data directory written by an older major, so that tag moving
-    # would take the database down and need a dump and restore to undo.
+    # Floats Timescale releases and pins the Postgres major at 17. Plain
+    # `latest` would follow Postgres majors too, and Postgres refuses to start
+    # on a data directory written by an older major, so that tag moving would
+    # take the database down and need a dump and restore to undo.
     #
     # Not the -oss tag: compression, retention policies and continuous aggregate
-    # refresh are Community License features the -oss build does not have, so
-    # migration 003 would fail on it.
+    # refresh are Community License features it does not have.
     image: timescale/timescaledb:latest-pg17
     restart: unless-stopped
     environment:
       POSTGRES_DB: pitwatch
       POSTGRES_USER: pitwatch
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      # Timescale's tuning script runs on first boot and picks settings from the
-      # container's memory limit.
       TIMESCALEDB_TELEMETRY: "off"
     volumes:
       - pitwatch-db:/var/lib/postgresql/data
+    ports:
+      # Loopback only. The application reaches the database here because it is
+      # on the host's network; nothing else can, on this machine or off it.
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pitwatch -d pitwatch"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 30s
-    # Publishing the database is optional and off by default. The application
-    # does not need it: on this bridge network it reaches Postgres as `db:5432`,
-    # container to container, and that never changes whatever you do here.
-    #
-    # Uncomment only to point a client such as psql or pgAdmin at it, and
-    # understand that you are putting a database on the network when you do.
-    # Set POSTGRES_HOST_PORT in .env if 5432 is already taken. Binding to
-    # 127.0.0.1 keeps it on this machine; drop that prefix to expose it to the
-    # LAN, which you probably should not.
-    # ports:
-    #   - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
 
   app:
-    # `latest` while you are setting this up, so that a fix is one `pull` away.
-    # Pin a version, for example `0.2.2`, once it is watching a real pump: a tag
-    # that moves under you is not what you want standing between a basement and
-    # a flood.
+    # `latest` while you are setting this up, so a fix is one `pull` away. Pin a
+    # version once it is watching a real pump.
     image: ghcr.io/dkmcgowan/pitwatch:latest
-    # Building from a checkout instead of pulling the published image:
-    # build: .
     restart: unless-stopped
+
+    # On the host's network, so the Shelly and the Waveshare are reachable at
+    # their own addresses with nothing in between. To run it on Docker's own
+    # network instead, drop this line, add `ports: ["8080:8080"]`, and change
+    # 127.0.0.1 in the database URL below to db.
+    network_mode: host
+
     depends_on:
       db:
         condition: service_healthy
     environment:
-      PITWATCH_DATABASE_URL: postgresql://pitwatch:${POSTGRES_PASSWORD}@db:5432/pitwatch
-      PITWATCH_TIMEZONE: ${PITWATCH_TIMEZONE:-America/New_York}
-      PITWATCH_LOG_LEVEL: ${PITWATCH_LOG_LEVEL:-INFO}
-      # Turn on when a proxy in front is terminating TLS. It marks the session
-      # cookie Secure, so it is never sent over plain HTTP.
-      PITWATCH_SECURE_COOKIES: ${PITWATCH_SECURE_COOKIES:-false}
-      # Which addresses may say, through X-Forwarded-For, who the client is.
-      # Set it to your proxy. Trusting everything lets anyone who can reach
-      # this port claim to be any address they like.
-      PITWATCH_TRUSTED_PROXIES: ${PITWATCH_TRUSTED_PROXIES:-127.0.0.1,::1}
-      # Optional. Set these and the first boot comes up already pointed at the
-      # hardware, so the setup wizard has less to ask. They are read once, when
-      # the settings are empty; after that the settings page is in charge.
-      PITWATCH_SEED_SHELLY_HOST: ${SHELLY_HOST:-}
-      PITWATCH_SEED_WAVESHARE_HOST: ${WAVESHARE_HOST:-}
-    ports:
-      # Left of the colon is the port on your host, and the only one worth
-      # changing. Right of it is the port inside the container, which stays
-      # 8080: nothing else is in there to collide with, and the image's health
-      # check expects it.
-      #
-      # Deliberately not called PITWATCH_PORT. That name is the application's
-      # own setting for which port to bind, and it is already set to 8080 in the
-      # image. Using it here as well would mean the same name meant the host
-      # side in one file and the container side in another, and anyone who
-      # passed it through to the app would map a port the app was no longer
-      # listening on.
-      - "${PITWATCH_HOST_PORT:-8080}:8080"
+      PITWATCH_DATABASE_URL: postgresql://pitwatch:${POSTGRES_PASSWORD}@127.0.0.1:5432/pitwatch
+
+      # The port to reach PitWatch on. On host networking this is a host port
+      # directly, with no mapping to move it.
+      PITWATCH_PORT: 8080
+
+      # Used for every timestamp shown. Storage is always UTC.
+      PITWATCH_TIMEZONE: America/New_York
+
+      # INFO is right for normal running. DEBUG logs every reading the Shelly
+      # pushes, which is a line a second.
+      PITWATCH_LOG_LEVEL: INFO
+
+      # Turn on if a reverse proxy in front is terminating TLS. It marks the
+      # session cookie Secure, so a browser will not send it over plain HTTP.
+      PITWATCH_SECURE_COOKIES: "false"
+
+      # Which addresses may say, through X-Forwarded-For, who the client really
+      # is. Set it to your reverse proxy if it runs somewhere else. Never "*":
+      # anyone able to reach the port could then claim to be any address, which
+      # defeats the sign in throttling.
+      PITWATCH_TRUSTED_PROXIES: 127.0.0.1,::1
 
 volumes:
   pitwatch-db:

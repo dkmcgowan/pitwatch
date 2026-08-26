@@ -9,12 +9,6 @@ Ethernet I/O module and turns that one contact into a page that says *pump 2 has
 been drawing 14.2 A for four minutes, the high water float is wet, and both
 pumps are running*.
 
-> **Early, and not yet proven against real hardware.** Setup, both device
-> readers and the live dashboard are written and tested, including against a
-> real TimescaleDB in CI. Neither reader has yet talked to an actual Shelly or
-> an actual Waveshare, and the I/O module in the reference installation is not
-> wired up. This paragraph gets edited when that stops being true.
-
 ## What it does
 
 Working now:
@@ -69,19 +63,6 @@ not go looking for a device that has moved.
 
 ## Install
 
-Two files, and one of them you copy from this repository rather than retyping.
-
-**1. Pick a compose file.** They differ in one thing: how the container reaches
-the network.
-
-| File | Use it when |
-| --- | --- |
-| `docker-compose.yml` | The normal case. The application runs on its own network and reaches your devices through the host. |
-| `docker-compose.host.yml` | The container cannot reach your Shelly or Waveshare, which shows up as the test button timing out on a device your host can ping. Also what you want if a reverse proxy on this host is fronting it. |
-
-Start with the first. If the test button times out, switch to the second; they
-share a project name and a volume, so your data comes with you.
-
 ```sh
 mkdir pitwatch && cd pitwatch
 curl -O https://raw.githubusercontent.com/dkmcgowan/pitwatch/main/docker-compose.yml
@@ -89,22 +70,8 @@ curl -O https://raw.githubusercontent.com/dkmcgowan/pitwatch/main/.env.example
 mv .env.example .env
 ```
 
-**2. Edit `.env`.** Only one line has to change:
-
-```sh
-POSTGRES_PASSWORD=pick-something-here
-```
-
-Everything else in that file has a working default and is there to be changed
-when you need it, not before. The two worth knowing about now:
-
-```sh
-# Set both of these if a reverse proxy in front is terminating TLS.
-PITWATCH_SECURE_COOKIES=true
-PITWATCH_TRUSTED_PROXIES=10.0.0.2      # the address your proxy connects from
-```
-
-**3. Start it.**
+Put a password in `.env`. That is the only setting without a sensible default;
+everything else is in `docker-compose.yml` with a comment next to it.
 
 ```sh
 docker compose up -d
@@ -114,135 +81,30 @@ Then open `http://<your-host>:8080` and sign in as **`admin`** with the password
 **`pitwatch`**. It will make you change it before anything else opens, and then
 walk you through setup.
 
-For the host networking file, every command takes `-f docker-compose.host.yml`:
+The application runs on the host's network, so your Shelly and Waveshare are
+reachable at their own addresses with nothing in the way. If you would rather it
+did not, the compose file says in a comment what to change.
 
-```sh
-docker compose -f docker-compose.host.yml up -d
-```
-
-### What is in .env
-
-| Setting | Default | What it does |
-| --- | --- | --- |
-| `POSTGRES_PASSWORD` | **required** | The database password. There is no default on purpose. |
-| `PITWATCH_HOST_PORT` | 8080 | The port to reach PitWatch on. Bridge setup only. |
-| `PITWATCH_PORT` | 8080 | The port the application binds. Host networking setup only, where there is no mapping to move. |
-| `POSTGRES_HOST_PORT` | 5432 | Where Postgres is published. Only used by the host networking setup, and by the commented out block in the other. |
-| `PITWATCH_TIMEZONE` | America/New_York | For every timestamp shown. Storage is always UTC. |
-| `PITWATCH_SECURE_COOKIES` | false | Marks the session cookie Secure. Set it behind a TLS proxy. |
-| `PITWATCH_TRUSTED_PROXIES` | 127.0.0.1,::1 | Which addresses may say who the client is. Set it to your proxy. Never `*`. |
-| `PITWATCH_LOG_LEVEL` | INFO | DEBUG logs every reading the Shelly pushes, which is a line a second. |
-| `SHELLY_HOST`, `WAVESHARE_HOST` | empty | Optional. Seeds the device addresses on a first boot so the wizard has less to ask. Read once, while the settings are empty. |
-
-The database is not published on a host port in the bridge setup. The
-application reaches it as `db:5432`, container to container, and nothing outside
-the stack needs to. There is a commented out `ports` block on the `db` service
-if you want to point psql or pgAdmin at it.
-
-### When the container cannot reach your devices
-
-The usual symptom is the **Test connection** button timing out on a device your
-Docker host can ping perfectly well. The test button walks up the stack and
-tells you which rung it fell off, so read that first: whether the name resolved,
-whether a TCP connection opened, whether HTTP answered, and whether the
-websocket did.
-
-Two causes account for almost all of it.
-
-**An mDNS name.** If you entered something ending in `.local`, your machine
-resolves it by multicast and a container cannot, because Docker's DNS does not
-do multicast. Use the IP address, and give the device a DHCP reservation so it
-keeps it.
-
-**The container cannot route to your LAN.** A timeout rather than a refusal
-usually means this: a host firewall dropping forwarded traffic off the Docker
-bridge, a device on an isolated Wi-Fi network, or a bridge subnet that overlaps
-your LAN. Rather than working out which, put the application on the host's
-network, where it has exactly the reachability the host has:
-
-```sh
-docker compose -f docker-compose.host.yml up -d
-```
-
-That file is in the repository and handles the two things that change with host
-networking: there is no port mapping any more, so set `PITWATCH_PORT` rather
-than `PITWATCH_HOST_PORT`, and the application reaches the database on
-`127.0.0.1` instead of by service name. The database is published on loopback
-only, so nothing on your LAN can reach Postgres.
-
-`POSTGRES_HOST_PORT` moves the database off 5432 if that is taken on the host.
-In this setup it is not only for outside tools: it is the port the application
-itself dials, so the mapping and the connection string both read that one
-variable and cannot drift apart.
+If a device will not connect, check the host can reach it first, then that the
+address is an IP rather than an mDNS name: `.local` names resolve on your
+machine and not inside a container.
 
 ### Monitoring it
 
-Two endpoints, answering two different questions.
-
 | Path | Answers | Returns |
 | --- | --- | --- |
-| `/health` | Is the process up and serving | `ok` as plain text, 200. Never touches the database. GET or HEAD. |
+| `/health` | Is the process up and serving | `ok` as plain text, 200. Touches no database. GET or HEAD. |
 | `/healthz` | Can it reach its database | JSON, 200 when it can, 503 when it cannot |
 
-Point a load balancer or an uptime check at **`/health`**. It is deliberately
-cheap: a proxy polling every couple of seconds should not turn into a database
-query every couple of seconds, forever.
+Point a load balancer or an uptime check at `/health`. It is deliberately cheap:
+a proxy polling every couple of seconds should not become a database query every
+couple of seconds. Uvicorn binds its socket only after startup finishes, which
+includes connecting to Postgres and applying migrations, so a 200 from it means
+the application genuinely came up.
 
-It is not as weak a check as it looks. Uvicorn binds its socket only after
-startup has finished, which includes connecting to Postgres and applying
-migrations, so a 200 from `/health` means the application genuinely came up.
-While it is starting, or once it has died, the connection is refused, which
-every checker already treats as down.
-
-Use `/healthz` when you want to know whether it can currently do its job, and
-poll it less often. The container's own `HEALTHCHECK` uses it, so
-`docker compose ps` already reflects it.
-
-For HAProxy:
-
-```haproxy
-backend pitwatch
-    option httpchk GET /health
-    http-check expect string ok
-    option forwardfor
-    # HAProxy does not add this on its own, and PitWatch has no other way to
-    # know the browser is on https. Without it the sign in throttling counts
-    # every request as coming from the proxy, and anything that has to name its
-    # own address gets it wrong.
-    http-request set-header X-Forwarded-Proto https
-    server pitwatch 10.0.0.5:8080 check inter 5s fall 3 rise 2
-```
-
-`http-check expect string ok` rather than only a status code, so that something
-else answering on that port with a cheerful 200 does not read as PitWatch being
-up.
-
-`option forwardfor` and the `X-Forwarded-Proto` line are both worth having.
-PitWatch honors them from the addresses named in `PITWATCH_TRUSTED_PROXIES` and
-ignores them from anywhere else.
-
-Nothing breaks without them, because the pages reference their own assets by
-path rather than by URL and the browser supplies the scheme. What suffers is
-anything that has to state an address in full: put the public address in
-settings so invitation emails carry a link that works.
-
-### Changing the ports
-
-Set `PITWATCH_HOST_PORT` in `.env` and `docker compose up -d`. That moves only
-the host side; the container keeps listening on 8080, which is what its health
-check expects.
-
-`POSTGRES_HOST_PORT` does the same for the database, and matters only where the
-database is published at all: always in the host networking setup, and in the
-bridge setup only if you uncomment its `ports` block. In the bridge setup the
-application always reaches Postgres as `db:5432` regardless.
-
-There is a separate `PITWATCH_PORT` that changes the port the application itself
-binds to, inside the container. You almost never want it. It matters in two
-cases: running with `network_mode: host`, where there is no port mapping to do
-the moving, and running `python -m pitwatch` directly without Docker. Setting
-both to different values is how you end up with a mapping to a port nothing is
-listening on.
+`/healthz` answers the other question, and is worth asking less often. The
+container's own `HEALTHCHECK` uses it, so `docker compose ps` already reflects
+it.
 
 ## Accounts
 
@@ -610,10 +472,9 @@ compose file with the project name. On Linux it lives under
 `/var/lib/docker/volumes/pitwatch_pitwatch-db/_data`. Do not edit it by hand
 while the stack is running; it is a live Postgres data directory.
 
-Both compose files use the same project name and the same volume, so switching
-between the bridge setup and the host networking one keeps your history. So does
-pulling a newer image: `docker compose pull && docker compose up -d` replaces
-the container and reattaches the same volume, and migrations run on start.
+Pulling a newer image keeps it: `docker compose pull && docker compose up -d`
+replaces the container, reattaches the same volume, and runs any new migrations
+on start.
 
 **`docker compose down` keeps the volume. `docker compose down -v` deletes it**,
 along with every reading, and there is no undo. That flag is the only routine
@@ -654,15 +515,11 @@ removes this project's containers, network and volumes and touches nothing else
 on the machine:
 
 ```sh
-docker compose -f docker-compose.host.yml down -v --remove-orphans
-docker compose -f docker-compose.host.yml up -d
+docker compose down -v
+docker compose up -d
 ```
 
-Use the same `-f` file you brought it up with. `--remove-orphans` is worth
-having because both compose files share one project name, so switching between
-the bridge setup and the host networking one can leave the other mode's
-container behind. Add `--rmi all` to drop the images too, if you want the next
-`up` to pull fresh.
+Add `--rmi all` to drop the images too, if you want the next `up` to pull fresh.
 
 That means going through setup again, and it is the only way to genuinely reset.
 

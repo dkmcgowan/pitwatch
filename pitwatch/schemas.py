@@ -221,11 +221,29 @@ class PumpsSettings(BaseModel):
     # few seconds, so ten is already well outside it.
     max_runtime_ms: int = Field(default=10_000, ge=1_000, le=86_400_000)
 
-    # Short cycling. More starts than this inside the window means the pit is
-    # refilling as fast as it empties, which is usually a check valve letting
-    # the discharge run back down.
-    max_starts: int = Field(default=20, ge=1, le=500)
-    starts_window_min: int = Field(default=60, ge=1, le=1440)
+    # Short cycling, detected by the gap between runs rather than by counting
+    # starts in an hour.
+    #
+    # Counting starts does not work at a site that takes roof water. During a
+    # storm the pit refills as fast as it empties and the pumps cycle
+    # continuously for hours, which is the equipment doing its job; a rate based
+    # rule fires on every rainstorm and is then ignored, which is worse than not
+    # having it.
+    #
+    # A failed check valve looks different. When the pump stops, the column of
+    # water standing in the discharge pipe runs back down into the pit, refills
+    # it, and calls the pump straight back out. The distinguishing mark is not
+    # how often that happens but how soon: the same column takes about the same
+    # short time to fall back every time, so the gaps are both very short and
+    # very alike. Inflow, even heavy inflow, has to fill the volume between the
+    # off level and the lead float, which takes longer and varies.
+    #
+    # Off by default. What counts as suspiciously soon depends on the pit, and a
+    # threshold guessed at before there is any run history to look at is a
+    # threshold that mostly produces false alarms.
+    restart_gap_ms: int | None = Field(default=None, ge=100, le=600_000)
+    # How many restarts that soon, one after another, before it means something.
+    restart_streak: int = Field(default=4, ge=2, le=50)
 
     # Nothing running at all for this long is either a very dry spell or a
     # sensor that has quietly died, and the second is worth knowing about.

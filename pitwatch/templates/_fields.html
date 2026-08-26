@@ -273,21 +273,38 @@
 
 <div class="grid">
   <div class="field">
-    <label for="max_starts">Alert above (starts)</label>
-    <input type="number" min="1" id="max_starts" name="max_starts" value="{{ pumps.max_starts }}">
+    <label for="restart_gap_ms">Short cycling: restarts within (ms)</label>
+    <input type="number" min="100" step="100" id="restart_gap_ms" name="restart_gap_ms"
+           value="{{ pumps.restart_gap_ms if pumps.restart_gap_ms is not none else '' }}">
+    <p class="hint">Empty turns the check off, which is the default.</p>
   </div>
   <div class="field">
-    <label for="starts_window_min">within (minutes)</label>
-    <input type="number" min="1" id="starts_window_min" name="starts_window_min"
-           value="{{ pumps.starts_window_min }}">
+    <label for="restart_streak">this many times in a row</label>
+    <input type="number" min="2" id="restart_streak" name="restart_streak"
+           value="{{ pumps.restart_streak }}">
   </div>
 </div>
 <p class="hint">
-  <strong>Short cycling.</strong> The pumps starting far more often than the
-  building can be filling the pit. Usually a check valve that has stopped
-  sealing, so each time a pump stops, what it just pushed up the discharge pipe
-  runs straight back down and calls it out again. It wears the motors out and it
-  is invisible unless something counts the starts.
+  <strong>What this is looking for.</strong> When a check valve stops sealing,
+  the column of water standing in the discharge pipe runs back down into the pit
+  the moment the pump stops, refills it, and calls the pump straight back out.
+  It wears the motors out and is invisible unless something is watching for it.
+</p>
+<p class="hint">
+  <strong>Why it is not a count per hour.</strong> A pit that takes roof water
+  cycles continuously through a storm, which is the equipment working, and a
+  rule based on how often the pumps run would fire on every rainstorm. What
+  separates a failed valve from heavy inflow is not how often but how soon: the
+  same column of water takes about the same short time to fall back every time,
+  so the gaps are both very short and very alike. Inflow has to fill the volume
+  between the off level and the lead float, which takes longer and varies with
+  the weather.
+</p>
+<p class="hint">
+  It is off until you set a gap, because what counts as suspiciously soon
+  depends on your pit. Leave it off, watch the run history for a while, see how
+  quickly the pumps normally come back on after stopping, and set it well below
+  that.
 </p>
 
 <div class="field">

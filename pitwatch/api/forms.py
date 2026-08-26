@@ -65,6 +65,11 @@ def integer(form: FormData, name: str, default: int) -> int:
     return int(number(form, name, default))
 
 
+def optional_integer(form: FormData, name: str) -> int | None:
+    value = optional_number(form, name)
+    return int(value) if value is not None else None
+
+
 def site_from(form: FormData) -> SiteSettings:
     return SiteSettings(
         name=text(form, "site_name"),
@@ -137,8 +142,8 @@ def pumps_from(form: FormData) -> PumpsSettings:
         inrush_ignore_ms=integer(form, "inrush_ignore_ms", 800),
         stop_hold_ms=integer(form, "stop_hold_ms", 1000),
         max_runtime_ms=integer(form, "max_runtime_ms", 10_000),
-        max_starts=integer(form, "max_starts", 20),
-        starts_window_min=integer(form, "starts_window_min", 60),
+        restart_gap_ms=optional_integer(form, "restart_gap_ms"),
+        restart_streak=integer(form, "restart_streak", 4),
         quiet_minutes_before_flag=integer(form, "quiet_minutes_before_flag", 240),
     )
 

@@ -69,67 +69,75 @@ not go looking for a device that has moved.
 
 ## Install
 
-Make a directory, put these two files in it, and start it.
+Two files, and one of them you copy from this repository rather than retyping.
 
-```yaml
-# docker-compose.yml
-name: pitwatch
+**1. Pick a compose file.** They differ in one thing: how the container reaches
+the network.
 
-services:
-  db:
-    image: timescale/timescaledb:latest-pg17
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: pitwatch
-      POSTGRES_USER: pitwatch
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      TIMESCALEDB_TELEMETRY: "off"
-    volumes:
-      - pitwatch-db:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pitwatch -d pitwatch"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+| File | Use it when |
+| --- | --- |
+| `docker-compose.yml` | The normal case. The application runs on its own network and reaches your devices through the host. |
+| `docker-compose.host.yml` | The container cannot reach your Shelly or Waveshare, which shows up as the test button timing out on a device your host can ping. Also what you want if a reverse proxy on this host is fronting it. |
 
-  app:
-    image: ghcr.io/dkmcgowan/pitwatch:latest
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      PITWATCH_DATABASE_URL: postgresql://pitwatch:${POSTGRES_PASSWORD}@db:5432/pitwatch
-      PITWATCH_TIMEZONE: ${PITWATCH_TIMEZONE:-America/New_York}
-    ports:
-      - "${PITWATCH_HOST_PORT:-8080}:8080"
-
-volumes:
-  pitwatch-db:
-```
+Start with the first. If the test button times out, switch to the second; they
+share a project name and a volume, so your data comes with you.
 
 ```sh
-# .env
-POSTGRES_PASSWORD=pick-something-here
-PITWATCH_HOST_PORT=8080
-POSTGRES_HOST_PORT=5432
-PITWATCH_TIMEZONE=America/New_York
+mkdir pitwatch && cd pitwatch
+curl -O https://raw.githubusercontent.com/dkmcgowan/pitwatch/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/dkmcgowan/pitwatch/main/.env.example
+mv .env.example .env
 ```
+
+**2. Edit `.env`.** Only one line has to change:
+
+```sh
+POSTGRES_PASSWORD=pick-something-here
+```
+
+Everything else in that file has a working default and is there to be changed
+when you need it, not before. The two worth knowing about now:
+
+```sh
+# Set both of these if a reverse proxy in front is terminating TLS.
+PITWATCH_SECURE_COOKIES=true
+PITWATCH_TRUSTED_PROXIES=10.0.0.2      # the address your proxy connects from
+```
+
+**3. Start it.**
 
 ```sh
 docker compose up -d
 ```
 
-Then open `http://<your-host>:8080` and sign in as **`admin`** with the
-password **`pitwatch`**. It will make you change it before anything else opens,
-and then walk you through setup.
+Then open `http://<your-host>:8080` and sign in as **`admin`** with the password
+**`pitwatch`**. It will make you change it before anything else opens, and then
+walk you through setup.
 
-The database is not published on a host port, on purpose. The application
-reaches it as `db:5432`, container to container, and nothing outside the stack
-needs to. There is a commented out `ports` block on the `db` service if you want
-to point psql or pgAdmin at it; `POSTGRES_HOST_PORT` sets which host port that
-uses, for when 5432 is already taken.
+For the host networking file, every command takes `-f docker-compose.host.yml`:
+
+```sh
+docker compose -f docker-compose.host.yml up -d
+```
+
+### What is in .env
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `POSTGRES_PASSWORD` | **required** | The database password. There is no default on purpose. |
+| `PITWATCH_HOST_PORT` | 8080 | The port to reach PitWatch on. Bridge setup only. |
+| `PITWATCH_PORT` | 8080 | The port the application binds. Host networking setup only, where there is no mapping to move. |
+| `POSTGRES_HOST_PORT` | 5432 | Where Postgres is published. Only used by the host networking setup, and by the commented out block in the other. |
+| `PITWATCH_TIMEZONE` | America/New_York | For every timestamp shown. Storage is always UTC. |
+| `PITWATCH_SECURE_COOKIES` | false | Marks the session cookie Secure. Set it behind a TLS proxy. |
+| `PITWATCH_TRUSTED_PROXIES` | 127.0.0.1,::1 | Which addresses may say who the client is. Set it to your proxy. Never `*`. |
+| `PITWATCH_LOG_LEVEL` | INFO | DEBUG logs every reading the Shelly pushes, which is a line a second. |
+| `SHELLY_HOST`, `WAVESHARE_HOST` | empty | Optional. Seeds the device addresses on a first boot so the wizard has less to ask. Read once, while the settings are empty. |
+
+The database is not published on a host port in the bridge setup. The
+application reaches it as `db:5432`, container to container, and nothing outside
+the stack needs to. There is a commented out `ports` block on the `db` service
+if you want to point psql or pgAdmin at it.
 
 ### When the container cannot reach your devices
 

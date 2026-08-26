@@ -71,7 +71,7 @@ async def setup_submit(request: Request, admin: auth.IsAdmin):
     try:
         site = forms.site_from(form)
         shelly = forms.shelly_from(form, store.shelly)
-        waveshare = forms.waveshare_from(form, store.waveshare)
+        waveshare = forms.waveshare_from(form)
         pumps = forms.pumps_from(form)
     except (ValueError, ValidationError) as error:
         return _templates(request).TemplateResponse(
@@ -133,7 +133,7 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
             case "shelly":
                 await store.put(forms.shelly_from(form, store.shelly))
             case "waveshare":
-                await store.put(forms.waveshare_from(form, store.waveshare))
+                await store.put(forms.waveshare_from(form))
             case "pumps":
                 await store.put(forms.pumps_from(form))
             case "smtp":

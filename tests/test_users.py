@@ -39,17 +39,35 @@ def _no_leftover_throttling():
 
 
 def sign_in_as_admin(client):
-    client.post(
-        "/login", data={"username": auth.DEFAULT_USERNAME, "password": auth.DEFAULT_PASSWORD}
+    """Sign in as the admin, whether or not this test has done it before.
+
+    The first call has to use the shipped password and then change it, because
+    that account can go nowhere until it does. Every later call has to use the
+    new one. Getting that wrong does not fail loudly: the sign in quietly does
+    not happen, the next request redirects to the login page, and the test then
+    asserts against a page that never did what it asked for.
+    """
+    first = client.post(
+        "/login",
+        data={"username": auth.DEFAULT_USERNAME, "password": auth.DEFAULT_PASSWORD},
+        follow_redirects=False,
     )
-    client.post(
-        "/change-password",
-        data={
-            "current_password": auth.DEFAULT_PASSWORD,
-            "new_password": NEW_PASSWORD,
-            "confirm_password": NEW_PASSWORD,
-        },
-    )
+    if first.status_code == 303:
+        client.post(
+            "/change-password",
+            data={
+                "current_password": auth.DEFAULT_PASSWORD,
+                "new_password": NEW_PASSWORD,
+                "confirm_password": NEW_PASSWORD,
+            },
+        )
+    else:
+        signed_in = client.post(
+            "/login",
+            data={"username": auth.DEFAULT_USERNAME, "password": NEW_PASSWORD},
+            follow_redirects=False,
+        )
+        assert signed_in.status_code == 303, "could not sign back in as the admin"
     return client
 
 

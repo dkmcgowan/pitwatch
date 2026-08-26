@@ -302,7 +302,7 @@ class SiteSettings(BaseModel):
         where somebody does want telling which end of the basement.
         """
         building = self.name.strip()
-        return f"the pumps at {building}" if building else "this building's pumps"
+        return f"the pumps at {building}" if building else "the pumps in this building"
 
     # An alert has to stay open this long before anyone is told, which stops a
     # float that bobs once from waking the building. Critical alerts ignore it.

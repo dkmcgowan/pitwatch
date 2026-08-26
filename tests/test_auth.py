@@ -287,7 +287,7 @@ def test_the_policies_never_print_a_placeholder_building(client):
     whatever somebody types, and until they do it is not named at all."""
     for path in ("/messaging-policy", "/privacy"):
         page = client.get(path).text
-        assert "PitWatch monitors this building's pumps" in page, path
+        assert "PitWatch monitors the pumps in this building" in page, path
         assert "Ejector" not in page, path
 
 

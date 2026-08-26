@@ -29,7 +29,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.types import ASGIApp
 
-from pitwatch import auth
+from pitwatch import auth, csrf
 
 log = logging.getLogger(__name__)
 
@@ -76,10 +76,26 @@ class RequireSignIn(BaseHTTPMiddleware):
             else:
                 auth.sign_out(request)
 
+        # Checked before anything else looks at the request, and on public
+        # paths too: the login form is public and is exactly the form somebody
+        # would want to make you submit.
+        if request.method not in csrf.SAFE_METHODS and not await csrf.is_valid(request):
+            log.warning("Rejected a %s to %s with no valid CSRF token", request.method, path)
+            return _refuse_csrf(request)
+
         if is_public(path):
             return await call_next(request)
 
         if request.state.user is None:
+            return _refuse(request)
+
+        # A password change, here or anywhere else, ends every other session
+        # for that account. Without this a stolen cookie survives the thing
+        # somebody does precisely because they think it was stolen.
+        if request.session.get(auth.SESSION_FINGERPRINT_KEY) != request.state.user.fingerprint:
+            log.info("Session for %s no longer matches its password", request.state.user.username)
+            auth.sign_out(request)
+            request.state.user = None
             return _refuse(request)
 
         # A default password is a password everybody knows, so an account still
@@ -107,6 +123,18 @@ def _wants_html(request: Request) -> bool:
     return not request.url.path.startswith(("/api/", "/ws/"))
 
 
+def _refuse_csrf(request: Request):
+    """Deliberately unhelpful about what was missing.
+
+    Somebody who reached here through a page this application rendered has a
+    stale session and wants to sign in again. Anybody else does not need
+    instructions.
+    """
+    if not _wants_html(request):
+        return JSONResponse({"error": "The session has expired. Reload and try again."}, 403)
+    return RedirectResponse("/login?stale=1", status_code=303)
+
+
 def _refuse(request: Request):
     if not _wants_html(request):
         return JSONResponse({"error": "Sign in first"}, status_code=401)
@@ -119,3 +147,50 @@ def _refuse(request: Request):
     if not destination.startswith("/") or destination.startswith("//"):
         destination = "/"
     return RedirectResponse(f"/login?next={destination}", status_code=303)
+
+
+class SecurityHeaders(BaseHTTPMiddleware):
+    """Headers that cost nothing and close off whole categories of attack.
+
+    A proxy could set these instead, and often does. Setting them here means
+    they are true wherever this runs, including on somebody's laptop and behind
+    a proxy nobody configured for it.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        headers = response.headers
+
+        # Nothing here is ever meant to be inside somebody else's page. This is
+        # the modern spelling; X-Frame-Options is the one older browsers read.
+        headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+        headers.setdefault("X-Frame-Options", "DENY")
+        # Stop a browser deciding for itself that something is a script.
+        headers.setdefault("X-Content-Type-Options", "nosniff")
+        # An invitation link in a Referer header would hand somebody else a
+        # working credential, so referrers stay on this site.
+        headers.setdefault("Referrer-Policy", "same-origin")
+        headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        # None of this is a browser API this application has any use for.
+        headers.setdefault(
+            "Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=()"
+        )
+        return response
+
+
+# Everything is served from this origin, and the one websocket connects back to
+# it. There are no third party scripts, fonts, frames or images anywhere, which
+# is what makes a policy this tight possible.
+CONTENT_SECURITY_POLICY = "; ".join(
+    [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self'",
+        "img-src 'self' data:",
+        "connect-src 'self' ws: wss:",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+        "base-uri 'none'",
+        "object-src 'none'",
+    ]
+)

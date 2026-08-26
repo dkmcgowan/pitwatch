@@ -68,6 +68,10 @@ services:
       # Turn on when a proxy in front is terminating TLS. It marks the session
       # cookie Secure, so it is never sent over plain HTTP.
       PITWATCH_SECURE_COOKIES: ${PITWATCH_SECURE_COOKIES:-false}
+      # Which addresses may say, through X-Forwarded-For, who the client is.
+      # Set it to your proxy. Trusting everything lets anyone who can reach
+      # this port claim to be any address they like.
+      PITWATCH_TRUSTED_PROXIES: ${PITWATCH_TRUSTED_PROXIES:-127.0.0.1,::1}
       # Optional. Set these and the first boot comes up already pointed at the
       # hardware, so the setup wizard has less to ask. They are read once, when
       # the settings are empty; after that the settings page is in charge.

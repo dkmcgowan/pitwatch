@@ -19,19 +19,32 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from jinja2 import pass_context
 from starlette.middleware.sessions import SessionMiddleware
 
-from pitwatch import __version__, auth
+from pitwatch import __version__, auth, csrf
 from pitwatch.api import live as live_api
 from pitwatch.api import pages, stream, users
 from pitwatch.config import Config, get_config
 from pitwatch.db import lifespan_pool
 from pitwatch.ingest.sink import LiveIo, LiveState
 from pitwatch.ingest.supervisor import Supervisor
-from pitwatch.middleware import RequireSignIn
+from pitwatch.middleware import RequireSignIn, SecurityHeaders
 from pitwatch.settings import SettingsStore, seed_from_environment
 
 log = logging.getLogger(__name__)
+
+
+@pass_context
+def _csrf_token(context) -> str:
+    """The token for the request being rendered.
+
+    A context function rather than a value, because the token belongs to the
+    session and templates are shared across requests.
+    """
+    request = context.get("request")
+    return csrf.token_for(request) if request is not None else ""
+
 
 PACKAGE_ROOT = Path(__file__).parent
 templates = Jinja2Templates(directory=str(PACKAGE_ROOT / "templates"))
@@ -101,6 +114,7 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
 
     # Order matters and reads backwards: the last one added is the outermost,
     # so the session has to be added after the guard in order to run before it.
+    app.add_middleware(SecurityHeaders)
     app.add_middleware(RequireSignIn)
     app.add_middleware(
         SessionMiddleware,
@@ -121,6 +135,9 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
     # Every template gets the version and the signed in user without each route
     # having to remember to pass them.
     templates.env.globals["version"] = __version__
+    # Every template can render the token without each route remembering to
+    # pass it, which is what stops one form quietly going without.
+    templates.env.globals["csrf_token"] = _csrf_token
     # Shown on the policy pages, which are the sort of thing a carrier looks at
     # the date on.
     templates.env.globals["policy_updated"] = "26 August 2026"

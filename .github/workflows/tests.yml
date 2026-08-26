@@ -57,5 +57,7 @@ jobs:
         run: ruff format --check pitwatch tests scripts
       - name: House style
         run: python scripts/check_style.py
+      - name: Known vulnerabilities
+        run: pip-audit -r requirements.txt --progress-spinner off
       - name: Pytest
         run: pytest --cov=pitwatch --cov-report=term-missing

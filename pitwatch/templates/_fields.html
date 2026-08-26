@@ -184,6 +184,12 @@
 
 
 {% macro pump_fields(pumps) %}
+<p class="hint">
+  An ejector pump runs for a few seconds at a time, so the timings here are in
+  milliseconds. Seconds are too coarse a unit to describe anything that happens
+  inside a run that short.
+</p>
+
 <div class="grid">
   {% for number, pump in [(1, pumps.pump1), (2, pumps.pump2)] %}
   <fieldset class="field">
@@ -192,7 +198,7 @@
     <label for="pump{{ number }}_name">Name</label>
     <input type="text" id="pump{{ number }}_name" name="pump{{ number }}_name" value="{{ pump.name }}">
 
-    <label for="pump{{ number }}_running_amps">Running above (A)</label>
+    <label for="pump{{ number }}_running_amps">Counts as running above (A)</label>
     <input type="number" step="0.1" min="0" id="pump{{ number }}_running_amps"
            name="pump{{ number }}_running_amps" value="{{ pump.running_amps }}">
     <p class="hint">Not zero. A clamp on a live conductor reads a little noise
@@ -202,52 +208,98 @@
     <input type="number" step="0.1" min="0" id="pump{{ number }}_nameplate_amps"
            name="pump{{ number }}_nameplate_amps"
            value="{{ pump.nameplate_amps if pump.nameplate_amps is not none else '' }}">
+    <p class="hint">The number printed on the motor itself, often as FLA: what it
+      draws doing the work it was built for. Nothing is calculated from it. It is
+      here so the threshold below can be judged against something real, and so a
+      pump drawing more than its own rating is obvious.</p>
 
     <label for="pump{{ number }}_overcurrent_amps">Alert above (A)</label>
     <input type="number" step="0.1" min="0" id="pump{{ number }}_overcurrent_amps"
            name="pump{{ number }}_overcurrent_amps"
            value="{{ pump.overcurrent_amps if pump.overcurrent_amps is not none else '' }}">
+    <p class="hint">Set this just above what the pump normally draws once it is
+      turning. The starting surge is thrown away before this is checked, so a
+      motor that spikes to 60 A and settles at 16 A will not trip a threshold of
+      18 A. Leave empty to skip the check.</p>
 
-    <label for="pump{{ number }}_overcurrent_hold_s">Held for (s)</label>
-    <input type="number" min="1" id="pump{{ number }}_overcurrent_hold_s"
-           name="pump{{ number }}_overcurrent_hold_s" value="{{ pump.overcurrent_hold_s }}">
-
-    <label for="pump{{ number }}_undercurrent_amps">Alert below (A)</label>
-    <input type="number" step="0.1" min="0" id="pump{{ number }}_undercurrent_amps"
-           name="pump{{ number }}_undercurrent_amps"
-           value="{{ pump.undercurrent_amps if pump.undercurrent_amps is not none else '' }}">
-    <p class="hint">Running but barely drawing anything: an impeller spinning in
-      air, a lost coupling, a lost phase. Leave empty to skip the check.</p>
+    <label for="pump{{ number }}_overcurrent_hold_ms">Held for (ms)</label>
+    <input type="number" min="100" step="100" id="pump{{ number }}_overcurrent_hold_ms"
+           name="pump{{ number }}_overcurrent_hold_ms" value="{{ pump.overcurrent_hold_ms }}">
+    <p class="hint">How long it has to stay above that before it counts, measured
+      after the start has been discarded. This plus the ignore window below has
+      to fit inside a normal run or the alert can never fire.</p>
   </fieldset>
   {% endfor %}
 </div>
 
+<h3>Timing</h3>
+
+<div class="field">
+  <label for="inrush_ignore_ms">Ignore the first (ms) of a run</label>
+  <input type="number" min="0" step="100" id="inrush_ignore_ms" name="inrush_ignore_ms"
+         value="{{ pumps.inrush_ignore_ms }}">
+  <p class="hint">
+    A motor pulls six to eight times its running current for a fraction of a
+    second as it comes up to speed. Sixty or seventy amps settling to sixteen is
+    a healthy pump, not an overloaded one. Every reading inside this window is
+    left out of the run's averages and out of the overcurrent check above, which
+    is what lets that threshold sit just above the running current. The peak is
+    still recorded separately, because a starting surge that climbs month over
+    month is a bearing on its way out.
+  </p>
+</div>
+
+<div class="field">
+  <label for="stop_hold_ms">A run has ended after (ms) below the running current</label>
+  <input type="number" min="100" step="100" id="stop_hold_ms" name="stop_hold_ms"
+         value="{{ pumps.stop_hold_ms }}">
+  <p class="hint">
+    How long the current has to stay down before the run is treated as over.
+    Long enough to bridge a momentary dip, which would otherwise split one run
+    into two; short enough that two real runs a few seconds apart are still
+    counted as two.
+  </p>
+</div>
+
+<div class="field">
+  <label for="max_runtime_ms">Alert on a run longer than (ms)</label>
+  <input type="number" min="1000" step="500" id="max_runtime_ms" name="max_runtime_ms"
+         value="{{ pumps.max_runtime_ms }}">
+  <p class="hint">
+    A stuck float, or pumping against a blockage. If a normal run is three or
+    four seconds, ten is already well outside it.
+  </p>
+</div>
+
 <div class="grid">
   <div class="field">
-    <label for="inrush_ignore_s">Ignore the first (s) of a run</label>
-    <input type="number" step="0.5" min="0" id="inrush_ignore_s" name="inrush_ignore_s" value="{{ pumps.inrush_ignore_s }}">
-    <p class="hint">A motor pulls six to eight times its running current at
-      start. Averaging that in makes a healthy pump look overloaded. The peak is
-      still recorded separately.</p>
+    <label for="max_starts">Alert above (starts)</label>
+    <input type="number" min="1" id="max_starts" name="max_starts" value="{{ pumps.max_starts }}">
   </div>
   <div class="field">
-    <label for="stop_hold_s">A run ends after (s) below threshold</label>
-    <input type="number" step="0.5" min="0.5" id="stop_hold_s" name="stop_hold_s" value="{{ pumps.stop_hold_s }}">
+    <label for="starts_window_min">within (minutes)</label>
+    <input type="number" min="1" id="starts_window_min" name="starts_window_min"
+           value="{{ pumps.starts_window_min }}">
   </div>
-  <div class="field">
-    <label for="max_runtime_s">Alert on a run longer than (s)</label>
-    <input type="number" min="30" id="max_runtime_s" name="max_runtime_s" value="{{ pumps.max_runtime_s }}">
-  </div>
-  <div class="field">
-    <label for="max_starts_per_hour">Alert above (starts per hour)</label>
-    <input type="number" min="1" id="max_starts_per_hour" name="max_starts_per_hour" value="{{ pumps.max_starts_per_hour }}">
-    <p class="hint">Usually a check valve letting the discharge run back into
-      the pit.</p>
-  </div>
-  <div class="field">
-    <label for="quiet_hours_before_flag">Flag no runs at all after (hours)</label>
-    <input type="number" min="1" id="quiet_hours_before_flag" name="quiet_hours_before_flag" value="{{ pumps.quiet_hours_before_flag }}">
-  </div>
+</div>
+<p class="hint">
+  <strong>Short cycling.</strong> The pumps starting far more often than the
+  building can be filling the pit. Usually a check valve that has stopped
+  sealing, so each time a pump stops, what it just pushed up the discharge pipe
+  runs straight back down and calls it out again. It wears the motors out and it
+  is invisible unless something counts the starts.
+</p>
+
+<div class="field">
+  <label for="quiet_minutes_before_flag">Flag no runs at all after (minutes)</label>
+  <input type="number" min="5" id="quiet_minutes_before_flag" name="quiet_minutes_before_flag"
+         value="{{ pumps.quiet_minutes_before_flag }}">
+  <p class="hint">
+    The opposite problem. Silence can mean a genuinely dry spell, or it can mean
+    the float is stuck down, the clamp has fallen off, or the panel is dead and
+    nothing is watching the pit at all. Set it to a bit longer than the longest
+    gap you would expect to see normally.
+  </p>
 </div>
 {% endmacro %}
 

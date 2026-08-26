@@ -158,25 +158,39 @@ class ShellySettings(BaseModel):
 
 
 class PumpSettings(BaseModel):
-    """Per pump electrical expectations.
+    """What one motor is expected to draw.
 
-    ``running_amps`` is the line between off and on. It is not zero: a clamp
-    reads a little noise, and a contactor coil or a control transformer on the
-    same conductor reads more than a little.
+    Everything here is in amps except the hold, which is in milliseconds,
+    because an ejector pump runs for a few seconds at a time and seconds are too
+    coarse a unit to describe anything that happens inside one.
     """
 
     name: str = "Pump"
+
+    # The line between off and running. Not zero: a clamp on a live conductor
+    # reads a little noise, and a control transformer sharing the conductor
+    # reads more than a little.
     running_amps: float = Field(default=1.0, ge=0)
-    # Full load amps off the motor nameplate. Everything below is a multiple of
-    # it, so entering it correctly is worth more than tuning the rest.
+
+    # The full load amps printed on the motor's nameplate, which is what it
+    # draws doing the work it was built for. Nothing is computed from it. It is
+    # here so that the numbers below can be judged against something real when
+    # somebody is deciding what to put in them, and so a pump drawing more than
+    # its own rating is visible for what it is.
     nameplate_amps: float | None = Field(default=None, gt=0)
-    # A run drawing more than this for longer than overcurrent_hold_s is an
-    # overload the panel has not tripped on yet.
+
+    # Above this, for longer than overcurrent_hold_ms, is an overload the panel
+    # has not tripped on yet. The starting surge is excluded before this is
+    # applied; see PumpsSettings.inrush_ignore_ms.
     overcurrent_amps: float | None = Field(default=None, gt=0)
-    overcurrent_hold_s: int = Field(default=15, ge=1, le=3600)
-    # Drawing far less than usual means the impeller is spinning in air, or the
-    # coupling has gone, or a phase is missing.
-    undercurrent_amps: float | None = Field(default=None, ge=0)
+
+    # How long the current has to stay above that before it counts.
+    #
+    # Milliseconds, and short. These pumps run for three or four seconds. A hold
+    # measured in seconds, as this was, is longer than the entire run: the
+    # condition could never last long enough to fire and the alert would simply
+    # never happen, which is the worst way for a check to be wrong.
+    overcurrent_hold_ms: int = Field(default=1500, ge=100, le=600_000)
 
 
 class PumpsSettings(BaseModel):
@@ -185,23 +199,37 @@ class PumpsSettings(BaseModel):
     pump1: PumpSettings = Field(default_factory=lambda: PumpSettings(name="Pump 1"))
     pump2: PumpSettings = Field(default_factory=lambda: PumpSettings(name="Pump 2"))
 
-    # A motor draws six to eight times its running current for a fraction of a
-    # second at start. Averaging that into the run makes a healthy pump look
-    # overloaded, so the first seconds are dropped from every average. The peak
-    # is still recorded separately.
-    inrush_ignore_s: float = Field(default=2.0, ge=0, le=30)
-    # Current has to fall below the running threshold for this long before a run
-    # counts as finished, so a momentary dip does not split one run into two.
-    stop_hold_s: float = Field(default=3.0, ge=0.5, le=120)
-    # Longer than this and the pump is running on a stuck float or against a
-    # blockage, neither of which ends well.
-    max_runtime_s: int = Field(default=600, ge=30, le=86_400)
-    # More starts than this in an hour means the check valve is passing and the
-    # pit is refilling from the discharge pipe.
-    max_starts_per_hour: int = Field(default=20, ge=1, le=500)
-    # No run at all in this many hours is either a very dry week or a dead
-    # sensor. Worth a quiet flag either way.
-    quiet_hours_before_flag: int = Field(default=72, ge=1, le=8760)
+    # How much of the start to throw away.
+    #
+    # A motor pulls six to eight times its running current for a fraction of a
+    # second as it comes up to speed. Sixty amps settling to sixteen is a
+    # healthy pump, not an overloaded one. Every reading in this window is left
+    # out of the run's averages and out of the overcurrent check, so a threshold
+    # can be set just above the running current without the start tripping it.
+    #
+    # The peak is still recorded, on its own, because a starting surge climbing
+    # month over month is a bearing on its way out.
+    inrush_ignore_ms: int = Field(default=800, ge=0, le=30_000)
+
+    # Current has to stay below the running threshold for this long before a run
+    # counts as finished, so a momentary dip does not split one run in two. Long
+    # enough to bridge a dip, short enough that two real runs a few seconds
+    # apart stay two runs.
+    stop_hold_ms: int = Field(default=1000, ge=100, le=120_000)
+
+    # A run longer than this is a stuck float or a blockage. Normal here is a
+    # few seconds, so ten is already well outside it.
+    max_runtime_ms: int = Field(default=10_000, ge=1_000, le=86_400_000)
+
+    # Short cycling. More starts than this inside the window means the pit is
+    # refilling as fast as it empties, which is usually a check valve letting
+    # the discharge run back down.
+    max_starts: int = Field(default=20, ge=1, le=500)
+    starts_window_min: int = Field(default=60, ge=1, le=1440)
+
+    # Nothing running at all for this long is either a very dry spell or a
+    # sensor that has quietly died, and the second is worth knowing about.
+    quiet_minutes_before_flag: int = Field(default=240, ge=5, le=525_600)
 
     @property
     def by_number(self) -> dict[int, PumpSettings]:

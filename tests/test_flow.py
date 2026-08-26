@@ -94,11 +94,12 @@ SETUP_FORM = {
     "pump2_name": "South pump",
     "pump2_running_amps": "1.5",
     "pump2_nameplate_amps": "9.6",
-    "inrush_ignore_s": "2",
-    "stop_hold_s": "3",
-    "max_runtime_s": "600",
-    "max_starts_per_hour": "20",
-    "quiet_hours_before_flag": "72",
+    "inrush_ignore_ms": "800",
+    "stop_hold_ms": "1000",
+    "max_runtime_ms": "10000",
+    "max_starts": "20",
+    "starts_window_min": "60",
+    "quiet_minutes_before_flag": "240",
 }
 
 

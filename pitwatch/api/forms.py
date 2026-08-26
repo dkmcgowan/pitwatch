@@ -14,18 +14,14 @@ from __future__ import annotations
 from starlette.datastructures import FormData
 
 from pitwatch.schemas import (
-    UNUSED,
     ChannelMap,
     PumpSettings,
     PumpsSettings,
     ShellySettings,
-    SignalDef,
     SiteSettings,
     SmsSettings,
     SmtpSettings,
     WaveshareSettings,
-    default_signals,
-    signal_key,
 )
 
 
@@ -106,61 +102,22 @@ def shelly_from(form: FormData, existing: ShellySettings | None = None) -> Shell
     )
 
 
-def signals_from(form: FormData, existing: WaveshareSettings | None = None) -> list[SignalDef]:
-    """The signal catalog as the form has it.
+def waveshare_from(form: FormData) -> WaveshareSettings:
+    """The I/O module and what each of its eight inputs is called.
 
-    The rows are paired by position: each one posts a signal_key and a
-    signal_label. A row that is already saved posts its key back unchanged, so
-    renaming it changes only what it is called and leaves every reading already
-    recorded under that key still pointing at it.
-
-    A row whose name has been emptied is dropped. That is deliberately all
-    removing one is: there is no separate delete request to get wrong, and it
-    works with JavaScript off.
+    A blank name means nothing is wired to that input. There is nothing else to
+    read: the input number is the identity, so there is no separate list of
+    names to keep in step with it and no way for the two to disagree.
     """
-    labels = form.getlist("signal_label")
-    if not labels:
-        # A form that does not carry the catalog at all, rather than one
-        # carrying an empty catalog. Leave what is saved alone.
-        return list(existing.signals) if existing is not None else default_signals()
-
-    keys = form.getlist("signal_key")
-    signals: list[SignalDef] = []
-    taken: set[str] = set()
-    for index, raw_label in enumerate(labels):
-        label = str(raw_label).strip()
-        if not label:
-            continue
-        posted = str(keys[index]).strip() if index < len(keys) else ""
-        # Run it through the same cleaner either way. It leaves a key that is
-        # already valid alone, and it means nothing a browser posts can reach
-        # the database as a key that will not validate.
-        key = signal_key(posted or label)
-        if key == UNUSED or key in taken:
-            # Two rows landing on one key, which duplicating a name will do.
-            # Numbering the second is kinder than refusing the save and leaving
-            # somebody to work out which two collided.
-            base = "signal" if key == UNUSED else key
-            suffix = 2
-            while f"{base}_{suffix}" in taken:
-                suffix += 1
-            key = f"{base}_{suffix}"
-        taken.add(key)
-        signals.append(SignalDef(key=key, label=label))
-    return signals
-
-
-def waveshare_from(form: FormData, existing: WaveshareSettings | None = None) -> WaveshareSettings:
-    channels = []
-    for number_ in range(1, 9):
-        channels.append(
-            ChannelMap(
-                channel=number_,
-                signal=text(form, f"channel_{number_}_signal", UNUSED) or UNUSED,
-                invert=checkbox(form, f"channel_{number_}_invert"),
-                debounce_ms=integer(form, f"channel_{number_}_debounce", 500),
-            )
+    channels = [
+        ChannelMap(
+            channel=number_,
+            label=text(form, f"channel_{number_}_label"),
+            invert=checkbox(form, f"channel_{number_}_invert"),
+            debounce_ms=integer(form, f"channel_{number_}_debounce", 500),
         )
+        for number_ in range(1, 9)
+    ]
     return WaveshareSettings(
         enabled=checkbox(form, "waveshare_enabled"),
         host=text(form, "waveshare_host"),
@@ -168,7 +125,6 @@ def waveshare_from(form: FormData, existing: WaveshareSettings | None = None) ->
         unit_id=integer(form, "waveshare_unit_id", 1),
         poll_ms=integer(form, "waveshare_poll_ms", 200),
         timeout_s=number(form, "waveshare_timeout_s", 3.0),
-        signals=signals_from(form, existing),
         channels=channels,
     )
 

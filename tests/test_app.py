@@ -213,41 +213,20 @@ def test_there_is_one_compose_file():
     assert "@127.0.0.1:5432/pitwatch" in compose
 
 
-# -- what the pit card is asked to show -------------------------------------
+# -- what the panel card is asked to show -----------------------------------
 
 
-def test_the_pit_shows_the_floats_bottom_to_top_and_the_pump_contacts_nowhere():
-    """The order is the order they sit in the pit, high water at the top, so the
-    card reads like the thing it describes rather than like a dictionary.
-
-    The run and overload contacts are deliberately absent: they appear on the
-    pump tiles, and a signal shown twice on one screen is a signal somebody
-    reads twice and counts once.
-    """
-    from pitwatch.api.live import pit_signals
-    from pitwatch.schemas import WaveshareSettings
-
-    assert pit_signals(WaveshareSettings()) == [
-        "high_water",
-        "lag_float",
-        "lead_float",
-        "panel_alarm",
-    ]
-
-
-def test_a_signal_somebody_added_lands_on_the_dashboard_by_itself():
-    """Otherwise adding one is a setting that changes nothing you can see, which
-    is the same as not having it."""
-    from pitwatch.api.live import pit_signals
-    from pitwatch.schemas import SignalDef, WaveshareSettings
+def test_only_named_inputs_are_shown():
+    """An unnamed input is one nothing is wired to. Eight rows of "not wired" is
+    not a dashboard, it is a settings page nobody asked to see."""
+    from pitwatch.schemas import ChannelMap, WaveshareSettings
 
     settings = WaveshareSettings(
-        signals=[
-            SignalDef(key="high_water", label="Top float"),
-            SignalDef(key="seal_failure", label="Seal failure"),
-            SignalDef(key="pump1_run", label="Pump 1 running"),
+        channels=[
+            ChannelMap(channel=2, label="Lead float"),
+            ChannelMap(channel=5, label="Seal failure"),
         ]
     )
 
-    # Known ones keep their place in the pit; the rest follow in list order.
-    assert pit_signals(settings) == ["high_water", "seal_failure"]
+    assert [c.channel for c in settings.used_channels] == [2, 5]
+    assert [c.label for c in settings.used_channels] == ["Lead float", "Seal failure"]

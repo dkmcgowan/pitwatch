@@ -119,73 +119,25 @@
   </div>
 </div>
 
-<h3>Signals on the panel</h3>
-<p class="hint">
-  The list every input's dropdown below offers. It starts as the eight a duplex
-  ejector panel usually brings out. Yours may bring out others, or fewer, and
-  this is where you say so.
-</p>
-<p class="hint">
-  Renaming one is safe. The name is only what you read; everything already
-  recorded under it stays attached to it. Removing one is refused while an input
-  is still using it, so set that input to <strong>Not connected</strong> first.
-</p>
-<p class="hint">
-  Four of these mean something to the rest of the application: the two run
-  contacts and the two overloads appear on the pump tiles, and the floats draw
-  the pit. Rename those as freely as any other. Remove one and that part of the
-  dashboard simply says nothing is wired, which is what it already says when
-  the input is spare.
-</p>
-
-<div class="table-scroll">
-<table class="signals">
-  <thead>
-    <tr>
-      <th>Name</th>
-      <th>Wired to</th>
-      <th class="center">Remove</th>
-    </tr>
-  </thead>
-  <tbody data-signal-rows>
-  {% set wired = waveshare.channel_of %}
-  {% for signal in waveshare.signals %}
-    <tr>
-      <td>
-        {# The key rides along hidden so that a rename is a rename and not a
-           delete followed by an add under a new name. #}
-        <input type="hidden" name="signal_key" value="{{ signal.key }}">
-        <input type="text" name="signal_label" value="{{ signal.label }}" maxlength="60"
-               aria-label="Name of signal {{ loop.index }}">
-      </td>
-      <td class="muted">{% if wired.get(signal.key) %}DI{{ wired[signal.key] }}{% else %}not wired{% endif %}</td>
-      <td class="center">
-        <button type="button" class="button secondary small" data-remove-signal>Remove</button>
-      </td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
-</div>
-
-<div class="field">
-  <button type="button" class="button secondary" data-add-signal>Add a signal</button>
-  <p class="hint">Nothing here is saved until you press Save at the bottom of
-    this section.</p>
-</div>
-
 <h3>What each input is wired to</h3>
 <p class="hint">
-  Each signal belongs to one input, so picking it on one channel takes it out of
-  the others. Set a channel back to <strong>Not connected</strong> to free its
-  signal up again.
+  Give an input a name and it is watched, recorded and shown. Leave the name
+  empty and nothing is wired there, so it is left alone. That is the whole of
+  it: the input number is what everything is keyed on, and the name is only
+  what you read.
+</p>
+<p class="hint">
+  Name them after what is printed in the panel or on the wire, not after what
+  PitWatch might call them. Anything your panel brings out can go here, whether
+  that is the usual floats and run contacts or a seal failure, a phase monitor
+  or a hand-off-auto position.
 </p>
 <p class="hint">
   <strong>Invert</strong> is the setting that is easiest to get wrong and worst
-  to get wrong. Tick it when the input reads the opposite of the signal: a dry
-  contact wired normally closed, or a live line that holds voltage while all is
-  well and drops it on the fault. Alarm and overload contacts are often built
-  that way on purpose, so that a cut wire reads as a fault rather than as
+  to get wrong. Tick it when the input reads the opposite of what is happening:
+  a dry contact wired normally closed, or a live line that holds voltage while
+  all is well and drops it on the fault. Alarm and overload contacts are often
+  built that way on purpose, so that a cut wire reads as a fault rather than as
   silence. Set it backwards and the alarm reads as on forever, then goes quiet
   at exactly the moment it matters. Use the live view below to check each one
   against the panel rather than guessing.
@@ -196,8 +148,8 @@
   <thead>
     <tr>
       <th>Input</th>
-      <th>Signal</th>
-      <th>Invert</th>
+      <th>Name</th>
+      <th class="center">Invert</th>
       <th>Debounce (ms)</th>
     </tr>
   </thead>
@@ -206,11 +158,9 @@
     <tr>
       <th scope="row">DI{{ channel.channel }}</th>
       <td>
-        <select name="channel_{{ channel.channel }}_signal" aria-label="Signal on input {{ channel.channel }}">
-          {% for value, label in waveshare.options %}
-          <option value="{{ value }}" {% if channel.signal.value == value %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
+        <input type="text" name="channel_{{ channel.channel }}_label" maxlength="60"
+               value="{{ channel.label }}" placeholder="not wired"
+               aria-label="Name for input {{ channel.channel }}">
       </td>
       <td class="center">
         <input type="checkbox" name="channel_{{ channel.channel }}_invert"

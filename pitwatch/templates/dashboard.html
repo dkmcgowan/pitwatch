@@ -39,24 +39,27 @@
        is no reason to think that angle is right here. So they are not shown.
 
        Run history and the average that ignores inrush come from pump_run, which
-       the run detector does not fill in yet. #}
+       the run detector does not fill in yet.
+
+       The run contact and the overload used to sit here too, and the
+       disagreement between the contact and the clamp was the useful part: a
+       closed contactor drawing nothing is a motor that is not turning. Putting
+       them back needs a way to say which input carries pump 1's run contact,
+       and inputs are free text labels now. See NOTES.md. #}
     <dl class="detail">
-      <div><dt>Run contact</dt><dd data-contact>--</dd></div>
-      <div><dt>Overload</dt><dd data-overload>--</dd></div>
+      <div><dt>Nameplate</dt><dd data-nameplate>--</dd></div>
     </dl>
   </article>
   {% endfor %}
 </section>
 
 <section class="card">
-  <h2>The pit</h2>
-  {# Empty on purpose. What the pit card shows is whatever signals are on the
-     list in settings, in the order the server sends them, so the rows are
-     built from the state rather than written out here. Ordered bottom to top,
-     the way the floats sit in the pit, so the display reads like the thing it
-     is describing. #}
-  <div class="floats" data-floats>
-    <p class="muted" data-floats-empty>Waiting for the first reading.</p>
+  <h2>Panel inputs</h2>
+  {# Empty on purpose. Which inputs exist and what they are called are
+     settings, so the rows are built from the state rather than written out
+     here. Shown in input order, which is the order they are wired in. #}
+  <div class="floats" data-inputs>
+    <p class="muted">Waiting for the first reading.</p>
   </div>
 </section>
 

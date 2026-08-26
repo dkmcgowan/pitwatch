@@ -19,7 +19,6 @@ from pitwatch.ingest import waveshare as waveshare_ingest
 from pitwatch.ingest.sink import LiveIo, LiveState
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
-from pitwatch.schemas import Signal, WaveshareSettings
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -27,42 +26,15 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
 
-# Shown on the pump tiles rather than in the pit, because they are facts about
-# a motor and not about the water.
-ON_THE_PUMP_TILES = frozenset(
-    {Signal.PUMP1_RUN, Signal.PUMP2_RUN, Signal.PUMP1_OVERLOAD, Signal.PUMP2_OVERLOAD}
-)
-
-# The floats sit in the pit in this order, the high water alarm at the top, so
-# the card reads like the thing it is describing. Anything else follows in the
-# order it is listed in the settings, which is the only order there is for a
-# signal this application has never heard of.
-PIT_ORDER: tuple[str, ...] = (
-    Signal.HIGH_WATER,
-    Signal.LAG_FLOAT,
-    Signal.LEAD_FLOAT,
-    Signal.PANEL_ALARM,
-)
-
-# What the pill reads when a signal is on and when it is off. A float is wet or
-# dry and an alarm contact is in alarm or clear. A signal somebody added is one
-# or the other without this application knowing which way round means trouble,
-# so it says on and off and does not editorialize.
-SIGNAL_WORDS: dict[str, tuple[str, str, str]] = {
-    Signal.HIGH_WATER: ("WET", "Dry", "crit"),
-    Signal.LAG_FLOAT: ("WET", "Dry", "crit"),
-    Signal.LEAD_FLOAT: ("WET", "Dry", "crit"),
-    Signal.PANEL_ALARM: ("ALARM", "Clear", "crit"),
-}
-UNKNOWN_SIGNAL_WORDS = ("ON", "Off", "warn")
-
-
-def pit_signals(waveshare: WaveshareSettings) -> list[str]:
-    """Every signal the pit card shows, in the order it shows them."""
-    keys = [s.key for s in waveshare.signals if s.key not in ON_THE_PUMP_TILES]
-    ordered = [str(key) for key in PIT_ORDER if key in keys]
-    ordered += [key for key in keys if key not in ordered]
-    return ordered
+# What the pill reads when an input is on and when it is off.
+#
+# Deliberately not "wet" and "dry". An input is whatever somebody wired to it,
+# and this no longer has any idea which of them is a float, which is an alarm
+# contact, or which way round means trouble. Saying ON and Off is the honest
+# version of that, and it does not editorialize about a signal it cannot
+# interpret.
+ON_WORD = "ON"
+OFF_WORD = "Off"
 
 
 async def build_state(app) -> dict:
@@ -102,8 +74,6 @@ async def build_state(app) -> dict:
         for row in await pool.fetch("SELECT * FROM device_status")
     }
 
-    run_signal = {1: Signal.PUMP1_RUN, 2: Signal.PUMP2_RUN}
-    overload_signal = {1: Signal.PUMP1_OVERLOAD, 2: Signal.PUMP2_OVERLOAD}
     clamp = shelly.clamp_for_pump
     pump_settings = pumps.by_number
 
@@ -113,7 +83,6 @@ async def build_state(app) -> dict:
         settings = pump_settings[number]
         current = sample.current if sample else None
         drawing = current is not None and current >= settings.running_amps
-        contact = live_io.state_of(run_signal[number])
         # Amps only. The device reports voltage, power and power factor as
         # well, and they are still recorded, but they are not reported here
         # because in this installation they are not measurements of the motor:
@@ -126,39 +95,37 @@ async def build_state(app) -> dict:
             "channel": channel,
             "current": current,
             "reading_at": sample.ts.isoformat() if sample else None,
-            # Two independent answers to the same question, reported separately
-            # rather than merged. When they disagree, that disagreement is the
-            # interesting thing: a closed contactor drawing nothing is a motor
-            # that is not turning.
+            # Only the clamp now. The panel's run contact used to be reported
+            # beside this, and the disagreement between them was the
+            # interesting part: a closed contactor drawing nothing is a motor
+            # that is not turning. Saying which input carries that contact
+            # needs a way to point at one, and inputs are labels now, so there
+            # is nothing here to point with. See NOTES.md.
             "drawing_current": drawing,
-            "run_contact": contact,
-            "running": drawing or bool(contact),
-            "overload_tripped": live_io.state_of(overload_signal[number]),
+            "running": drawing,
             "nameplate_amps": settings.nameplate_amps,
         }
 
     waveshare = store.waveshare
 
-    def signal_state(key: str) -> dict:
-        changed = live_io.changed_at(key)
-        on_word, off_word, tone = SIGNAL_WORDS.get(key, UNKNOWN_SIGNAL_WORDS)
+    def input_state(mapped) -> dict:
+        changed = live_io.changed_at(mapped.channel)
         return {
-            "key": key,
-            "label": waveshare.label_for(key),
-            # None means nothing is wired to it, which is not the same as off.
-            "state": live_io.state_of(key),
-            "on_word": on_word,
-            "off_word": off_word,
-            "tone": tone,
+            "channel": mapped.channel,
+            "label": mapped.label,
+            # None means nothing has read it yet, which is not the same as off.
+            "state": live_io.state_of(mapped.channel),
+            "on_word": ON_WORD,
+            "off_word": OFF_WORD,
             "changed_at": changed.isoformat() if changed else None,
         }
 
     return {
         "site": store.site.model_dump(mode="json"),
         "pumps": {"1": pump_state(1), "2": pump_state(2)},
-        # A list rather than a map, because the order is part of the answer and
-        # a signal somebody added has to appear somewhere sensible.
-        "floats": [signal_state(key) for key in pit_signals(waveshare)],
+        # Only the inputs somebody has named. An unnamed input is one nothing
+        # is wired to, and eight rows of "not wired" is not a dashboard.
+        "inputs": [input_state(mapped) for mapped in waveshare.used_channels],
         "devices": devices,
         "updated_at": live.updated_at.isoformat() if live.updated_at else None,
     }
@@ -217,8 +184,6 @@ async def test_waveshare(request: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "Enter an address first"}, status_code=400)
 
     result = await waveshare_ingest.probe(settings)
-    for channel in result.get("channels", []):
-        channel["label"] = settings.label_for(channel["signal"])
     return JSONResponse(result)
 
 

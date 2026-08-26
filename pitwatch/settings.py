@@ -23,7 +23,6 @@ from pitwatch.schemas import (
     ChannelMap,
     PumpsSettings,
     ShellySettings,
-    Signal,
     SiteSettings,
     SmsSettings,
     SmtpSettings,
@@ -177,15 +176,19 @@ class SettingsStore:
         return generated
 
 
-DEFAULT_CHANNEL_LAYOUT: tuple[Signal, ...] = (
-    Signal.LEAD_FLOAT,
-    Signal.LAG_FLOAT,
-    Signal.HIGH_WATER,
-    Signal.PANEL_ALARM,
-    Signal.PUMP1_RUN,
-    Signal.PUMP2_RUN,
-    Signal.PUMP1_OVERLOAD,
-    Signal.PUMP2_OVERLOAD,
+# What DI1 through DI8 are called when the environment seeds an install, in the
+# order a duplex ejector panel usually brings them out. A starting point for
+# somebody who has not opened the settings page yet, and nothing more: these are
+# labels, so anything here is wrong only in the sense of being unhelpful.
+DEFAULT_CHANNEL_LABELS: tuple[str, ...] = (
+    "Lead float",
+    "Lag float",
+    "High water alarm float",
+    "Panel alarm contact",
+    "Pump 1 running",
+    "Pump 2 running",
+    "Pump 1 overload tripped",
+    "Pump 2 overload tripped",
 )
 
 
@@ -210,9 +213,9 @@ async def seed_from_environment(store: SettingsStore, config: Config) -> None:
                 enabled=True,
                 host=config.seed_waveshare_host.strip(),
                 channels=[
-                    ChannelMap(channel=number, signal=signal)
-                    for number, signal in enumerate(DEFAULT_CHANNEL_LAYOUT, start=1)
+                    ChannelMap(channel=number, label=label)
+                    for number, label in enumerate(DEFAULT_CHANNEL_LABELS, start=1)
                 ],
             )
         )
-        log.info("Seeded the Waveshare address and the default channel layout")
+        log.info("Seeded the Waveshare address and the default input labels")

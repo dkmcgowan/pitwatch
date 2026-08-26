@@ -70,22 +70,22 @@ SETUP_FORM = {
     "waveshare_unit_id": "1",
     "waveshare_poll_ms": "200",
     "waveshare_timeout_s": "3",
-    "channel_1_signal": "lead_float",
+    "channel_1_label": "Lead float",
     "channel_1_debounce": "500",
-    "channel_2_signal": "lag_float",
+    "channel_2_label": "Lag float",
     "channel_2_debounce": "500",
-    "channel_3_signal": "high_water",
+    "channel_3_label": "High water alarm float",
     "channel_3_debounce": "500",
-    "channel_4_signal": "panel_alarm",
+    "channel_4_label": "Panel alarm contact",
     "channel_4_debounce": "500",
-    "channel_5_signal": "pump1_run",
+    "channel_5_label": "Pump 1 running",
     "channel_5_debounce": "200",
-    "channel_6_signal": "pump2_run",
+    "channel_6_label": "Pump 2 running",
     "channel_6_debounce": "200",
-    "channel_7_signal": "pump1_overload",
+    "channel_7_label": "Pump 1 overload tripped",
     "channel_7_invert": "on",
     "channel_7_debounce": "200",
-    "channel_8_signal": "pump2_overload",
+    "channel_8_label": "Pump 2 overload tripped",
     "channel_8_invert": "on",
     "channel_8_debounce": "200",
     "pump1_name": "North pump",
@@ -138,12 +138,23 @@ def test_setup_sends_you_to_settings_once_it_has_been_used(client):
     assert response.headers["location"] == "/settings"
 
 
-def test_setup_rejects_a_signal_wired_to_two_channels(client):
-    sign_in_as_admin(client)
-    response = client.post("/setup", data=SETUP_FORM | {"channel_2_signal": "lead_float"})
+def test_two_inputs_may_carry_the_same_name(client):
+    """Nothing keys on the name, so there is nothing to collide.
 
-    assert response.status_code == 400
-    assert "only be on one channel" in response.text
+    This used to be refused, because a name was an identity and two inputs
+    could not share one. Now the input number is the identity and the name is
+    description, and a panel with two contacts both marked "High water" is a
+    real panel rather than a mistake for this to argue with.
+    """
+    sign_in_as_admin(client)
+    response = client.post(
+        "/setup", data=SETUP_FORM | {"channel_2_label": "Lead float"}, follow_redirects=False
+    )
+
+    assert response.status_code == 303
+    channels = client.app.state.settings.waveshare.channels
+    assert channels[0].label == "Lead float"
+    assert channels[1].label == "Lead float"
 
 
 def test_the_clamp_choice_is_stored_the_way_it_was_made(client):
@@ -433,19 +444,22 @@ def test_the_live_feed_reports_a_pump_with_no_readings_as_unknown(client):
     assert "act_power" not in pump
     assert pump["running"] is False
     assert pump["drawing_current"] is False
-    assert pump["run_contact"] is None
 
 
-def test_unwired_signals_report_as_unknown_rather_than_off(client):
+def test_an_input_with_no_name_is_left_off_the_dashboard(client):
+    """And a named one that has not been read yet reports unknown, not off.
+
+    None is not False. An input reported as off when nothing has read it is an
+    alarm that will never fire and will look like it is working.
+    """
     sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM | {"channel_3_signal": "unused"})
+    client.post("/setup", data=SETUP_FORM | {"channel_3_label": ""})
 
-    # A list, not a map: which signals the pit shows is a setting now, and the
-    # order they are shown in is part of the answer.
-    floats = {reading["key"]: reading for reading in client.get("/api/state").json()["floats"]}
+    inputs = {row["channel"]: row for row in client.get("/api/state").json()["inputs"]}
 
-    assert floats["high_water"]["state"] is None
-    assert floats["lead_float"]["state"] is None, "wired, but nothing has been read yet"
+    assert 3 not in inputs, "nothing is wired there"
+    assert inputs[1]["label"] == "Lead float"
+    assert inputs[1]["state"] is None, "wired, but nothing has been read yet"
 
 
 SHELLY_ONLY_FORM = {
@@ -496,11 +510,10 @@ def test_every_contact_reads_as_unknown_without_the_io_module(client):
 
     state = client.get("/api/state").json()
 
-    for reading in state["floats"]:
-        assert reading["state"] is None
+    assert state["inputs"] == [], "no module, so nothing is named"
     for pump in state["pumps"].values():
-        assert pump["run_contact"] is None
-        assert pump["overload_tripped"] is None
+        assert pump["current"] is None
+        assert pump["running"] is False
 
 
 def test_adding_the_io_module_later_does_not_need_a_restart(client):
@@ -731,136 +744,56 @@ def test_the_public_contact_and_your_own_are_kept_apart(client):
     assert "david@example.com" not in policy
 
 
-# -- editing the list of signals --------------------------------------------
-#
-# Eight signals ship with this because that is what a duplex ejector panel
-# usually brings out, not because it is a limit. Panels differ, and the tests
-# that matter here are about what a rename does to the readings recorded before
-# it and what a removal does to an input still using it.
+# -- naming the inputs ------------------------------------------------------
 
 
-def waveshare_form(signals, **overrides) -> dict:
-    """The Waveshare form, with a signal table in it.
-
-    The table posts one signal_key and one signal_label per row, and the two
-    are paired by position. Repeating a field name is how a browser sends it
-    and how the server reads it back, so the test sends it the same way.
-    """
-    fields = {
-        "waveshare_enabled": "on",
-        "waveshare_host": "192.168.1.51",
-        "waveshare_port": "502",
-        "waveshare_unit_id": "1",
-        "waveshare_poll_ms": "200",
-        "signal_key": [key for key, _ in signals],
-        "signal_label": [label for _, label in signals],
-    }
-    fields.update(overrides)
-    return fields
-
-
-def test_a_signal_can_be_renamed_without_moving_the_readings_behind_it(client):
-    """The label is what people read. The key is what the database holds.
-
-    Renaming has to change only the first, or every reading recorded under the
-    old name is quietly orphaned and the history for that float goes blank.
-    """
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-
-    save = client.post(
-        "/settings/waveshare",
-        data=waveshare_form(
-            [
-                ("lead_float", "Bottom float"),
-                ("lag_float", "Middle float"),
-                ("high_water", "TOP FLOAT - the loud one"),
-            ],
-            channel_3_signal="high_water",
-        ),
-    )
-    assert save.status_code in (200, 303)
-
-    waveshare = client.app.state.settings.waveshare
-    assert waveshare.label_for("high_water") == "TOP FLOAT - the loud one"
-    assert waveshare.channel_for("high_water").channel == 3
-    assert "TOP FLOAT - the loud one" in client.get("/settings").text
-
-
-def test_a_signal_this_panel_has_that_pitwatch_does_not_know_about(client):
-    """Added and wired in the same save, which is the way it will actually be
-    done: somebody is at the panel with the cover off, not making two visits."""
+def test_naming_an_input_is_all_it_takes_to_watch_it(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     client.post(
         "/settings/waveshare",
-        data=waveshare_form(
-            [("lead_float", "Lead float"), ("", "Seal failure")],
-            channel_1_signal="lead_float",
-            channel_2_signal="seal_failure",
-        ),
+        data={
+            "waveshare_enabled": "on",
+            "waveshare_host": "192.168.1.51",
+            "channel_1_label": "Bottom float",
+            "channel_2_label": "Seal failure",
+            "channel_2_invert": "on",
+        },
     )
 
-    waveshare = client.app.state.settings.waveshare
-    assert waveshare.channel_for("seal_failure").channel == 2
-    assert waveshare.label_for("seal_failure") == "Seal failure"
-    # And it is offered on every other input from then on.
-    assert "Seal failure" in client.get("/settings").text
+    channels = client.app.state.settings.waveshare.channels
+    assert channels[0].label == "Bottom float"
+    assert channels[1].label == "Seal failure"
+    assert channels[1].invert is True
+    # Everything not named in that post is now unnamed, which is the only way
+    # clearing a name can work when a form posts the whole section.
+    assert [c.channel for c in client.app.state.settings.waveshare.used_channels] == [1, 2]
 
 
-def test_removing_a_signal_still_wired_to_an_input_says_so(client):
+def test_clearing_a_name_stops_watching_that_input(client):
+    """Which is the entire removal story. There is no delete to get wrong."""
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
-
-    page = client.post(
-        "/settings/waveshare",
-        data=waveshare_form(
-            [("lead_float", "Lead float")],
-            channel_3_signal="high_water",
-        ),
-    )
-
-    assert "DI3" in page.text
-    # And nothing was saved, so the panel is still described correctly.
-    assert client.app.state.settings.waveshare.channel_for("high_water") is not None
-
-
-def test_a_signal_is_removed_by_emptying_its_name(client):
-    """Which is what the Remove button does, and what happens with scripting
-    off. There is no separate delete request to get wrong."""
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
+    assert len(client.app.state.settings.waveshare.used_channels) == 8
 
     client.post(
         "/settings/waveshare",
-        data=waveshare_form(
-            [("lead_float", "Lead float"), ("panel_alarm", "")],
-            channel_1_signal="lead_float",
-        ),
+        data={key: value for key, value in SETUP_FORM.items() if key != "channel_4_label"}
+        | {"channel_4_label": "   "},
     )
 
-    waveshare = client.app.state.settings.waveshare
-    assert [signal.key for signal in waveshare.signals] == ["lead_float"]
-    assert waveshare.channel_for("panel_alarm") is None
+    used = client.app.state.settings.waveshare.used_channels
+    assert [c.channel for c in used] == [1, 2, 3, 5, 6, 7, 8]
 
 
-def test_saving_the_waveshare_without_the_signal_table_leaves_it_alone(client):
-    """A form that does not carry the catalog is not a form that empties it.
-
-    The device test button posts a partial form, and so does anything scripted
-    against this. Reading an absent field as "delete everything" is the kind of
-    default that loses a panel map at three in the morning.
-    """
+def test_a_renamed_input_is_shown_under_its_new_name(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
-    client.post(
-        "/settings/waveshare",
-        data=waveshare_form([("lead_float", "Renamed lead")], channel_1_signal="lead_float"),
-    )
 
-    client.post("/settings/waveshare", data={"waveshare_host": "192.168.1.99"})
+    client.post("/settings/waveshare", data=SETUP_FORM | {"channel_3_label": "TOP FLOAT"})
 
-    waveshare = client.app.state.settings.waveshare
-    assert [signal.label for signal in waveshare.signals] == ["Renamed lead"]
-    assert waveshare.host == "192.168.1.99"
+    page = client.get("/settings").text
+    assert 'value="TOP FLOAT"' in page
+    inputs = {row["channel"]: row for row in client.get("/api/state").json()["inputs"]}
+    assert inputs[3]["label"] == "TOP FLOAT"

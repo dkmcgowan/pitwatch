@@ -360,11 +360,16 @@ def test_the_shelly_password_is_kept_when_the_box_is_left_empty(client):
         data=SETUP_FORM | {"shelly_password": "the-device-password"},
     )
 
-    client.post("/settings/shelly", data=SETUP_FORM | {"shelly_pump1_channel": "0"})
+    # Swapping means moving both, now that both are stored rather than one
+    # being inferred from the other.
+    client.post(
+        "/settings/shelly",
+        data=SETUP_FORM | {"shelly_pump1_channel": "0", "shelly_pump2_channel": "1"},
+    )
 
     store = client.app.state.settings
     assert store.shelly.password == "the-device-password"
-    assert store.shelly.pump1_channel == 0
+    assert store.shelly.clamp_for_pump == {1: 0, 2: 1}
 
 
 def test_the_shelly_password_can_be_cleared_on_purpose(client):

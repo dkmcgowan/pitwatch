@@ -44,6 +44,16 @@ class Config(BaseSettings):
     # sessions that survive a restart.
     secret_key: str | None = None
 
+    # Which addresses are allowed to say, via X-Forwarded-For, who the client
+    # really is. Only the proxy should be believed.
+    #
+    # This used to be "*", which trusts anybody. Behind a proxy that is fine
+    # until the application's own port is also reachable, and then anyone who
+    # can reach it can claim to be any address they like: per address sign in
+    # throttling stops working and the log names whoever they felt like naming.
+    # A comma separated list, or "*" to go back to trusting everything.
+    trusted_proxies: str = "127.0.0.1,::1"
+
     # Set this when a proxy in front is terminating TLS, which it should be if
     # this is reachable from anywhere but your own network. It marks the session
     # cookie Secure, so a browser will not send it over plain HTTP.

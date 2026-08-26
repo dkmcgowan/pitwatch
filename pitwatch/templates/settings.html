@@ -14,6 +14,7 @@
 <section class="card">
   <h2>This site</h2>
   <form method="post" action="/settings/site">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     {{ fields.site_fields(site) }}
     <button type="submit" class="button">Save</button>
   </form>
@@ -22,6 +23,7 @@
 <section class="card">
   <h2>The Shelly EM</h2>
   <form method="post" action="/settings/shelly" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     {{ fields.shelly_fields(shelly) }}
     <button type="submit" class="button">Save</button>
   </form>
@@ -30,6 +32,7 @@
 <section class="card">
   <h2>The Waveshare I/O module</h2>
   <form method="post" action="/settings/waveshare">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     {{ fields.waveshare_fields(waveshare, signals) }}
     <button type="submit" class="button">Save</button>
   </form>
@@ -38,6 +41,7 @@
 <section class="card">
   <h2>The pumps</h2>
   <form method="post" action="/settings/pumps">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     {{ fields.pump_fields(pumps) }}
     <button type="submit" class="button">Save</button>
   </form>
@@ -53,6 +57,7 @@
 <section class="card">
   <h2>Email</h2>
   <form method="post" action="/settings/smtp" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="field">
       <label>
         <input type="checkbox" name="smtp_enabled" {% if smtp.enabled %}checked{% endif %}>
@@ -126,6 +131,7 @@
 <section class="card">
   <h2>SMS</h2>
   <form method="post" action="/settings/sms" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="field">
       <label>
         <input type="checkbox" name="sms_enabled" {% if sms.enabled %}checked{% endif %}>
@@ -220,6 +226,7 @@
 
 <section class="card">
   <form method="post" action="/logout">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button type="submit" class="button secondary">Sign out</button>
   </form>
 </section>

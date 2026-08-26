@@ -39,12 +39,19 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from fastapi import Depends, HTTPException, Request, status
 
+from pitwatch import csrf
+
 log = logging.getLogger(__name__)
 
 hasher = PasswordHasher()
 
 SESSION_USER_KEY = "user_id"
 SESSION_FRESH_KEY = "signed_in_at"
+# A fingerprint of the password hash, checked on every request. Changing a
+# password changes the hash, which changes this, which ends every other session
+# for that account. Without it, a stolen cookie outlives the password change
+# made because somebody thought it had been stolen.
+SESSION_FINGERPRINT_KEY = "pw"
 
 MINIMUM_PASSWORD_LENGTH = 10
 
@@ -83,6 +90,9 @@ class User:
     enabled: bool
     must_change_password: bool
     has_password: bool
+    # Derived from the stored hash, never the password. See
+    # SESSION_FINGERPRINT_KEY.
+    fingerprint: str
 
     @property
     def display_name(self) -> str:
@@ -103,7 +113,18 @@ class User:
             enabled=row["enabled"],
             must_change_password=row["must_change_password"],
             has_password=row["password_hash"] is not None,
+            fingerprint=fingerprint_of(row["password_hash"]),
         )
+
+
+def fingerprint_of(password_hash: str | None) -> str:
+    """A short, non reversible tag for a stored hash.
+
+    The hash itself is already not the password, and this is a truncated digest
+    of it, so a session cookie carries nothing useful even to somebody who can
+    read it. All it has to do is change when the password does.
+    """
+    return hashlib.sha256((password_hash or "").encode()).hexdigest()[:16]
 
 
 def hash_password(password: str) -> str:
@@ -297,8 +318,12 @@ async def spend_password_token(pool: asyncpg.Pool, token: str) -> None:
 
 
 def sign_in(request: Request, user: User) -> None:
+    # A fresh CSRF token for the new identity, so a token handed out before
+    # signing in cannot be used afterwards.
+    csrf.rotate(request)
     request.session[SESSION_USER_KEY] = user.id
     request.session[SESSION_FRESH_KEY] = datetime.now(UTC).isoformat()
+    request.session[SESSION_FINGERPRINT_KEY] = user.fingerprint
 
 
 def sign_out(request: Request) -> None:

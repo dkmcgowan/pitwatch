@@ -33,10 +33,10 @@ def main() -> int:
         host=config.host,
         port=config.port,
         log_config=None,
-        # Every proxy in front of this is going to be someone's home reverse
-        # proxy, so trust the forwarded headers it sets.
+        # Forwarded headers are honored, but only from the addresses named in
+        # PITWATCH_TRUSTED_PROXIES. See config.py for why that is not "*".
         proxy_headers=True,
-        forwarded_allow_ips="*",
+        forwarded_allow_ips=config.trusted_proxies,
     )
     return 0
 

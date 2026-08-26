@@ -6,3 +6,7 @@ ruff==0.16.4
 # Real libpg_query bindings. The migration tests parse every SQL file with the
 # Postgres grammar itself, which catches a typo without needing a live server.
 pglast==8.4
+# Checks the pinned dependencies against the published advisories. Cheap to
+# run and the only thing that notices a library going bad while nothing in this
+# repository changed.
+pip-audit==2.10.1

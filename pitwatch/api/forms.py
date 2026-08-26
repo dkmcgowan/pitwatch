@@ -126,6 +126,7 @@ def waveshare_from(form: FormData) -> WaveshareSettings:
         unit_id=integer(form, "waveshare_unit_id", 1),
         poll_ms=integer(form, "waveshare_poll_ms", 200),
         timeout_s=number(form, "waveshare_timeout_s", 3.0),
+        debounce_ms=integer(form, "waveshare_debounce_ms", 500),
         channels=channels,
     )
 

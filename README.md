@@ -374,9 +374,9 @@ The inputs accept **5 to 36 V**, and the wet contact modes are specified for
 **DC**. If your control circuit is AC, the bidirectional optocoupler still
 conducts, but it drops out briefly at every zero crossing, 120 times a second on
 60 Hz mains. A poll can land in one of those gaps and read a live signal as off.
-The half second every input has to hold before a change counts discards that,
-because the next poll disagrees and the change is abandoned. It is not a setting
-and there is nothing to get wrong here.
+The hold on the Waveshare settings, half a second by default, discards that:
+the next poll disagrees and the change is abandoned. Leave it well above the
+read interval on an AC circuit.
 
 Each input draws a few milliamps from whatever supplies it, so eight of them is
 a few tens of milliamps on the panel's control transformer. That is usually

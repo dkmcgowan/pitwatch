@@ -69,6 +69,7 @@ SETUP_FORM = {
     "waveshare_port": "502",
     "waveshare_unit_id": "1",
     "waveshare_poll_ms": "200",
+    "waveshare_debounce_ms": "500",
     "waveshare_timeout_s": "3",
     "channel_1_label": "Lead float",
     "channel_2_label": "Lag float",

@@ -195,3 +195,46 @@ def _filled(model) -> dict:
         except ValueError:
             del values[name]
     return values
+
+
+def test_an_overcurrent_decision_fits_inside_a_real_run():
+    """The defaults have to be able to fire on the pump they are for.
+
+    An ejector pump runs for three or four seconds. The check cannot start until
+    the starting surge has been discarded, and then has to hold. If those two
+    added up to longer than a run, the alert could never happen at all, and a
+    check that silently never fires is worse than no check: it looks like
+    coverage.
+
+    This was real. The hold defaulted to fifteen seconds against runs of four.
+    """
+    pumps = PumpsSettings()
+
+    decided_at = pumps.inrush_ignore_ms + pumps.pump1.overcurrent_hold_ms
+
+    assert decided_at <= 3000, f"needs {decided_at} ms of run to say anything"
+
+
+def test_the_inrush_window_is_long_enough_to_cover_a_start():
+    """Six to eight times running current, for a fraction of a second.
+
+    Too short and the surge lands in the average and in the overcurrent check,
+    which is what forces a threshold to be set uselessly high.
+    """
+    assert PumpsSettings().inrush_ignore_ms >= 500
+
+
+def test_a_run_can_end_before_the_next_one_starts():
+    """These pumps alternate, seconds apart. If it took longer to notice a stop
+    than the gap between runs, two runs would be recorded as one."""
+    pumps = PumpsSettings()
+
+    assert pumps.stop_hold_ms < pumps.max_runtime_ms
+    assert pumps.stop_hold_ms <= 2000
+
+
+def test_there_is_no_undercurrent_alert():
+    """Removed. Deciding a pump is drawing too little needs a model of what it
+    should be drawing, which varies with head and with what is in the pit, and
+    a threshold guessed at would mostly produce false alarms."""
+    assert "undercurrent" not in str(PumpSettings.model_fields)

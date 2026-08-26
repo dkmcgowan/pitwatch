@@ -396,12 +396,20 @@ set, or when its run contact is closed. Both, ideally. When only one of the two
 says so, that is itself worth telling you about: a closed contactor with no
 current is a motor that is not turning.
 
-**What a run actually drew** (designed, not yet built). A motor pulls six to
-eight times its running current for a fraction of a second when it starts.
-Averaging that in makes every healthy pump look overloaded, so the first couple
-of seconds of each run are left out of the average. The peak is still recorded,
-on its own, because a starting surge that climbs month over month is a bearing
-on the way out.
+**Inrush is discarded, not smoothed** (designed, not yet built). A motor pulls
+six to eight times its running current for a fraction of a second as it comes up
+to speed. Sixty or seventy amps settling to sixteen is a healthy pump. Every
+reading in the first few hundred milliseconds is left out of the run's averages
+and out of the overcurrent check, which is what lets that threshold sit just
+above the running current instead of above the surge. The peak is still
+recorded, on its own, because a starting surge that climbs month over month is a
+bearing on the way out.
+
+**The timings are in milliseconds**, because these pumps run for three or four
+seconds at a time and seconds are too coarse to describe anything inside a run
+that short. The default is to throw away the first 800 ms and then require an
+overcurrent to hold for 1500 ms, so a decision is reached 2.3 seconds into a
+run.
 
 **Lead and lag** (designed, not yet built). The controller alternates: it starts
 one pump this time and the other next time, so wear is even. Its display says

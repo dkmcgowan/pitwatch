@@ -126,8 +126,7 @@ def _pump_from(form: FormData, prefix: str, fallback_name: str) -> PumpSettings:
         running_amps=number(form, f"{prefix}_running_amps", 1.0),
         nameplate_amps=optional_number(form, f"{prefix}_nameplate_amps"),
         overcurrent_amps=optional_number(form, f"{prefix}_overcurrent_amps"),
-        overcurrent_hold_s=integer(form, f"{prefix}_overcurrent_hold_s", 15),
-        undercurrent_amps=optional_number(form, f"{prefix}_undercurrent_amps"),
+        overcurrent_hold_ms=integer(form, f"{prefix}_overcurrent_hold_ms", 1500),
     )
 
 
@@ -135,11 +134,12 @@ def pumps_from(form: FormData) -> PumpsSettings:
     return PumpsSettings(
         pump1=_pump_from(form, "pump1", "Pump 1"),
         pump2=_pump_from(form, "pump2", "Pump 2"),
-        inrush_ignore_s=number(form, "inrush_ignore_s", 2.0),
-        stop_hold_s=number(form, "stop_hold_s", 3.0),
-        max_runtime_s=integer(form, "max_runtime_s", 600),
-        max_starts_per_hour=integer(form, "max_starts_per_hour", 20),
-        quiet_hours_before_flag=integer(form, "quiet_hours_before_flag", 72),
+        inrush_ignore_ms=integer(form, "inrush_ignore_ms", 800),
+        stop_hold_ms=integer(form, "stop_hold_ms", 1000),
+        max_runtime_ms=integer(form, "max_runtime_ms", 10_000),
+        max_starts=integer(form, "max_starts", 20),
+        starts_window_min=integer(form, "starts_window_min", 60),
+        quiet_minutes_before_flag=integer(form, "quiet_minutes_before_flag", 240),
     )
 
 

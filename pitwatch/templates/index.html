@@ -18,7 +18,7 @@
 </section>
 {% else %}
 <section class="card">
-  <h1>{{ site.name }}</h1>
+  <h1>{% if site.name %}{{ site.name }}{% else %}PitWatch{% endif %}</h1>
   <p class="muted">The dashboard lands here in a later release.</p>
 </section>
 {% endif %}

@@ -7,10 +7,9 @@
   <p class="muted">Last updated {{ policy_updated }}</p>
 
   <p>
-    {{ site.name }} uses PitWatch to monitor the sewage ejector pumps
-    {% if site.location %}at {{ site.location }}{% endif %}. This page explains
-    what messages PitWatch sends, who receives them, how someone consents to
-    receive them, and how to stop.
+    PitWatch monitors {{ site.pumps_at }}. This page explains what messages it
+    sends, who receives them, how someone consents to receive them, and how to
+    stop.
   </p>
 
   <h2>What these messages are</h2>
@@ -34,7 +33,7 @@
 
   <h2>How someone starts receiving them</h2>
   <p>
-    Recipients are added by the building's administrator, who enters their name,
+    Recipients are added by the building administrator, who enters their name,
     email address and mobile number, and records whether that person has agreed
     to receive email, text messages, or both. Nobody is added without asking
     them first, and consent is not a condition of anything else.

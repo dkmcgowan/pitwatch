@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% set active = 'dashboard' %}
-{% block title %}{{ site.name }}{% endblock %}
+{% block title %}{% if site.name %}{{ site.name }}{% else %}PitWatch{% endif %}{% endblock %}
 
 {% block content %}
 

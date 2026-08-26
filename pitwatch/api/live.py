@@ -206,12 +206,12 @@ async def test_email(request: Request, user: auth.SignedIn) -> JSONResponse:
         )
 
     site = store.site
-    where = f"{site.name}" + (f", {site.location}" if site.location else "")
+    where = site.pumps_at
     try:
         await email_sender.send(
             settings,
             to,
-            f"PitWatch test from {site.name}",
+            f"PitWatch test{f' from {site.where}' if site.where else ''}",
             "This is a test from PitWatch.\n\n"
             f"If you are reading it, alerts for {where} will reach this address.\n\n"
             "Nothing is wrong with the pumps. Nobody needs to do anything.\n",
@@ -246,7 +246,8 @@ async def test_sms(request: Request, user: auth.SignedIn) -> JSONResponse:
             settings,
             store.smtp,
             to,
-            f"PitWatch test from {site.name}. Alerts will reach this number.",
+            f"PitWatch test{f' from {site.where}' if site.where else ''}. "
+            "Alerts will reach this number.",
         )
     except sms_sender.SmsError as error:
         return JSONResponse({"ok": False, "error": str(error)})

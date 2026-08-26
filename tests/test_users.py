@@ -77,8 +77,10 @@ def invitation_link(client, user_id: int) -> str:
     emailing it, which is the fallback that stops an admin being stuck before
     SMTP is set up. Using it here means that path is tested too.
     """
-    client.post(f"/users/{user_id}/invite")
-    page = client.get("/users").text
+    # Read it off the response to the POST, which the client follows through to
+    # the people page. The link is shown once and cleared, the way a flash
+    # message should be, so fetching the page a second time would find it gone.
+    page = client.post(f"/users/{user_id}/invite").text
     match = re.search(r"(https?://\S+?/set-password\?token=[A-Za-z0-9_-]+)", page)
     assert match, "no invitation link was offered"
     return match.group(1)
@@ -331,3 +333,20 @@ def test_a_disabled_person_cannot_sign_in(client):
     )
 
     assert response.status_code == 401
+
+
+def test_the_invitation_link_is_shown_once_and_then_cleared(client):
+    """It is a flash message, not something left lying on the page.
+
+    An invitation link is a bearer credential for somebody's account. Leaving
+    it rendered on every later page load would make it as durable as the page
+    itself.
+    """
+    sign_in_as_admin(client)
+    client.post("/users/add", data=SUPER | {"send_invite": ""})
+    user_id = user_id_of(client, "super")
+
+    shown = client.post(f"/users/{user_id}/invite").text
+    assert "/set-password?token=" in shown
+
+    assert "/set-password?token=" not in client.get("/users").text

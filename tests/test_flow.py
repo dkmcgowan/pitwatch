@@ -204,8 +204,11 @@ def test_settings_need_a_sign_in(client):
     assert page.status_code == 303
     assert page.headers["location"] == "/login?next=/settings"
 
-    save = client.post("/settings/site", data={"site_name": "Somewhere else"})
-    assert save.status_code in (303, 401)
+    save = client.post(
+        "/settings/site", data={"site_name": "Somewhere else"}, follow_redirects=False
+    )
+    assert save.status_code == 303
+    assert save.headers["location"].startswith("/login")
     assert client.app.state.settings.site.name != "Somewhere else"
 
 

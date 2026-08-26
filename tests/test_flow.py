@@ -440,7 +440,9 @@ def test_unwired_signals_report_as_unknown_rather_than_off(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM | {"channel_3_signal": "unused"})
 
-    floats = client.get("/api/state").json()["floats"]
+    # A list, not a map: which signals the pit shows is a setting now, and the
+    # order they are shown in is part of the answer.
+    floats = {reading["key"]: reading for reading in client.get("/api/state").json()["floats"]}
 
     assert floats["high_water"]["state"] is None
     assert floats["lead_float"]["state"] is None, "wired, but nothing has been read yet"
@@ -494,7 +496,7 @@ def test_every_contact_reads_as_unknown_without_the_io_module(client):
 
     state = client.get("/api/state").json()
 
-    for reading in state["floats"].values():
+    for reading in state["floats"]:
         assert reading["state"] is None
     for pump in state["pumps"].values():
         assert pump["run_contact"] is None
@@ -737,25 +739,23 @@ def test_the_public_contact_and_your_own_are_kept_apart(client):
 # it and what a removal does to an input still using it.
 
 
-def signal_rows(*pairs) -> list[tuple[str, str]]:
-    """Form fields for the signal table, paired by position the way it posts."""
-    rows: list[tuple[str, str]] = []
-    for key, label in pairs:
-        rows.append(("signal_key", key))
-        rows.append(("signal_label", label))
-    return rows
+def waveshare_form(signals, **overrides) -> dict:
+    """The Waveshare form, with a signal table in it.
 
-
-def waveshare_form(*rows, **overrides) -> list[tuple[str, str]]:
-    fields = [
-        ("waveshare_enabled", "on"),
-        ("waveshare_host", "192.168.1.51"),
-        ("waveshare_port", "502"),
-        ("waveshare_unit_id", "1"),
-        ("waveshare_poll_ms", "200"),
-    ]
-    fields.extend(rows)
-    fields.extend(overrides.items())
+    The table posts one signal_key and one signal_label per row, and the two
+    are paired by position. Repeating a field name is how a browser sends it
+    and how the server reads it back, so the test sends it the same way.
+    """
+    fields = {
+        "waveshare_enabled": "on",
+        "waveshare_host": "192.168.1.51",
+        "waveshare_port": "502",
+        "waveshare_unit_id": "1",
+        "waveshare_poll_ms": "200",
+        "signal_key": [key for key, _ in signals],
+        "signal_label": [label for _, label in signals],
+    }
+    fields.update(overrides)
     return fields
 
 
@@ -771,11 +771,11 @@ def test_a_signal_can_be_renamed_without_moving_the_readings_behind_it(client):
     save = client.post(
         "/settings/waveshare",
         data=waveshare_form(
-            *signal_rows(
+            [
                 ("lead_float", "Bottom float"),
                 ("lag_float", "Middle float"),
                 ("high_water", "TOP FLOAT - the loud one"),
-            ),
+            ],
             channel_3_signal="high_water",
         ),
     )
@@ -796,10 +796,7 @@ def test_a_signal_this_panel_has_that_pitwatch_does_not_know_about(client):
     client.post(
         "/settings/waveshare",
         data=waveshare_form(
-            *signal_rows(
-                ("lead_float", "Lead float"),
-                ("", "Seal failure"),
-            ),
+            [("lead_float", "Lead float"), ("", "Seal failure")],
             channel_1_signal="lead_float",
             channel_2_signal="seal_failure",
         ),
@@ -819,7 +816,7 @@ def test_removing_a_signal_still_wired_to_an_input_says_so(client):
     page = client.post(
         "/settings/waveshare",
         data=waveshare_form(
-            *signal_rows(("lead_float", "Lead float")),
+            [("lead_float", "Lead float")],
             channel_3_signal="high_water",
         ),
     )
@@ -838,10 +835,7 @@ def test_a_signal_is_removed_by_emptying_its_name(client):
     client.post(
         "/settings/waveshare",
         data=waveshare_form(
-            *signal_rows(
-                ("lead_float", "Lead float"),
-                ("panel_alarm", ""),
-            ),
+            [("lead_float", "Lead float"), ("panel_alarm", "")],
             channel_1_signal="lead_float",
         ),
     )
@@ -862,9 +856,7 @@ def test_saving_the_waveshare_without_the_signal_table_leaves_it_alone(client):
     client.post("/setup", data=SETUP_FORM)
     client.post(
         "/settings/waveshare",
-        data=waveshare_form(
-            *signal_rows(("lead_float", "Renamed lead")), channel_1_signal="lead_float"
-        ),
+        data=waveshare_form([("lead_float", "Renamed lead")], channel_1_signal="lead_float"),
     )
 
     client.post("/settings/waveshare", data={"waveshare_host": "192.168.1.99"})

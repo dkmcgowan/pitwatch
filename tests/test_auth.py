@@ -312,3 +312,16 @@ def test_the_public_pages_are_named_after_the_product(client):
 
     assert "<title>Privacy</title>" in page
     assert "PitWatch" in page
+
+
+def test_static_assets_carry_the_version(client):
+    """Otherwise a browser keeps serving the stylesheet it already has.
+
+    This bit during development in the worst way: a CSS fix shipped, was pulled,
+    and appeared not to have worked, because the phone had the old file cached
+    and no reason to ask for another. The version in the query string means an
+    upgrade changes the URL.
+    """
+    for path in ("/login", "/messaging-policy"):
+        page = client.get(path).text
+        assert "style.css?v=" in page, path

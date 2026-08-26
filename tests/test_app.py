@@ -211,3 +211,43 @@ def test_there_is_one_compose_file():
     compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
     assert "network_mode: host" in compose
     assert "@127.0.0.1:5432/pitwatch" in compose
+
+
+# -- what the pit card is asked to show -------------------------------------
+
+
+def test_the_pit_shows_the_floats_bottom_to_top_and_the_pump_contacts_nowhere():
+    """The order is the order they sit in the pit, high water at the top, so the
+    card reads like the thing it describes rather than like a dictionary.
+
+    The run and overload contacts are deliberately absent: they appear on the
+    pump tiles, and a signal shown twice on one screen is a signal somebody
+    reads twice and counts once.
+    """
+    from pitwatch.api.live import pit_signals
+    from pitwatch.schemas import WaveshareSettings
+
+    assert pit_signals(WaveshareSettings()) == [
+        "high_water",
+        "lag_float",
+        "lead_float",
+        "panel_alarm",
+    ]
+
+
+def test_a_signal_somebody_added_lands_on_the_dashboard_by_itself():
+    """Otherwise adding one is a setting that changes nothing you can see, which
+    is the same as not having it."""
+    from pitwatch.api.live import pit_signals
+    from pitwatch.schemas import SignalDef, WaveshareSettings
+
+    settings = WaveshareSettings(
+        signals=[
+            SignalDef(key="high_water", label="Top float"),
+            SignalDef(key="seal_failure", label="Seal failure"),
+            SignalDef(key="pump1_run", label="Pump 1 running"),
+        ]
+    )
+
+    # Known ones keep their place in the pit; the rest follow in list order.
+    assert pit_signals(settings) == ["high_water", "seal_failure"]

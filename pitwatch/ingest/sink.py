@@ -29,7 +29,6 @@ import asyncpg
 
 from pitwatch.ingest.shelly import EmSample
 from pitwatch.ingest.waveshare import IoEvent
-from pitwatch.schemas import Signal
 
 log = logging.getLogger(__name__)
 
@@ -92,7 +91,7 @@ class LiveIo:
         self.states[event.channel] = event
         self.updated_at = datetime.now(UTC)
 
-    def state_of(self, signal: Signal) -> bool | None:
+    def state_of(self, signal: str) -> bool | None:
         """Whether a signal is currently asserted, or None if it is not wired.
 
         None is not False and the difference matters: a rule that treats an
@@ -100,13 +99,13 @@ class LiveIo:
         fire and will look like it is working.
         """
         for event in self.states.values():
-            if event.signal is signal:
+            if event.signal == signal:
                 return event.state
         return None
 
-    def changed_at(self, signal: Signal) -> datetime | None:
+    def changed_at(self, signal: str) -> datetime | None:
         for event in self.states.values():
-            if event.signal is signal:
+            if event.signal == signal:
                 return event.ts
         return None
 
@@ -272,7 +271,7 @@ class IoSink:
                     INSERT INTO io_event (ts, channel, signal, state, raw)
                     VALUES ($1, $2, $3, $4, $5)
                     """,
-                    [(e.ts, e.channel, e.signal.value, e.state, e.raw) for e in events],
+                    [(e.ts, e.channel, e.signal, e.state, e.raw) for e in events],
                 )
                 await connection.executemany(
                     """
@@ -285,7 +284,7 @@ class IoSink:
                         changed_at = excluded.changed_at,
                         updated_at = now()
                     """,
-                    [(e.channel, e.signal.value, e.state, e.raw, e.ts) for e in events],
+                    [(e.channel, e.signal, e.state, e.raw, e.ts) for e in events],
                 )
         except (asyncpg.PostgresError, OSError) as error:
             # The in memory state is already updated, so the dashboard and the
@@ -309,7 +308,7 @@ class IoSink:
             self._live.states[row["channel"]] = IoEvent(
                 ts=row["changed_at"],
                 channel=row["channel"],
-                signal=Signal(row["signal"]),
+                signal=row["signal"],
                 state=row["state"],
                 raw=row["raw"],
             )

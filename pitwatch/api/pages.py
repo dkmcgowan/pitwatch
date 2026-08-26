@@ -22,10 +22,6 @@ from pitwatch import auth
 from pitwatch.api import forms
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
-from pitwatch.schemas import (
-    SIGNAL_LABELS,
-    Signal,
-)
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -38,7 +34,10 @@ def _context(request: Request, **extra) -> dict:
     return {
         "site": store.site,
         "user": auth.current_user(request),
-        "signals": [(signal.value, SIGNAL_LABELS[signal]) for signal in Signal],
+        # The picker on the settings and setup pages. Read from the saved
+        # catalog rather than from a list in the source, because which signals
+        # a panel brings out is a property of the panel.
+        "signals": store.waveshare.options,
         **extra,
     }
 
@@ -76,7 +75,7 @@ async def setup_submit(request: Request, admin: auth.IsAdmin):
     try:
         site = forms.site_from(form)
         shelly = forms.shelly_from(form, store.shelly)
-        waveshare = forms.waveshare_from(form)
+        waveshare = forms.waveshare_from(form, store.waveshare)
         pumps = forms.pumps_from(form)
     except (ValueError, ValidationError) as error:
         return _templates(request).TemplateResponse(
@@ -138,7 +137,7 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
             case "shelly":
                 await store.put(forms.shelly_from(form, store.shelly))
             case "waveshare":
-                await store.put(forms.waveshare_from(form))
+                await store.put(forms.waveshare_from(form, store.waveshare))
             case "pumps":
                 await store.put(forms.pumps_from(form))
             case "smtp":

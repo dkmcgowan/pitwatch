@@ -227,7 +227,7 @@ nothing.
 Add it later on the settings page. The reader starts on its own when you save,
 without restarting the container.
 
-The signals PitWatch understands:
+The list a new install starts with:
 
 | Signal | What it means |
 | --- | --- |
@@ -243,6 +243,14 @@ The signals PitWatch understands:
 You do not need all eight. Anything you leave as **Not connected** is simply not
 watched, and the rules that depend on it stay quiet rather than firing on
 nothing.
+
+That list is a starting point and not a limit. Rename any of them, remove the
+ones your panel does not bring out, and add the ones it does: a seal failure, a
+phase monitor, a hand-off-auto position. Renaming is safe at any time, because
+the name is only what you read and everything already recorded stays attached
+to it. The four floats draw the pit on the dashboard and the run and overload
+contacts sit on the pump tiles; anything you add appears alongside the floats,
+recorded and shown like the rest.
 
 **Your pumps.** The nameplate full load amps off each motor, and the current
 above which a pump counts as running. That second number is not zero: a clamp on

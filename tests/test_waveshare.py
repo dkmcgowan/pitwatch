@@ -136,7 +136,7 @@ def test_the_first_frame_reports_what_changed_while_we_were_down():
     events = reader._apply(bits(di3=True), first=True)
 
     assert len(events) == 1
-    assert events[0].signal is Signal.HIGH_WATER
+    assert events[0].signal == Signal.HIGH_WATER
     assert events[0].state is True
 
 
@@ -209,7 +209,7 @@ def test_an_unmapped_channel_still_produces_an_event():
     events = reader._apply(bits(di5=True), first=False)
 
     assert len(events) == 1
-    assert events[0].signal is Signal.UNUSED
+    assert events[0].signal == Signal.UNUSED
 
 
 def test_a_channel_that_does_not_change_produces_nothing():

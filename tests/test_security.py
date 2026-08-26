@@ -144,40 +144,52 @@ def test_signing_in_issues_a_fresh_token(client):
 # -- sessions and passwords --------------------------------------------------
 
 
-def test_changing_a_password_ends_every_other_session(client, config):
+def test_changing_a_password_ends_every_other_session(client):
     """The reason somebody changes a password is usually that they think a
-    session was stolen. A cookie that outlives the change defeats the point."""
-    from fastapi.testclient import TestClient
+    session was stolen. A cookie that outlives the change defeats the point.
 
-    from pitwatch.app import create_app
+    Two browsers are two cookie jars, so that is what this swaps between. A
+    second TestClient would be a second event loop sharing one connection pool,
+    which fails for reasons that have nothing to do with what is being tested.
+    """
+    cookie = "pitwatch_session"
 
-    app = create_app(config, secret_key=config.secret_key)
-    with TestClient(app) as first, TestClient(app) as second:
-        sign_in_as_admin(first)
-        # A second browser, signed in as the same person.
-        second.post(
-            "/login",
-            data={
-                "username": auth.DEFAULT_USERNAME,
-                "password": NEW_PASSWORD,
-                "csrf_token": token_from(second),
-            },
-        )
-        assert second.get("/").status_code == 200
+    sign_in_as_admin(client)
+    first_browser = client.cookies.get(cookie)
 
-        first.post(
-            "/change-password",
-            data={
-                "current_password": NEW_PASSWORD,
-                "new_password": "a-different-long-password",
-                "confirm_password": "a-different-long-password",
-                "csrf_token": token_from(first, "/change-password"),
-            },
-        )
+    # A second browser, signed in as the same person.
+    client.cookies.clear()
+    client.post(
+        "/login",
+        data={
+            "username": auth.DEFAULT_USERNAME,
+            "password": NEW_PASSWORD,
+            "csrf_token": token_from(client),
+        },
+    )
+    second_browser = client.cookies.get(cookie)
+    assert client.get("/").status_code == 200, "the second browser should be in"
 
-        # The other browser is out, on its next request rather than whenever
-        # its cookie happened to expire.
-        assert second.get("/", follow_redirects=False).status_code == 303
+    # Back to the first, which changes the password.
+    client.cookies.clear()
+    client.cookies.set(cookie, first_browser)
+    changed = client.post(
+        "/change-password",
+        data={
+            "current_password": NEW_PASSWORD,
+            "new_password": "a-different-long-password",
+            "confirm_password": "a-different-long-password",
+            "csrf_token": token_from(client, "/change-password"),
+        },
+        follow_redirects=False,
+    )
+    assert changed.status_code == 303
+
+    # The second browser is out, on its next request rather than whenever its
+    # cookie happened to expire.
+    client.cookies.clear()
+    client.cookies.set(cookie, second_browser)
+    assert client.get("/", follow_redirects=False).status_code == 303
 
 
 # -- headers -----------------------------------------------------------------

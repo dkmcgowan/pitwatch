@@ -233,14 +233,24 @@ class SmsSettings(BaseModel):
     KEY: ClassVar[str] = "sms"
 
     enabled: bool = False
-    # 'twilio' sends through Twilio. 'email_gateway' sends a short email to a
-    # carrier address such as 5551234567@vtext.com, which costs nothing and is
-    # delivered at the carrier's convenience. Which is right depends on whether
-    # a delayed flood alarm is acceptable.
-    provider: str = Field(default="twilio", pattern="^(twilio|email_gateway)$")
-    account_sid: str = ""
-    auth_token: str = ""
-    from_number: str = ""
+    # 'sns' publishes to Amazon SNS. 'email_gateway' sends a short email to a
+    # carrier address such as 5551234567@vtext.com, which costs nothing, needs
+    # no registration, and is delivered at the carrier's convenience. Which is
+    # right depends on whether a delayed flood alarm is acceptable.
+    provider: str = Field(default="sns", pattern="^(sns|email_gateway)$")
+
+    # An IAM access key with permission to call sns:Publish, and nothing else.
+    aws_region: str = "us-east-1"
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    # The registered 10DLC or toll-free number messages are sent from. Required
+    # in practice for US destinations; AWS refuses without one and says so
+    # obscurely.
+    origination_number: str = ""
+    # An alphabetic sender name. Works in much of the world and is ignored in
+    # the US and Canada, where an origination number is required instead.
+    sender_id: str = ""
+
     # Only used by email_gateway, for example "vtext.com".
     gateway_domain: str = ""
 

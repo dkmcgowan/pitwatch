@@ -28,6 +28,9 @@ Working now:
   is actually talking.
 - A setup page that walks you through it, including a live view of the I/O
   module so you can lift a float by hand and see which channel it is on.
+- Email and SMS, with a test button on each that sends a real message, so you
+  can prove the path works before you need it. Amazon SES and SNS are both
+  supported, and any SMTP server works for email.
 
 Next, in order:
 
@@ -35,7 +38,7 @@ Next, in order:
   starting surge had passed.
 - Working out which pump is lead and which is lag, which the panel knows but
   does not tell anyone.
-- Alerts, and sending them by email and SMS.
+- The alert rules themselves, which decide when to use those channels.
 
 ## What you need
 
@@ -227,6 +230,93 @@ nothing.
 above which a pump counts as running. That second number is not zero: a clamp on
 a live conductor reads a little noise even when the motor is off.
 
+## Email and SMS with AWS
+
+Any SMTP server works for email, and any of them is easier than what follows.
+This section is for Amazon SES and SNS specifically, because that is what the
+reference installation uses.
+
+### Email, through SES
+
+SES speaks ordinary SMTP, so there is nothing AWS shaped about the settings.
+
+1. In the SES console, **verify an identity**: either a domain, or just the one
+   address you want mail to come from. That address goes in **From address**.
+2. **Create SMTP credentials** under SES, Account dashboard, SMTP settings. This
+   is the step people get wrong: SES SMTP credentials are generated separately
+   and are **not** an IAM access key and secret, though they look almost
+   identical. Pasting an IAM key in is the usual reason authentication fails.
+3. Fill in the settings:
+
+   | Field | Value |
+   | --- | --- |
+   | Server | `email-smtp.<region>.amazonaws.com` |
+   | Port | 587 |
+   | Security | STARTTLS |
+   | User name and password | The SES SMTP credentials from step 2 |
+   | From address | The identity verified in step 1 |
+
+4. Press **Send test email**.
+
+A new SES account is in the sandbox, which can only send to verified addresses.
+Verify your own address to test, and request production access when you want to
+send to anyone else. If the test fails, the message says which of these it was.
+
+### SMS, through SNS
+
+**Read this before spending an evening on it.** Texting a US number is not
+something you can turn on this afternoon. A new AWS account is in the SNS SMS
+sandbox and can only reach numbers it has verified, and reaching US numbers at
+all requires an **origination identity**: a registered 10DLC, a registered
+toll-free number, or a short code. Registration takes days, costs money, and
+asks about your business and what you intend to send.
+
+That is a rule about US A2P messaging rather than anything peculiar to AWS.
+Twilio and every other paid provider require the same registration, so switching
+provider does not avoid it.
+
+What that means in practice:
+
+- **To test today**, verify your own phone number in the SNS console under
+  Text messaging, sandbox destination numbers. You can then text yourself while
+  still in the sandbox, which is enough to prove the whole path works.
+- **To alert anyone else**, register a toll-free number, which is the least
+  involved of the three, and request production access.
+
+Then:
+
+1. Create an IAM user whose only permission is `sns:Publish`. Not an
+   administrator key. The policy is four lines:
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       { "Effect": "Allow", "Action": "sns:Publish", "Resource": "*" }
+     ]
+   }
+   ```
+
+2. Put its access key and secret, and the region your number is registered in,
+   into the SMS settings.
+3. Put your registered number in **Origination number**.
+4. Press **Send test text**.
+
+Messages are sent as `Transactional`, which asks the carriers to prioritize
+delivery and costs slightly more per message. A pump alarm is the definition of
+transactional.
+
+### The free alternative, and what it costs you
+
+The **carrier email gateway** option sends a short email to an address like
+`5551234567@vtext.com` and lets the carrier turn it into a text. No
+registration, no cost, works this afternoon. It is also unauthenticated,
+delivered whenever the carrier feels like it, and being withdrawn by most US
+carriers. It is genuinely useful as a second, redundant path to a phone. It
+should not be the only thing standing between you and a flooded basement.
+
+It sends through the email settings, so those have to work first.
+
 ## Wiring the I/O module
 
 > Turn the panel off first, and if you are not comfortable working inside a pump
@@ -276,8 +366,10 @@ asserted while everything is fine and drop them on the fault, so that a cut wire
 reads as a fault rather than as silence. Those are the channels that need
 **invert** ticked.
 
-**Alerts.** Where to send them. Email needs an SMTP server; SMS needs a
-provider.
+**Alerts.** Where to send them. Both the email and the SMS sections have a
+**send a test** box that sends a real message using whatever is in the boxes at
+that moment, saved or not, so you can check a change before committing to it.
+See [Email and SMS with AWS](#email-and-sms-with-aws).
 
 ## How it decides things
 

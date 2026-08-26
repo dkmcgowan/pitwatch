@@ -166,18 +166,22 @@ def smtp_from(form: FormData, existing: SmtpSettings) -> SmtpSettings:
 
 
 def sms_from(form: FormData, existing: SmsSettings) -> SmsSettings:
-    token = text(form, "sms_auth_token")
-    if checkbox(form, "sms_clear_token"):
-        token = ""
-    elif not token:
-        token = existing.auth_token
+    # Same rule as every other secret: never rendered back to the browser, so an
+    # empty box means leave it alone and there is a checkbox for clearing it.
+    secret = text(form, "sms_aws_secret_access_key")
+    if checkbox(form, "sms_clear_secret"):
+        secret = ""
+    elif not secret:
+        secret = existing.aws_secret_access_key
 
     return SmsSettings(
         enabled=checkbox(form, "sms_enabled"),
-        provider=text(form, "sms_provider", "twilio") or "twilio",
-        account_sid=text(form, "sms_account_sid"),
-        auth_token=token,
-        from_number=text(form, "sms_from_number"),
+        provider=text(form, "sms_provider", "sns") or "sns",
+        aws_region=text(form, "sms_aws_region", "us-east-1") or "us-east-1",
+        aws_access_key_id=text(form, "sms_aws_access_key_id"),
+        aws_secret_access_key=secret,
+        origination_number=text(form, "sms_origination_number"),
+        sender_id=text(form, "sms_sender_id"),
         gateway_domain=text(form, "sms_gateway_domain"),
     )
 

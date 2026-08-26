@@ -111,7 +111,11 @@
     <div class="grid">
       <div class="field">
         <label for="smtp_host">Server</label>
-        <input type="text" id="smtp_host" name="smtp_host" value="{{ smtp.host }}" placeholder="smtp.example.com">
+        <input type="text" id="smtp_host" name="smtp_host" value="{{ smtp.host }}"
+               placeholder="email-smtp.us-east-1.amazonaws.com">
+        <p class="hint">For Amazon SES this is
+          <code>email-smtp.&lt;region&gt;.amazonaws.com</code>, in the region you
+          verified your domain in.</p>
       </div>
       <div class="field">
         <label for="smtp_port">Port</label>
@@ -128,6 +132,10 @@
       <div class="field">
         <label for="smtp_username">User name</label>
         <input type="text" id="smtp_username" name="smtp_username" value="{{ smtp.username }}" autocomplete="off">
+        <p class="hint">On SES these are <strong>SMTP credentials</strong>, made
+          in the SES console. They are not an IAM access key and secret, though
+          they look similar, and using those instead is the usual reason
+          authentication fails here.</p>
       </div>
       <div class="field">
         <label for="smtp_password">Password</label>
@@ -142,12 +150,24 @@
       <div class="field">
         <label for="smtp_from_address">From address</label>
         <input type="email" id="smtp_from_address" name="smtp_from_address" value="{{ smtp.from_address }}">
+        <p class="hint">Has to be an identity you have verified in SES.</p>
       </div>
       <div class="field">
         <label for="smtp_from_name">From name</label>
         <input type="text" id="smtp_from_name" name="smtp_from_name" value="{{ smtp.from_name }}">
       </div>
     </div>
+
+    <div class="field test-row">
+      <label for="email_test_to">Send a test to</label>
+      <input type="email" id="email_test_to" name="test_to" placeholder="you@example.com"
+             autocomplete="off">
+      <button type="button" class="button secondary" data-test-email>Send test email</button>
+      <p class="hint">Uses what is in the boxes above, saved or not, so you can
+        check a change before committing to it.</p>
+      <div class="test-result" data-email-result hidden></div>
+    </div>
+
     <button type="submit" class="button">Save</button>
   </form>
 </section>
@@ -161,43 +181,88 @@
         Send alerts by SMS
       </label>
     </div>
+
     <div class="field">
       <label for="sms_provider">Through</label>
       <select id="sms_provider" name="sms_provider">
-        <option value="twilio" {% if sms.provider == 'twilio' %}selected{% endif %}>Twilio</option>
+        <option value="sns" {% if sms.provider == 'sns' %}selected{% endif %}>Amazon SNS</option>
         <option value="email_gateway" {% if sms.provider == 'email_gateway' %}selected{% endif %}>The carrier's email gateway</option>
       </select>
       <p class="hint">
-        The email gateway costs nothing and delivers at the carrier's
-        convenience, which is not a promise you want behind a flood alarm.
-        Twilio costs a fraction of a cent and arrives.
+        <strong>Amazon SNS</strong> is the real one. Texting a US number needs a
+        registered 10DLC or toll-free number on the account, which takes days to
+        set up and is a rule about US messaging rather than anything to do with
+        AWS. Every paid provider has the same requirement.
+        <strong>The carrier gateway</strong> emails an address like
+        <code>5551234567@vtext.com</code> and costs nothing, but it is
+        unauthenticated, delivered whenever the carrier feels like it, and being
+        withdrawn. Worth having as a second path to a phone. Not worth being the
+        only one.
       </p>
     </div>
-    <div class="grid">
+
+    <div class="grid" data-sms-provider="sns">
       <div class="field">
-        <label for="sms_account_sid">Account SID</label>
-        <input type="text" id="sms_account_sid" name="sms_account_sid" value="{{ sms.account_sid }}" autocomplete="off">
+        <label for="sms_aws_region">Region</label>
+        <input type="text" id="sms_aws_region" name="sms_aws_region" value="{{ sms.aws_region }}"
+               placeholder="us-east-1">
+        <p class="hint">The region your origination number lives in.</p>
       </div>
       <div class="field">
-        <label for="sms_auth_token">Auth token</label>
-        <input type="password" id="sms_auth_token" name="sms_auth_token" autocomplete="new-password"
-               placeholder="{% if sms.auth_token %}unchanged{% else %}none set{% endif %}">
-        {% if sms.auth_token %}
+        <label for="sms_aws_access_key_id">Access key ID</label>
+        <input type="text" id="sms_aws_access_key_id" name="sms_aws_access_key_id"
+               value="{{ sms.aws_access_key_id }}" autocomplete="off">
+        <p class="hint">An IAM user whose only permission is
+          <code>sns:Publish</code>. Do not reuse an administrator key.</p>
+      </div>
+      <div class="field">
+        <label for="sms_aws_secret_access_key">Secret access key</label>
+        <input type="password" id="sms_aws_secret_access_key" name="sms_aws_secret_access_key"
+               autocomplete="new-password"
+               placeholder="{% if sms.aws_secret_access_key %}unchanged{% else %}none set{% endif %}">
+        {% if sms.aws_secret_access_key %}
         <label class="hint">
-          <input type="checkbox" name="sms_clear_token"> Clear the stored token
+          <input type="checkbox" name="sms_clear_secret"> Clear the stored secret
         </label>
         {% endif %}
       </div>
       <div class="field">
-        <label for="sms_from_number">From number</label>
-        <input type="tel" id="sms_from_number" name="sms_from_number" value="{{ sms.from_number }}">
+        <label for="sms_origination_number">Origination number</label>
+        <input type="tel" id="sms_origination_number" name="sms_origination_number"
+               value="{{ sms.origination_number }}" placeholder="+18885550142">
+        <p class="hint">Your registered 10DLC or toll-free number. Required for
+          US destinations.</p>
       </div>
       <div class="field">
-        <label for="sms_gateway_domain">Gateway domain</label>
-        <input type="text" id="sms_gateway_domain" name="sms_gateway_domain" value="{{ sms.gateway_domain }}" placeholder="vtext.com">
-        <p class="hint">Only used by the email gateway option.</p>
+        <label for="sms_sender_id">Sender ID</label>
+        <input type="text" id="sms_sender_id" name="sms_sender_id" value="{{ sms.sender_id }}"
+               placeholder="PITWATCH">
+        <p class="hint">Used outside North America. Ignored for US and Canadian
+          numbers, which require a number instead.</p>
       </div>
     </div>
+
+    <div class="grid" data-sms-provider="email_gateway">
+      <div class="field">
+        <label for="sms_gateway_domain">Gateway domain</label>
+        <input type="text" id="sms_gateway_domain" name="sms_gateway_domain"
+               value="{{ sms.gateway_domain }}" placeholder="vtext.com">
+        <p class="hint">Verizon is <code>vtext.com</code>, AT&amp;T is
+          <code>txt.att.net</code>, T-Mobile is <code>tmomail.net</code>. This
+          route sends through the email settings above, so those have to work
+          first.</p>
+      </div>
+    </div>
+
+    <div class="field test-row">
+      <label for="sms_test_to">Send a test to</label>
+      <input type="tel" id="sms_test_to" name="test_to" placeholder="+12125550142" autocomplete="off">
+      <button type="button" class="button secondary" data-test-sms>Send test text</button>
+      <p class="hint">Uses what is in the boxes above, saved or not. A ten digit
+        US number is fine; it will be read as +1.</p>
+      <div class="test-result" data-sms-result hidden></div>
+    </div>
+
     <button type="submit" class="button">Save</button>
   </form>
 </section>

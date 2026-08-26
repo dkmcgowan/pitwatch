@@ -358,3 +358,89 @@
 
   refresh();
 })();
+
+// The two notification test buttons, and showing only the fields that apply.
+//
+// Both post the form as it currently stands rather than what is saved, because
+// the question a test button answers is "does what I just typed work", and
+// making you save first means saving something broken to find out.
+//
+// These send real messages. There is no dry run, on the grounds that a test
+// which does not actually deliver tests nothing worth knowing.
+
+(function () {
+  "use strict";
+
+  function escape(value) {
+    const node = document.createElement("span");
+    node.textContent = String(value === null || value === undefined ? "" : value);
+    return node.innerHTML;
+  }
+
+  function wire(buttonSelector, resultSelector, endpoint, sendingText) {
+    const button = document.querySelector(buttonSelector);
+    const output = document.querySelector(resultSelector);
+    if (!button || !output) {
+      return;
+    }
+
+    function show(text, kind) {
+      output.hidden = false;
+      output.className = "test-result " + kind;
+      output.innerHTML = escape(text);
+    }
+
+    button.addEventListener("click", async function () {
+      const form = button.closest("form");
+      if (!form) {
+        return;
+      }
+      button.disabled = true;
+      show(sendingText, "");
+
+      try {
+        const response = await fetch(endpoint, { method: "POST", body: new FormData(form) });
+        const body = await response.text();
+        let result;
+        try {
+          result = JSON.parse(body);
+        } catch (error) {
+          show(
+            response.status === 401
+              ? "Sign in first."
+              : "The server returned something unexpected (" + response.status + ").",
+            "bad"
+          );
+          return;
+        }
+        if (result.ok) {
+          show(result.detail || "Sent.", "good");
+        } else {
+          show(result.error || "It did not send.", "bad");
+        }
+      } catch (error) {
+        show("The request failed: " + error.message, "bad");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+
+  wire("[data-test-email]", "[data-email-result]", "/api/test/email", "Sending...");
+  wire("[data-test-sms]", "[data-sms-result]", "/api/test/sms", "Sending...");
+
+  // Show only the provider that is selected. Both blocks stay in the form and
+  // both still submit, so switching provider and back does not lose what you
+  // typed; they are only hidden.
+  const provider = document.querySelector("#sms_provider");
+  const blocks = Array.prototype.slice.call(document.querySelectorAll("[data-sms-provider]"));
+  if (provider && blocks.length) {
+    const refresh = function () {
+      blocks.forEach(function (block) {
+        block.hidden = block.getAttribute("data-sms-provider") !== provider.value;
+      });
+    };
+    provider.addEventListener("change", refresh);
+    refresh();
+  }
+})();

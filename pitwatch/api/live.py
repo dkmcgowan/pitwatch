@@ -17,6 +17,8 @@ from pitwatch.api import forms
 from pitwatch.ingest import shelly as shelly_ingest
 from pitwatch.ingest import waveshare as waveshare_ingest
 from pitwatch.ingest.sink import LiveIo, LiveState
+from pitwatch.notify import email as email_sender
+from pitwatch.notify import sms as sms_sender
 from pitwatch.schemas import SIGNAL_LABELS, Signal
 from pitwatch.settings import SettingsStore
 
@@ -183,6 +185,78 @@ async def test_waveshare(request: Request) -> JSONResponse:
     for channel in result.get("channels", []):
         channel["label"] = SIGNAL_LABELS[Signal(channel["signal"])]
     return JSONResponse(result)
+
+
+@router.post("/test/email", include_in_schema=False)
+async def test_email(request: Request, user: auth.SignedIn) -> JSONResponse:
+    """Send one real message to one address, using the form as it stands.
+
+    Using the unsaved form matters: the point of a test button is to find out
+    whether what you have just typed works, before committing it. Always behind
+    a sign in, because this one makes the server send mail on request.
+    """
+    store: SettingsStore = request.app.state.settings
+    form = await request.form()
+
+    try:
+        settings = forms.smtp_from(form, store.smtp)
+    except (ValueError, ValidationError) as error:
+        return JSONResponse({"ok": False, "error": str(error)}, status_code=400)
+
+    to = forms.text(form, "test_to")
+    if not to:
+        return JSONResponse(
+            {"ok": False, "error": "Put an address in the box first"}, status_code=400
+        )
+
+    site = store.site
+    where = f"{site.name}" + (f", {site.location}" if site.location else "")
+    try:
+        await email_sender.send(
+            settings,
+            to,
+            f"PitWatch test from {site.name}",
+            "This is a test from PitWatch.\n\n"
+            f"If you are reading it, alerts for {where} will reach this address.\n\n"
+            "Nothing is wrong with the pumps. Nobody needs to do anything.\n",
+        )
+    except email_sender.EmailError as error:
+        return JSONResponse({"ok": False, "error": str(error)})
+    return JSONResponse({"ok": True, "detail": f"Sent to {to}. Check the inbox, and spam."})
+
+
+@router.post("/test/sms", include_in_schema=False)
+async def test_sms(request: Request, user: auth.SignedIn) -> JSONResponse:
+    """Send one real text to one number, using the form as it stands."""
+    store: SettingsStore = request.app.state.settings
+    form = await request.form()
+
+    try:
+        settings = forms.sms_from(form, store.sms)
+    except (ValueError, ValidationError) as error:
+        return JSONResponse({"ok": False, "error": str(error)}, status_code=400)
+
+    to = forms.text(form, "test_to")
+    if not to:
+        return JSONResponse(
+            {"ok": False, "error": "Put a phone number in the box first"}, status_code=400
+        )
+
+    site = store.site
+    try:
+        # Kept short on purpose. A text is billed per segment and truncated
+        # without warning, and this one only has to prove delivery.
+        await sms_sender.send(
+            settings,
+            store.smtp,
+            to,
+            f"PitWatch test from {site.name}. Alerts will reach this number.",
+        )
+    except sms_sender.SmsError as error:
+        return JSONResponse({"ok": False, "error": str(error)})
+    return JSONResponse(
+        {"ok": True, "detail": f"Sent to {sms_sender.normalize(to)}. It can take a moment."}
+    )
 
 
 def register(app) -> None:

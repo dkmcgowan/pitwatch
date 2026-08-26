@@ -478,3 +478,13 @@ table.clamps td { border-bottom: none; }
 table.clamps select { min-width: 11rem; }
 table.steps td, table.steps th { border-bottom: none; padding: 0.15rem 0.6rem 0.15rem 0; }
 table.steps th { font-weight: 500; }
+
+/* A test row is a label, an input and a button that belong together. */
+.test-row {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+  margin-top: 1rem;
+}
+
+.test-row input { max-width: 22rem; }
+.test-row .button { margin-top: 0.5rem; }

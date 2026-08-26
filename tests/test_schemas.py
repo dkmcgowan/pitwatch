@@ -155,3 +155,43 @@ def test_every_settings_model_loads_from_nothing():
     """
     for model in SETTING_MODELS:
         assert model.model_validate({}) == model()
+
+
+def test_every_property_on_every_settings_model_actually_works():
+    """A property that raises does not look like a bug. It looks like a choice.
+
+    `SiteSettings.where` kept referring to a field that had been deleted. In
+    Python that is an AttributeError; in a Jinja template it is an empty string,
+    so the building name simply stopped appearing in the footer and the policy
+    pages quietly said "this building" instead. Nothing failed, nothing logged,
+    and it read as something somebody had decided.
+
+    So: touch every property on every settings model, with defaults and with
+    values, and let an exception be an exception.
+    """
+    for model in SETTING_MODELS:
+        for instance in (model(), model.model_validate(_filled(model))):
+            for name in dir(type(instance)):
+                if name.startswith("_") or name in model.model_fields:
+                    continue
+                attribute = getattr(type(instance), name, None)
+                if isinstance(attribute, property):
+                    getattr(instance, name)
+
+
+def _filled(model) -> dict:
+    """Plausible values for a model's own fields, so properties see real data."""
+    values: dict = {}
+    for name, field in model.model_fields.items():
+        annotation = field.annotation
+        if annotation is str or annotation == (str | None):
+            values[name] = "822 Greenwich St" if name == "name" else "something"
+        elif annotation is bool:
+            values[name] = True
+    # Anything that will not take a made up string keeps its default.
+    for name in list(values):
+        try:
+            model.model_validate({name: values[name]})
+        except ValueError:
+            del values[name]
+    return values

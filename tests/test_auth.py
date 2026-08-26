@@ -325,3 +325,38 @@ def test_static_assets_carry_the_version(client):
     for path in ("/login", "/messaging-policy"):
         page = client.get(path).text
         assert "style.css?v=" in page, path
+
+
+def test_the_policy_stands_up_without_any_contact_details(client):
+    """They are optional, and the page has to be complete without them.
+
+    What actually stops the messages is replying STOP, which the carriers
+    handle and which needs nobody's address. Publishing a personal mobile on a
+    page anyone can read is a real cost and should not be the price of a
+    compliant policy.
+    """
+    sign_in_as_admin(client)
+    client.post("/settings/site", data={"site_name": "822 Greenwich St"})
+
+    page = client.get("/messaging-policy").text
+
+    assert "STOP" in page
+    assert "HELP" in page
+    assert "Message and data rates may apply" in page
+    assert "never have to reach anybody" in page
+    assert "who added you to these alerts" in page
+
+
+def test_contact_details_are_shown_when_there_are_some(client):
+    sign_in_as_admin(client)
+    client.post(
+        "/settings/site",
+        data={"site_name": "822 Greenwich St", "site_contact_email": "pumps@example.com"},
+    )
+
+    page = client.get("/messaging-policy").text
+
+    assert "pumps@example.com" in page
+    # And STOP is still the first thing offered, because it is the one that
+    # works without asking anybody.
+    assert page.index("never have to reach anybody") < page.index("pumps@example.com")

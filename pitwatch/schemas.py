@@ -282,25 +282,18 @@ class SiteSettings(BaseModel):
 
     @property
     def where(self) -> str:
-        """The building, for prose, or empty if nobody has said yet.
+        """The building, or empty if nobody has said yet.
 
         Empty rather than a placeholder on purpose. Every caller has to decide
         what to say when it is not set, which is the only way the policy pages
         avoid announcing a default nobody chose.
         """
-        return ", ".join(part for part in (self.name.strip(), self.location.strip()) if part)
+        return self.name.strip()
 
     @property
     def pumps_at(self) -> str:
-        """A phrase for prose: "the pumps at 822 Greenwich St".
-
-        The building only, without the part of it the pumps are in. "The pumps
-        at 822 Greenwich St, basement, rear" is accurate and reads like a form
-        being read aloud. The fuller version is `where`, which is for an alert,
-        where somebody does want telling which end of the basement.
-        """
-        building = self.name.strip()
-        return f"the pumps at {building}" if building else "the pumps in this building"
+        """A phrase for prose: "the pumps at 822 Greenwich St"."""
+        return f"the pumps at {self.where}" if self.where else "the pumps in this building"
 
     # An alert has to stay open this long before anyone is told, which stops a
     # float that bobs once from waking the building. Critical alerts ignore it.

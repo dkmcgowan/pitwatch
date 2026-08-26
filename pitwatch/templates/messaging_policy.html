@@ -84,14 +84,24 @@
 
   <h2>Getting in touch</h2>
   <p>
+    You never have to reach anybody to stop these messages. Replying
+    <strong>STOP</strong> to any text message ends them immediately, and is
+    handled by the mobile carriers rather than by this system, so it works
+    whatever else is going on. Replying <strong>HELP</strong> returns
+    assistance details. To stop email, reply to any alert.
+  </p>
+  <p>
     {% if site.contact_email or site.contact_phone %}
-      Contact the building administrator
+      For anything else, contact the administrator of {{ site.where or "this building" }}
       {% if site.contact_email %}by email at
         <a href="mailto:{{ site.contact_email }}">{{ site.contact_email }}</a>{% endif %}
       {% if site.contact_email and site.contact_phone %} or {% endif %}
       {% if site.contact_phone %}by phone on {{ site.contact_phone }}{% endif %}.
     {% else %}
-      Contact the building administrator, who added you to these alerts.
+      For anything else, contact the administrator of
+      {{ site.where or "this building" }}, who is the person who added you to
+      these alerts and holds the only copy of this list. There is no public sign
+      up, so everyone receiving these messages already knows who that is.
     {% endif %}
   </p>
 </section>

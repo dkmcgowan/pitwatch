@@ -227,5 +227,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', path='setup.js') }}"></script>
+<script src="{{ url_for('static', path='setup.js') }}?v={{ version }}"></script>
 {% endblock %}

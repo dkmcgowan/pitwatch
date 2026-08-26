@@ -56,14 +56,22 @@ body {
   color: var(--text);
   display: flex;
   flex-direction: column;
-  /* dvh, not vh. On a phone 100vh counts the space behind the browser's own
-     URL bar, so a page that fits exactly still pushes its footer just below the
-     fold and asks for a scroll to reach links that were never off screen. dvh
-     is the viewport actually being shown. vh stays as the fallback for the few
-     browsers that do not know dvh, where the old behavior is no worse than it
-     was. */
+  /* svh, not vh and not dvh.
+   *
+   * A phone has three viewport heights. lvh is the tallest, with the browser
+   * chrome retracted, and 100vh resolves to it, which is why a page sized in vh
+   * overflows by roughly the height of the URL bar. dvh is whichever is showing
+   * right now, which sounds like the answer and is not: at first paint the
+   * chrome is expanded, and a layout sized to the current viewport can still
+   * end up a little taller than the space left once everything has settled.
+   *
+   * svh is the smallest, the viewport with the chrome fully expanded. Sizing to
+   * it means the page fits in the worst case, which is exactly the requirement
+   * here: no scroll when the content fits. The cost is a little space at the
+   * bottom once the URL bar retracts, and on a page that never scrolls it never
+   * does. */
   min-height: 100vh;
-  min-height: 100dvh;
+  min-height: 100svh;
 }
 
 /* Header ------------------------------------------------------------------ */

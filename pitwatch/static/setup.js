@@ -278,12 +278,12 @@
 
 // Keeping the two clamp selects opposite each other.
 //
-// The form only ever submits pump 1, and the server derives pump 2 from it, so
-// there is no state here that can be wrong. This exists purely so the page
-// shows both pumps and lets you change either one, rather than telling you
-// about one and leaving the other to be inferred, which reads like a trick.
-// With JavaScript off, pump 1 still submits correctly and pump 2 still displays
-// the right thing; it just will not move on its own.
+// Both are real fields and both are submitted and stored. There are only two
+// clamps, so moving one almost always means moving the other, and doing it here
+// saves a second click. It is a convenience only: what gets saved is whatever
+// the form sends, and the server refuses a form that puts both pumps on one
+// clamp. With JavaScript off both still submit correctly; they just do not move
+// together.
 
 (function () {
   "use strict";
@@ -302,9 +302,6 @@
     second.value = opposite(first.value);
   });
 
-  // Changing pump 2 is really changing pump 1, since only one of them is a
-  // stored setting. Doing it this way round means the control that looks
-  // editable is editable.
   second.addEventListener("change", function () {
     first.value = opposite(second.value);
   });

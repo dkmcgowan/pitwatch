@@ -133,22 +133,46 @@ class ShellySettings(BaseModel):
     mode: str = Field(default="client", pattern="^(client|outbound)$")
     # Only set when the device has a password on its local web interface.
     password: str | None = None
-    # Which em1 instance is on pump 1. The clamps are interchangeable and
-    # nothing on the device says which motor it is around, so this is asked
-    # rather than assumed.
-    #
-    # There is deliberately no pump2_channel field. The device has exactly two
-    # clamps, so the second answer is always the first one inverted, and storing
-    # it separately only creates a state where both pumps are on clamp 0 and
-    # every reading is wrong in a way that looks plausible.
+    # Which em1 instance is on each pump. Both are stored and both are read
+    # back as they were saved. An earlier version stored only pump 1 and
+    # returned `1 - pump1_channel` for pump 2, which meant a setting nobody had
+    # written and a rule that had to be remembered everywhere it was read. The
+    # browser keeps the two in step; that is a convenience, not the source of
+    # truth.
     pump1_channel: int = Field(default=0, ge=0, le=1)
+    pump2_channel: int = Field(default=1, ge=0, le=1)
     # The device pushes on change. This poll exists only to notice that it has
     # stopped pushing, which a silent socket does not tell us.
     heartbeat_s: int = Field(default=30, ge=5, le=600)
 
+    @model_validator(mode="before")
+    @classmethod
+    def carry_forward_a_missing_pump2(cls, data):
+        """Fill pump 2 in for settings saved before it was a stored field.
+
+        A one time compatibility shim, not the runtime rule. Without it, a saved
+        `{"pump1_channel": 1}` would take the default of 1 for pump 2, fail the
+        check below because both name the same clamp, and fall back to defaults,
+        silently moving pump 1 back to clamp 0. That is a wrong reading that
+        looks entirely plausible.
+        """
+        if isinstance(data, dict) and "pump1_channel" in data and "pump2_channel" not in data:
+            data = {**data, "pump2_channel": 1 - int(data["pump1_channel"])}
+        return data
+
+    @model_validator(mode="after")
+    def clamps_differ(self) -> ShellySettings:
+        if self.pump1_channel == self.pump2_channel:
+            raise ValueError(
+                "The two pumps cannot read the same clamp. There are two clamps "
+                "and two pumps, so one goes to each."
+            )
+        return self
+
     @property
-    def pump2_channel(self) -> int:
-        return 1 - self.pump1_channel
+    def clamp_for_pump(self) -> dict[int, int]:
+        """Pump number to clamp, read straight from what was saved."""
+        return {1: self.pump1_channel, 2: self.pump2_channel}
 
 
 class PumpSettings(BaseModel):
@@ -197,8 +221,10 @@ class PumpsSettings(BaseModel):
     # sensor. Worth a quiet flag either way.
     quiet_hours_before_flag: int = Field(default=72, ge=1, le=8760)
 
-    def for_pump(self, pump: int) -> PumpSettings:
-        return self.pump1 if pump == 1 else self.pump2
+    @property
+    def by_number(self) -> dict[int, PumpSettings]:
+        """Pump number to its settings. A lookup, not a branch."""
+        return {1: self.pump1, 2: self.pump2}
 
 
 class SmtpSettings(BaseModel):

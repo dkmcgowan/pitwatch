@@ -23,6 +23,7 @@ SETUP_FORM = {
     "shelly_enabled": "on",
     "shelly_host": "192.168.1.50",
     "shelly_pump1_channel": "1",
+    "shelly_pump2_channel": "0",
     "shelly_heartbeat_s": "30",
     "waveshare_enabled": "on",
     "waveshare_host": "192.168.1.51",
@@ -136,6 +137,42 @@ def test_the_clamp_choice_is_stored_the_way_it_was_made(client):
     assert state["pumps"]["1"]["channel"] == 1
     assert state["pumps"]["2"]["channel"] == 0
     assert state["pumps"]["1"]["name"] == "North pump"
+
+    stored = client.app.state.settings.shelly
+    assert stored.pump1_channel == 1
+    assert stored.pump2_channel == 0
+
+
+def test_swapping_the_clamps_takes_effect_both_ways(client):
+    client.post("/setup", data=SETUP_FORM)
+
+    client.post(
+        "/settings/shelly",
+        data=SETUP_FORM | {"shelly_pump1_channel": "0", "shelly_pump2_channel": "1"},
+    )
+
+    state = client.get("/api/state").json()
+    assert state["pumps"]["1"]["channel"] == 0
+    assert state["pumps"]["2"]["channel"] == 1
+
+
+def test_putting_both_pumps_on_one_clamp_is_refused(client):
+    """A form is not a guarantee, so the model checks it again.
+
+    Both pumps reading one motor would show a plausible dashboard that was
+    simply wrong about one of them.
+    """
+    client.post("/setup", data=SETUP_FORM)
+
+    response = client.post(
+        "/settings/shelly",
+        data=SETUP_FORM | {"shelly_pump1_channel": "1", "shelly_pump2_channel": "1"},
+    )
+
+    assert response.status_code == 400
+    assert "same clamp" in response.text
+    # And the previous, valid mapping is untouched.
+    assert client.app.state.settings.shelly.clamp_for_pump == {1: 1, 2: 0}
 
 
 def test_settings_need_a_sign_in(client):

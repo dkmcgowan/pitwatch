@@ -64,11 +64,13 @@ async def build_state(app) -> dict:
 
     run_signal = {1: Signal.PUMP1_RUN, 2: Signal.PUMP2_RUN}
     overload_signal = {1: Signal.PUMP1_OVERLOAD, 2: Signal.PUMP2_OVERLOAD}
+    clamp = shelly.clamp_for_pump
+    pump_settings = pumps.by_number
 
     def pump_state(number: int) -> dict:
-        channel = shelly.pump1_channel if number == 1 else shelly.pump2_channel
+        channel = clamp[number]
         sample = live.samples.get(channel)
-        settings = pumps.for_pump(number)
+        settings = pump_settings[number]
         current = sample.current if sample else None
         drawing = current is not None and current >= settings.running_amps
         contact = live_io.state_of(run_signal[number])

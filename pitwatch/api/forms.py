@@ -89,8 +89,11 @@ def shelly_from(form: FormData, existing: ShellySettings | None = None) -> Shell
         host=text(form, "shelly_host"),
         mode=text(form, "shelly_mode", "client") or "client",
         password=password,
-        # Pump 2 is not asked for. It is always the other clamp.
+        # Both are asked for and both are stored. The form keeps them apart in
+        # the browser; the model checks it again here, because a form is not a
+        # guarantee.
         pump1_channel=integer(form, "shelly_pump1_channel", 0),
+        pump2_channel=integer(form, "shelly_pump2_channel", 1),
         heartbeat_s=integer(form, "shelly_heartbeat_s", 30),
     )
 

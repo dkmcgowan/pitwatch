@@ -13,6 +13,8 @@ from pydantic import ValidationError
 
 from pitwatch.schemas import (
     ChannelMap,
+    PumpSettings,
+    PumpsSettings,
     ShellySettings,
     Signal,
     WaveshareSettings,
@@ -63,23 +65,52 @@ def test_shelly_defaults_put_one_pump_on_each_clamp():
     assert {settings.pump1_channel, settings.pump2_channel} == {0, 1}
 
 
-def test_pump_two_is_always_the_other_clamp():
-    """There is no way to configure both pumps onto one clamp.
+def test_both_clamp_assignments_are_stored_and_read_back_as_saved():
+    """No derivation. What was saved is what comes back.
 
-    An earlier version stored both channel numbers and validated that they
-    differed, which is a check that can be failed. Deriving the second one
-    removes the state rather than guarding it.
+    An earlier version stored only pump 1 and returned `1 - pump1_channel` for
+    pump 2, which meant reading a setting nobody had written.
     """
-    assert ShellySettings(pump1_channel=0).pump2_channel == 1
-    assert ShellySettings(pump1_channel=1).pump2_channel == 0
+    settings = ShellySettings(pump1_channel=1, pump2_channel=0)
 
-
-def test_a_stored_pump2_channel_from_an_older_version_is_ignored():
-    settings = ShellySettings.model_validate(
-        {"host": "10.0.0.9", "pump1_channel": 1, "pump2_channel": 1}
-    )
-
+    assert settings.pump1_channel == 1
     assert settings.pump2_channel == 0
+    assert settings.clamp_for_pump == {1: 1, 2: 0}
+
+    swapped = ShellySettings(pump1_channel=0, pump2_channel=1)
+    assert swapped.clamp_for_pump == {1: 0, 2: 1}
+
+
+def test_both_pumps_cannot_read_the_same_clamp():
+    with pytest.raises(ValidationError, match="cannot read the same clamp"):
+        ShellySettings(pump1_channel=1, pump2_channel=1)
+
+
+def test_settings_saved_before_pump2_was_stored_keep_their_mapping():
+    """The compatibility shim, and the reason it exists.
+
+    Without it a stored {"pump1_channel": 1} takes the default of 1 for pump 2,
+    fails the check that they differ, and falls back to defaults, quietly moving
+    pump 1 back to clamp 0. Both pumps would then read the wrong motor and the
+    page would look entirely reasonable.
+    """
+    settings = ShellySettings.model_validate({"host": "10.0.0.9", "pump1_channel": 1})
+
+    assert settings.pump1_channel == 1
+    assert settings.pump2_channel == 0
+
+
+def test_the_shim_does_not_touch_settings_that_name_both_clamps():
+    settings = ShellySettings.model_validate({"pump1_channel": 0, "pump2_channel": 1})
+
+    assert settings.clamp_for_pump == {1: 0, 2: 1}
+
+
+def test_pump_settings_are_looked_up_by_number():
+    pumps = PumpsSettings(pump1=PumpSettings(name="North"), pump2=PumpSettings(name="South"))
+
+    assert pumps.by_number[1].name == "North"
+    assert pumps.by_number[2].name == "South"
 
 
 def test_a_setting_saved_under_the_old_name_still_inverts():

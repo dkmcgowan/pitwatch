@@ -44,11 +44,10 @@
     Press <strong>Test connection</strong>, start a pump by hand, and see which
     reading moves.</p>
 
-  {# Both pumps are shown and both are pickable, because being told about one
-     and having the other inferred reads like a trick. Only pump 1 is submitted;
-     the two selects are tied together in the browser so they can never name the
-     same clamp, and the server derives pump 2 from pump 1 regardless. The
-     invariant does not depend on the JavaScript running. #}
+  {# Both pumps are shown, both are pickable and both are submitted and stored.
+     Changing one moves the other in the browser, because there are only two
+     clamps and that is almost always what you meant; it is a convenience, and
+     the saved value is whatever the form actually sent. #}
   <div class="table-scroll">
   <table class="clamps">
     <tbody>
@@ -65,10 +64,8 @@
       <tr>
         <th scope="row">Pump 2</th>
         <td>
-          {# Not submitted. It mirrors pump 1 so the page shows the whole
-             picture, and it is disabled for keyboard and screen reader users
-             rather than silently ignored. #}
-          <select id="shelly_pump2_channel" data-clamp="2" aria-describedby="clamp-note">
+          <select id="shelly_pump2_channel" name="shelly_pump2_channel"
+                  data-clamp="2" aria-describedby="clamp-note">
             <option value="0" {% if shelly.pump2_channel == 0 %}selected{% endif %}>Clamp 1 (em1:0)</option>
             <option value="1" {% if shelly.pump2_channel == 1 %}selected{% endif %}>Clamp 2 (em1:1)</option>
           </select>
@@ -79,7 +76,9 @@
   </table>
   </div>
   <p class="hint" id="clamp-note">There are only two clamps, so changing either
-    one swaps the other. You cannot put both pumps on the same clamp.</p>
+    one moves the other. Setting both to the same clamp is refused when you
+    save; both pumps would read the same motor and the page would look right
+    while being wrong.</p>
 </div>
 
 <div class="field">

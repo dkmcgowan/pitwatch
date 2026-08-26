@@ -110,6 +110,81 @@ async def logout(request: Request):
     return RedirectResponse("/login", status_code=303)
 
 
+# -- your own account --------------------------------------------------------
+
+
+@router.get("/profile", include_in_schema=False)
+async def profile_page(request: Request, user: auth.SignedIn, saved: str | None = None):
+    return _templates(request).TemplateResponse(
+        request,
+        "profile.html",
+        _context(request, saved=saved, error=None, password_error=None),
+    )
+
+
+@router.post("/profile", include_in_schema=False)
+async def profile_save(request: Request, user: auth.SignedIn):
+    """Edit your own details, and only the ones that are yours to edit.
+
+    Deliberately a separate handler from the admin one rather than the same
+    query with a different id. Whether somebody is an administrator, and whether
+    their account works at all, are not on this form and cannot be reached from
+    it, which is a property of the code rather than of the template.
+    """
+    pool = request.app.state.pool
+    form = await request.form()
+
+    def refuse(message: str):
+        return _templates(request).TemplateResponse(
+            request,
+            "profile.html",
+            _context(request, saved=None, error=message, password_error=None),
+            status_code=400,
+        )
+
+    name = forms.text(form, "name")
+    email = forms.text(form, "email") or None
+    phone = forms.text(form, "phone") or None
+    notify_email = forms.checkbox(form, "notify_email")
+    notify_sms = forms.checkbox(form, "notify_sms")
+
+    if not name:
+        return refuse("A name is needed, so an alert can be addressed to somebody")
+    if email and not email_sender.looks_like_an_address(email):
+        return refuse(f"{email!r} does not look like an email address")
+    if phone:
+        phone = sms_sender.normalize(phone)
+        if not sms_sender.looks_like_a_number(phone):
+            return refuse(f"{phone!r} does not look like a phone number")
+    if notify_email and not email:
+        return refuse("Turn on email and there has to be an address to send it to")
+    if notify_sms and not phone:
+        return refuse("Turn on text messages and there has to be a number to send them to")
+
+    try:
+        await pool.execute(
+            """
+            UPDATE app_user
+            SET name = $2, email = $3, phone = $4,
+                notify_email = $5, notify_sms = $6, min_severity = $7
+            WHERE id = $1
+            """,
+            user.id,
+            name,
+            email,
+            phone,
+            notify_email,
+            notify_sms,
+            forms.text(form, "min_severity", "warning") or "warning",
+        )
+    except Exception as error:  # noqa: BLE001 -- a taken address is the usual one
+        log.warning("Could not save the profile for %s: %s", user.username, error)
+        return refuse("Could not save that. Is the email address already used by somebody else?")
+
+    log.info("%s updated their own details", user.username)
+    return RedirectResponse("/profile?saved=1", status_code=303)
+
+
 # -- passwords ---------------------------------------------------------------
 
 
@@ -128,10 +203,20 @@ async def change_password_submit(request: Request, user: auth.SignedIn):
     form = await request.form()
 
     def refuse(message: str):
+        # While the shipped password is still in force there is nowhere else to
+        # be, so the error stays on the dedicated page. Afterwards the form
+        # lives on the profile page and so should the answer.
+        if user.must_change_password:
+            return _templates(request).TemplateResponse(
+                request,
+                "change_password.html",
+                _context(request, error=message, forced=True),
+                status_code=400,
+            )
         return _templates(request).TemplateResponse(
             request,
-            "change_password.html",
-            _context(request, error=message, forced=user.must_change_password),
+            "profile.html",
+            _context(request, saved=None, error=None, password_error=message),
             status_code=400,
         )
 
@@ -158,7 +243,9 @@ async def change_password_submit(request: Request, user: auth.SignedIn):
         auth.sign_in(request, refreshed)
 
     log.info("%s changed their password", user.username)
-    return RedirectResponse("/", status_code=303)
+    # Straight to the dashboard the first time, because that is somebody who has
+    # just been made to change a shipped password and wants to get on with it.
+    return RedirectResponse("/" if user.must_change_password else "/profile?saved=1", 303)
 
 
 @router.get("/set-password", include_in_schema=False)

@@ -457,35 +457,3 @@ function csrfHeader(form) {
     refresh();
   }
 })();
-
-// Closing the account menu when you click away from it.
-//
-// A details element opens and closes on its own, from a click or a keyboard,
-// which is why it is one rather than a scripted dropdown. The one thing it does
-// not do is close when you click somewhere else, and a menu that stays open
-// over the page is a menu you have to go back and dismiss.
-
-(function () {
-  "use strict";
-
-  const menus = Array.prototype.slice.call(document.querySelectorAll("[data-menu]"));
-  if (!menus.length) {
-    return;
-  }
-
-  document.addEventListener("click", function (event) {
-    menus.forEach(function (menu) {
-      if (menu.open && !menu.contains(event.target)) {
-        menu.open = false;
-      }
-    });
-  });
-
-  document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape") {
-      menus.forEach(function (menu) {
-        menu.open = false;
-      });
-    }
-  });
-})();

@@ -547,39 +547,11 @@ def test_the_header_is_icons_rather_than_words(client):
 
     page = client.get("/").text
 
-    for label in ("Dashboard", "People", "Settings", "Your account"):
+    for label in ("Dashboard", "People", "Settings", "Your profile"):
         assert f'aria-label="{label}"' in page, label
     # The words themselves are gone from the navigation.
     assert ">Dashboard</a>" not in page
     assert ">Settings</a>" not in page
-
-
-def test_the_account_menu_holds_the_password_and_sign_out(client):
-    """They were three separate things in the header. Now they are one icon."""
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-
-    page = client.get("/").text
-
-    assert '<details class="menu"' in page
-    assert "/change-password" in page
-    assert 'action="/logout"' in page
-    # And the sign out form still carries a token, being a real form.
-    assert 'name="csrf_token"' in page
-
-
-def test_the_account_menu_works_without_javascript(client):
-    """A details element opens on click and on a keyboard on its own.
-
-    The only thing script adds is closing it when you click elsewhere, which is
-    a convenience rather than the feature.
-    """
-    sign_in_as_admin(client)
-
-    page = client.get("/").text
-
-    assert "<details" in page
-    assert "<summary" in page
 
 
 def test_a_non_admin_sees_no_settings_or_people_icon(client):
@@ -596,3 +568,81 @@ def test_a_non_admin_sees_no_settings_or_people_icon(client):
 
     # The template decides by user.is_admin, which the People page shows too.
     assert 'aria-label="People"' in page
+
+
+def test_the_profile_page_carries_everything_about_you(client):
+    """One page rather than a dropdown of mismatched links and buttons."""
+    sign_in_as_admin(client)
+
+    page = client.get("/profile").text
+
+    assert 'name="email"' in page
+    assert 'name="phone"' in page
+    assert 'name="notify_email"' in page
+    assert 'name="notify_sms"' in page
+    assert 'action="/change-password"' in page
+    assert 'action="/logout"' in page
+
+
+def test_you_can_change_your_own_contact_details(client):
+    sign_in_as_admin(client)
+
+    client.post(
+        "/profile",
+        data={
+            "name": "David",
+            "email": "david@example.com",
+            "phone": "(212) 555-0142",
+            "notify_sms": "on",
+            "min_severity": "warning",
+        },
+    )
+
+    page = client.get("/profile").text
+    assert 'value="david@example.com"' in page
+    assert 'value="+12125550142"' in page
+
+
+def test_wanting_no_alerts_at_all_is_allowed(client):
+    """A real choice, not an error. The account still works."""
+    sign_in_as_admin(client)
+
+    response = client.post(
+        "/profile", data={"name": "David", "email": "d@example.com", "min_severity": "warning"}
+    )
+
+    assert response.status_code == 200
+    assert client.get("/").status_code == 200
+
+
+def test_asking_for_alerts_with_nowhere_to_send_them_is_refused(client):
+    sign_in_as_admin(client)
+
+    response = client.post("/profile", data={"name": "David", "notify_sms": "on"})
+    assert response.status_code == 400
+    assert "number to send them to" in response.text
+
+    response = client.post("/profile", data={"name": "David", "notify_email": "on"})
+    assert response.status_code == 400
+    assert "address to send it to" in response.text
+
+
+def test_your_own_profile_cannot_make_you_an_administrator(client):
+    """The fields that are not yours to set are not reachable from this form.
+
+    A property of the handler rather than of the template, so hand crafting the
+    post does not help.
+    """
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+    client.post(
+        "/users/add",
+        data={"name": "Watcher", "username": "watcher", "email": "w@example.com"},
+    )
+    client.post("/logout")
+
+    # Signed in as the admin again to read back what the other person is.
+    sign_in_as_admin(client)
+    before = client.get("/users").text
+
+    assert "Watcher" in before

@@ -46,7 +46,6 @@ CREATE TABLE device_status (
     online       boolean NOT NULL DEFAULT false,
     last_seen    timestamptz,
     last_error   text,
-    detail       jsonb NOT NULL DEFAULT '{}'::jsonb,
     updated_at   timestamptz NOT NULL DEFAULT now()
 );
 

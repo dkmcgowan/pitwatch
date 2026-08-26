@@ -25,6 +25,39 @@
 </section>
 
 <section class="card">
+  <h2>How to reach you</h2>
+  <p class="hint">
+    Your own contact details, so alerts can find you. You can change them later
+    on your profile, and add other people afterwards.
+  </p>
+  <div class="grid">
+    <div class="field">
+      <label for="admin_name">Your name</label>
+      <input type="text" id="admin_name" name="admin_name" value="{{ user.name }}">
+    </div>
+    <div class="field">
+      <label for="admin_email">Email</label>
+      <input type="email" id="admin_email" name="admin_email" value="{{ user.email or '' }}">
+    </div>
+    <div class="field">
+      <label for="admin_phone">Mobile</label>
+      <input type="tel" id="admin_phone" name="admin_phone" value="{{ user.phone or '' }}"
+             placeholder="+12125550142">
+    </div>
+  </div>
+  <div class="field checkboxes">
+    <label>
+      <input type="checkbox" name="admin_notify_email" {% if user.notify_email %}checked{% endif %}>
+      Email me alerts
+    </label>
+    <label>
+      <input type="checkbox" name="admin_notify_sms" {% if user.notify_sms %}checked{% endif %}>
+      Text me alerts
+    </label>
+  </div>
+</section>
+
+<section class="card">
   <h2>The Shelly EM</h2>
   {{ fields.shelly_fields(shelly) }}
 </section>

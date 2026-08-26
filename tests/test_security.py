@@ -321,7 +321,7 @@ def test_changing_your_own_password_does_not_sign_you_out(client):
     )
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/"
+    assert response.headers["location"] == "/profile?saved=1"
     assert client.get("/").status_code == 200, "signed out by their own change"
 
 

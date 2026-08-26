@@ -17,9 +17,10 @@ CREATE TABLE alert (
     -- old alert still reads the way it did when it was sent.
     context          jsonb NOT NULL DEFAULT '{}'::jsonb,
     raised_at        timestamptz NOT NULL DEFAULT now(),
-    cleared_at       timestamptz,
-    acknowledged_at  timestamptz,
-    acknowledged_by  text
+    cleared_at       timestamptz
+    -- No acknowledgement columns. Silencing an alert by hand is a feature
+    -- nobody has asked for, and a column waiting for one is a column that gets
+    -- filled in wrongly by whoever assumes it already works.
 );
 
 CREATE INDEX alert_raised_at ON alert (raised_at DESC);

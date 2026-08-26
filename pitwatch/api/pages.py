@@ -34,10 +34,6 @@ def _context(request: Request, **extra) -> dict:
     return {
         "site": store.site,
         "user": auth.current_user(request),
-        # The picker on the settings and setup pages. Read from the saved
-        # catalog rather than from a list in the source, because which signals
-        # a panel brings out is a property of the panel.
-        "signals": store.waveshare.options,
         **extra,
     }
 

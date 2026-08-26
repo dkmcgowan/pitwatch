@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% set active = 'settings' %}
+{% block title %}Dashboard lamps{% endblock %}
+
+{% block content %}
+
+{% if error %}
+<p class="error" role="alert">{{ error }}</p>
+{% elif saved %}
+<p class="saved" role="status">Saved.</p>
+{% endif %}
+
+<section class="card">
+  <h2>Dashboard lamps</h2>
+  <p class="hint">
+    Which input lights which lamp. The Waveshare settings say what is wired to
+    each input; this says where each one appears on the dashboard.
+  </p>
+  <p class="hint">
+    Leave one blank and that lamp reads <strong>not set</strong> rather than
+    off. Not knowing is not the same as knowing it is fine.
+  </p>
+
+  {% if not waveshare.used_channels %}
+  <p class="notice-inline">
+    No inputs are named yet. Name them under
+    <a href="/settings">the Waveshare I/O module</a> first and they will show
+    up here by name.
+  </p>
+  {% endif %}
+
+  <form method="post" action="/settings/dashboard">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="grid">
+      {% for role, title in roles %}
+      <div class="field">
+        <label for="role_{{ role }}">{{ title }}</label>
+        <select id="role_{{ role }}" name="role_{{ role }}">
+          <option value="">Not set</option>
+          {% for channel in waveshare.channels %}
+          <option value="{{ channel.channel }}"
+                  {% if dashboard.assignments[role] == channel.channel %}selected{% endif %}>
+            {% if channel.label %}{{ channel.label }} (DI{{ channel.channel }}){% else %}DI{{ channel.channel }}{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endfor %}
+    </div>
+
+    <button type="submit" class="button">Save</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>What the display says</h2>
+  <p class="hint">
+    The two words in the middle of the dashboard work the way the controller
+    does. Whichever pump ran last sits out the next call, so if pump 1 ran last
+    then pump 2 is <strong>LEAD</strong>. That still reads correctly while pump
+    1 is running, because the question the word answers is which pump goes
+    next.
+  </p>
+  <p class="hint">
+    An overload outranks that. A pump whose overload has tripped reads
+    <strong>FAIL</strong>, and the other one is lead whether or not it was next
+    in the rotation, because it is the only one left.
+  </p>
+  <p class="hint">
+    Until one of the run contacts has been seen to close, both read
+    <strong>--</strong>. Which pump is lead is the controller's business and it
+    does not tell us, so this waits rather than guessing.
+  </p>
+  <p><a class="button secondary" href="/settings">Back to settings</a></p>
+</section>
+
+{% endblock %}

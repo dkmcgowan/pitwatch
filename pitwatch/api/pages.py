@@ -22,6 +22,7 @@ from pitwatch import auth
 from pitwatch.api import forms
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
+from pitwatch.schemas import DASHBOARD_ROLES
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ def _context(request: Request, **extra) -> dict:
     return {
         "site": store.site,
         "user": auth.current_user(request),
+        "roles": DASHBOARD_ROLES,
         **extra,
     }
 
@@ -119,6 +121,53 @@ async def settings_page(request: Request, admin: auth.IsAdmin, saved: str | None
             error=None,
         ),
     )
+
+
+# -- the dashboard ----------------------------------------------------------
+#
+# Its own page rather than another card on the settings page, because it is a
+# different job. The settings page describes the wiring; this describes the
+# display, and the two are edited at different times by people thinking about
+# different things. Administrators only, like everything under /settings.
+
+
+@router.get("/settings/dashboard", include_in_schema=False)
+async def dashboard_settings_page(request: Request, admin: auth.IsAdmin):
+    store: SettingsStore = request.app.state.settings
+    return _templates(request).TemplateResponse(
+        request,
+        "dashboard_settings.html",
+        _context(
+            request,
+            dashboard=store.dashboard,
+            waveshare=store.waveshare,
+            saved=request.query_params.get("saved") is not None,
+            error=None,
+        ),
+    )
+
+
+@router.post("/settings/dashboard", include_in_schema=False)
+async def dashboard_settings_save(request: Request, admin: auth.IsAdmin):
+    store: SettingsStore = request.app.state.settings
+    form = await request.form()
+    try:
+        await store.put(forms.dashboard_from(form))
+    except (ValueError, ValidationError) as error:
+        return _templates(request).TemplateResponse(
+            request,
+            "dashboard_settings.html",
+            _context(
+                request,
+                dashboard=store.dashboard,
+                waveshare=store.waveshare,
+                saved=False,
+                error=_readable(error),
+            ),
+            status_code=400,
+        )
+    log.info("%s updated the dashboard lamps", admin.username)
+    return RedirectResponse("/settings/dashboard?saved=1", status_code=303)
 
 
 @router.post("/settings/{section}", include_in_schema=False)

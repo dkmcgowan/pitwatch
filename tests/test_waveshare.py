@@ -12,7 +12,7 @@ these run instantly instead of sleeping through every hold time.
 from __future__ import annotations
 
 from pitwatch.ingest.waveshare import Debouncer, WaveshareReader
-from pitwatch.schemas import ChannelMap, Signal, WaveshareSettings
+from pitwatch.schemas import ChannelMap, WaveshareSettings
 
 
 def settings_with(*channels: ChannelMap) -> WaveshareSettings:
@@ -99,7 +99,7 @@ def test_channels_debounce_independently():
 def test_the_first_frame_matching_what_was_stored_produces_no_events():
     """A restart is not eight state changes."""
     reader = WaveshareReader(
-        settings_with(ChannelMap(channel=1, signal=Signal.LEAD_FLOAT)),
+        settings_with(ChannelMap(channel=1, label="Lead float")),
         on_events=None,
         initial_state=all_off(),
     )
@@ -115,7 +115,7 @@ def test_a_fresh_install_records_all_eight_inputs_as_a_baseline():
     unknown rather than as off.
     """
     reader = WaveshareReader(
-        settings_with(ChannelMap(channel=1, signal=Signal.LEAD_FLOAT)),
+        settings_with(ChannelMap(channel=1, label="Lead float")),
         on_events=None,
         initial_state={},
     )
@@ -128,7 +128,7 @@ def test_a_fresh_install_records_all_eight_inputs_as_a_baseline():
 
 def test_the_first_frame_reports_what_changed_while_we_were_down():
     reader = WaveshareReader(
-        settings_with(ChannelMap(channel=3, signal=Signal.HIGH_WATER)),
+        settings_with(ChannelMap(channel=3, label="High water")),
         on_events=None,
         initial_state=all_off(),
     )
@@ -136,7 +136,7 @@ def test_the_first_frame_reports_what_changed_while_we_were_down():
     events = reader._apply(bits(di3=True), first=True)
 
     assert len(events) == 1
-    assert events[0].signal == Signal.HIGH_WATER
+    assert events[0].label == "High water"
     assert events[0].state is True
 
 
@@ -155,7 +155,7 @@ def test_an_inverted_channel_reads_the_opposite_of_the_wire():
         settings_with(
             ChannelMap(
                 channel=7,
-                signal=Signal.PUMP1_OVERLOAD,
+                label="Pump 1 overload",
                 invert=True,
                 debounce_ms=0,
             )
@@ -177,7 +177,7 @@ def test_an_inverted_channel_reads_the_opposite_of_the_wire():
 
 def test_a_plain_channel_is_not_inverted():
     reader = WaveshareReader(
-        settings_with(ChannelMap(channel=1, signal=Signal.LEAD_FLOAT, debounce_ms=0)),
+        settings_with(ChannelMap(channel=1, label="Lead float", debounce_ms=0)),
         on_events=None,
         initial_state=all_off(),
     )
@@ -209,12 +209,12 @@ def test_an_unmapped_channel_still_produces_an_event():
     events = reader._apply(bits(di5=True), first=False)
 
     assert len(events) == 1
-    assert events[0].signal == Signal.UNUSED
+    assert events[0].label == "", "an unnamed input is still read, just not named"
 
 
 def test_a_channel_that_does_not_change_produces_nothing():
     reader = WaveshareReader(
-        settings_with(ChannelMap(channel=1, signal=Signal.LEAD_FLOAT, debounce_ms=0)),
+        settings_with(ChannelMap(channel=1, label="Lead float", debounce_ms=0)),
         on_events=None,
         initial_state=all_off(),
     )

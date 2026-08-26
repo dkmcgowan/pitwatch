@@ -227,30 +227,30 @@ nothing.
 Add it later on the settings page. The reader starts on its own when you save,
 without restarting the container.
 
-The list a new install starts with:
+**Name the inputs.** Each of the module's eight inputs gets a name you type,
+and that is all there is to it. Give one a name and it is watched, recorded and
+shown on the dashboard. Leave the name empty and nothing is wired there, so it
+is left alone.
 
-| Signal | What it means |
+Name them after what is printed in the panel or on the wire. There is no list to
+pick from, so anything your panel brings out can go on an input: the usual
+floats and run contacts, or a seal failure, a phase monitor, a hand-off-auto
+position. What a new install suggests, in the order a duplex ejector panel
+usually brings them out:
+
+| Input | Usually |
 | --- | --- |
-| Lead float | The first float. The pump the controller calls lead starts on this. |
-| Lag float | The second float, higher up. The other pump joins in. |
-| High water alarm float | Higher still. Water is winning. |
-| Panel alarm contact | The controller's own generic alarm. |
-| Pump 1 running | Contactor closed on pump 1. |
-| Pump 2 running | Contactor closed on pump 2. |
-| Pump 1 overload tripped | The motor overload relay for pump 1. |
-| Pump 2 overload tripped | The motor overload relay for pump 2. |
+| DI1 | Lead float. The first float. The pump the controller calls lead starts on this. |
+| DI2 | Lag float. The second float, higher up. The other pump joins in. |
+| DI3 | High water alarm float. Higher still. Water is winning. |
+| DI4 | Panel alarm contact. The controller's own generic alarm. |
+| DI5 | Pump 1 running. Contactor closed on pump 1. |
+| DI6 | Pump 2 running. Contactor closed on pump 2. |
+| DI7 | Pump 1 overload tripped. |
+| DI8 | Pump 2 overload tripped. |
 
-You do not need all eight. Anything you leave as **Not connected** is simply not
-watched, and the rules that depend on it stay quiet rather than firing on
-nothing.
-
-That list is a starting point and not a limit. Rename any of them, remove the
-ones your panel does not bring out, and add the ones it does: a seal failure, a
-phase monitor, a hand-off-auto position. Renaming is safe at any time, because
-the name is only what you read and everything already recorded stays attached
-to it. The four floats draw the pit on the dashboard and the run and overload
-contacts sit on the pump tiles; anything you add appears alongside the floats,
-recorded and shown like the rest.
+Those are suggestions, not meanings. PitWatch keys everything on the input
+number, so renaming one is safe at any time and changes only what you read.
 
 **Your pumps.** The nameplate full load amps off each motor, and the current
 above which a pump counts as running. That second number is not zero: a clamp on
@@ -400,9 +400,11 @@ See [Email and SMS with AWS](#email-and-sms-with-aws).
 ## How it decides things
 
 **Running or not.** A pump is running when current is above the threshold you
-set, or when its run contact is closed. Both, ideally. When only one of the two
-says so, that is itself worth telling you about: a closed contactor with no
-current is a motor that is not turning.
+set. The panel's own run contact used to count too, and the disagreement
+between the two was the useful part: a closed contactor with no current is a
+motor that is not turning. Bringing that back needs a way to say which input
+carries pump 1's run contact, and inputs are names you type rather than roles
+this application knows. Undecided; see the note under [Alerts](#alerts).
 
 **Inrush is discarded, not smoothed** (designed, not yet built). A motor pulls
 six to eight times its running current for a fraction of a second as it comes up
@@ -471,6 +473,16 @@ what it needs.
 Each one is raised once and stays open until the condition goes away, so a float
 that chatters twenty times sends one message rather than twenty, and you get an
 all clear when it drains.
+
+**Half of that table needs something that does not exist yet.** The rows about
+current are about the clamps and are ready to build. The rows that name a
+particular contact are not: an input is a name somebody typed, so nothing can
+ask which one is the high water float. Two ways out, and this is not settled.
+Either every input gets its own alert settings, which is severity and wording
+per input and needs no roles at all, or the few places that genuinely need a
+role get a "which input is this" picker next to the thing that uses it. The
+first generalizes to any panel; the second keeps the cross checks between the
+contacts and the clamps. Probably both, in that order.
 
 ## Where the data lives
 

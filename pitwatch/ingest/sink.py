@@ -79,9 +79,9 @@ class LiveState:
 class LiveIo:
     """The current state of every contact, and when it last changed.
 
-    Keyed by channel rather than by signal, because a channel with nothing
-    wired to it is still a channel, and because the setup page wants to show
-    all eight regardless of what they are mapped to.
+    Keyed by channel, which is the only identity an input has. A channel with
+    nothing wired to it is still a channel, and the setup page shows all eight
+    regardless of what anybody has called them.
     """
 
     states: dict[int, IoEvent] = field(default_factory=dict)
@@ -91,23 +91,19 @@ class LiveIo:
         self.states[event.channel] = event
         self.updated_at = datetime.now(UTC)
 
-    def state_of(self, signal: str) -> bool | None:
-        """Whether a signal is currently asserted, or None if it is not wired.
+    def state_of(self, channel: int) -> bool | None:
+        """Whether an input is asserted, or None if nothing has read it yet.
 
         None is not False and the difference matters: a rule that treats an
-        unwired high water float as "not flooding" is a rule that will never
+        unread high water float as "not flooding" is a rule that will never
         fire and will look like it is working.
         """
-        for event in self.states.values():
-            if event.signal == signal:
-                return event.state
-        return None
+        event = self.states.get(channel)
+        return event.state if event else None
 
-    def changed_at(self, signal: str) -> datetime | None:
-        for event in self.states.values():
-            if event.signal == signal:
-                return event.ts
-        return None
+    def changed_at(self, channel: int) -> datetime | None:
+        event = self.states.get(channel)
+        return event.ts if event else None
 
 
 class SampleSink:
@@ -268,23 +264,23 @@ class IoSink:
             async with self._pool.acquire() as connection, connection.transaction():
                 await connection.executemany(
                     """
-                    INSERT INTO io_event (ts, channel, signal, state, raw)
+                    INSERT INTO io_event (ts, channel, label, state, raw)
                     VALUES ($1, $2, $3, $4, $5)
                     """,
-                    [(e.ts, e.channel, e.signal, e.state, e.raw) for e in events],
+                    [(e.ts, e.channel, e.label, e.state, e.raw) for e in events],
                 )
                 await connection.executemany(
                     """
-                    INSERT INTO io_state (channel, signal, state, raw, changed_at, updated_at)
+                    INSERT INTO io_state (channel, label, state, raw, changed_at, updated_at)
                     VALUES ($1, $2, $3, $4, $5, now())
                     ON CONFLICT (channel) DO UPDATE SET
-                        signal     = excluded.signal,
+                        label      = excluded.label,
                         state      = excluded.state,
                         raw        = excluded.raw,
                         changed_at = excluded.changed_at,
                         updated_at = now()
                     """,
-                    [(e.channel, e.signal, e.state, e.raw, e.ts) for e in events],
+                    [(e.channel, e.label, e.state, e.raw, e.ts) for e in events],
                 )
         except (asyncpg.PostgresError, OSError) as error:
             # The in memory state is already updated, so the dashboard and the
@@ -299,16 +295,14 @@ class IoSink:
         a fresh transition, while a contact that genuinely changed during the
         outage still registers as one.
         """
-        rows = await self._pool.fetch(
-            "SELECT channel, signal, state, raw, changed_at FROM io_state"
-        )
+        rows = await self._pool.fetch("SELECT channel, label, state, raw, changed_at FROM io_state")
         known = {}
         for row in rows:
             known[row["channel"]] = row["state"]
             self._live.states[row["channel"]] = IoEvent(
                 ts=row["changed_at"],
                 channel=row["channel"],
-                signal=row["signal"],
+                label=row["label"],
                 state=row["state"],
                 raw=row["raw"],
             )

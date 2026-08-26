@@ -14,103 +14,24 @@ wrong". Add them when the shape settles, not before.
 
 from __future__ import annotations
 
-import re
-from enum import StrEnum
 from typing import ClassVar
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-class Signal(StrEnum):
-    """The signals PitWatch itself understands.
-
-    These are the names the rest of the application speaks. A rule asks for
-    HIGH_WATER, not for channel 3, so rewiring the panel is a settings change
-    and not a code change.
-
-    They are not the whole list, and they are not a limit. What a panel
-    actually carries is a setting, in ``WaveshareSettings.signals``, and can be
-    renamed, added to, or cut down. The eight below are special only in that
-    code elsewhere refers to them by name: the dashboard puts the run and
-    overload contacts on the pump tiles and draws the pit from the floats. A
-    signal somebody adds is recorded, shown and alerted on like any other. It
-    simply has no built in meaning for anything to attach to.
-    """
-
-    UNUSED = "unused"
-    LEAD_FLOAT = "lead_float"
-    LAG_FLOAT = "lag_float"
-    HIGH_WATER = "high_water"
-    PANEL_ALARM = "panel_alarm"
-    PUMP1_RUN = "pump1_run"
-    PUMP2_RUN = "pump2_run"
-    PUMP1_OVERLOAD = "pump1_overload"
-    PUMP2_OVERLOAD = "pump2_overload"
-
-
-# What an input is set to when nothing is wired to it. Deliberately not in the
-# catalog below: it is the absence of a signal rather than one of them, and any
-# number of inputs can be in that state at once.
-UNUSED: str = Signal.UNUSED.value
-
-# Keys are ASCII and lower case because they are what the database rows and the
-# alert rules hold. Labels are what people read and can say anything.
-SIGNAL_KEY_PATTERN = r"^[a-z][a-z0-9_]{0,39}$"
-
-# What a new install starts with. Every one of these can be renamed or removed
-# afterwards, and others added, because panels differ: yours may bring out a
-# seal failure, a phase monitor, a hand-off-auto position, or nothing but the
-# floats.
-BUILTIN_SIGNALS: tuple[tuple[str, str], ...] = (
-    (Signal.LEAD_FLOAT.value, "Lead float"),
-    (Signal.LAG_FLOAT.value, "Lag float"),
-    (Signal.HIGH_WATER.value, "High water alarm float"),
-    (Signal.PANEL_ALARM.value, "Panel alarm contact"),
-    (Signal.PUMP1_RUN.value, "Pump 1 running"),
-    (Signal.PUMP2_RUN.value, "Pump 2 running"),
-    (Signal.PUMP1_OVERLOAD.value, "Pump 1 overload tripped"),
-    (Signal.PUMP2_OVERLOAD.value, "Pump 2 overload tripped"),
-)
-
-BUILTIN_SIGNAL_LABELS: dict[str, str] = dict(BUILTIN_SIGNALS)
-
-
-def signal_key(label: str) -> str:
-    """A storage key from a label somebody typed.
-
-    Only ever used when a signal is first added. After that the key is fixed
-    and the label is free to change, which is what keeps a rename from
-    orphaning the history recorded under the old name.
-    """
-    cleaned = re.sub(r"[^a-z0-9]+", "_", label.strip().lower()).strip("_")
-    if cleaned and not cleaned[0].isalpha():
-        cleaned = f"s_{cleaned}"
-    return cleaned[:40].rstrip("_") or "signal"
-
-
-class SignalDef(BaseModel):
-    """One name an input can be given, as it appears in the picker."""
-
-    key: str = Field(pattern=SIGNAL_KEY_PATTERN)
-    label: str = Field(min_length=1, max_length=60)
-
-    @property
-    def builtin(self) -> bool:
-        """Whether code elsewhere knows this one by name.
-
-        Only used to warn before removing one. Removing it is allowed; the
-        parts that look for it simply find nothing wired, which is a state they
-        already have to handle.
-        """
-        return self.key in BUILTIN_SIGNAL_LABELS
-
-
-def default_signals() -> list[SignalDef]:
-    return [SignalDef(key=key, label=label) for key, label in BUILTIN_SIGNALS]
-
-
 class ChannelMap(BaseModel):
     """One Waveshare digital input.
+
+    The input number is the identity. Everything else about a channel is
+    description: what it is called is a label somebody types, and a blank label
+    means nothing is wired there, so it is not watched and not shown.
+
+    There is no separate list of signals to pick from. There was, and it bought
+    nothing: a name that has to be defined somewhere before it can be used, a
+    key underneath the name so a rename was not a delete, a rule against two
+    inputs claiming the same name, and a refusal to remove a name still in use.
+    All of that existed to keep a second identity in step with the one the panel
+    already gives you, which is the terminal the wire lands on.
 
     ``invert`` is the setting that is easiest to get wrong and worst to get
     wrong, and it covers two arrangements that look different on the wire and
@@ -130,10 +51,7 @@ class ChannelMap(BaseModel):
     """
 
     channel: int = Field(ge=1, le=8)
-    # A key from the signal catalog on WaveshareSettings, or "unused". A plain
-    # string rather than the enum, because the catalog is editable and a signal
-    # somebody added at three in the morning is as real as one shipped here.
-    signal: str = Field(default=UNUSED, pattern=SIGNAL_KEY_PATTERN)
+    label: str = Field(default="", max_length=60)
     invert: bool = False
     # Contacts bounce, and float switches bounce for longer than most because a
     # float bobs. A state has to hold for this long before it counts.
@@ -145,6 +63,16 @@ class ChannelMap(BaseModel):
     # next poll disagrees and the candidate change is abandoned. Hence a default
     # that is not zero.
     debounce_ms: int = Field(default=500, ge=0, le=30_000)
+
+    @field_validator("label")
+    @classmethod
+    def tidy(cls, value: str) -> str:
+        return value.strip()
+
+    @property
+    def used(self) -> bool:
+        """Whether anything is wired here, which is whether it has a name."""
+        return bool(self.label)
 
 
 class WaveshareSettings(BaseModel):
@@ -159,74 +87,37 @@ class WaveshareSettings(BaseModel):
     # difference between catching a two second lag float call and missing it.
     poll_ms: int = Field(default=200, ge=50, le=10_000)
     timeout_s: float = Field(default=3.0, gt=0, le=60)
-
-    # What this panel brings out, which is a property of the panel and not of
-    # this application. Starts as the eight in BUILTIN_SIGNALS and is edited
-    # from the settings page.
-    signals: list[SignalDef] = Field(default_factory=default_signals)
     channels: list[ChannelMap] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def fill_and_check_channels(self) -> WaveshareSettings:
-        keys = [signal.key for signal in self.signals]
-        if UNUSED in keys:
-            raise ValueError(
-                'Nothing can be named "unused". That name is how an input with '
-                "nothing wired to it is recorded."
-            )
-        repeated = {key for key in keys if keys.count(key) > 1}
-        if repeated:
-            raise ValueError("Two signals cannot share a name: " + ", ".join(sorted(repeated)))
+    def fill_in_every_channel(self) -> WaveshareSettings:
+        """Always eight, in order, whatever was saved.
 
+        The module has eight inputs whether or not anything is wired to them,
+        and a settings page that showed only the configured ones would have no
+        row to configure the next one in.
+        """
         by_channel = {channel.channel: channel for channel in self.channels}
         self.channels = [
             by_channel.get(number, ChannelMap(channel=number)) for number in range(1, 9)
         ]
-
-        # A channel pointing at a signal that is no longer on the list. The
-        # usual way to get here is removing a signal without first freeing the
-        # input that uses it, and saying which input is the whole of the fix.
-        known = set(keys)
-        for channel in self.channels:
-            if channel.signal != UNUSED and channel.signal not in known:
-                raise ValueError(
-                    f"DI{channel.channel} is wired to a signal that is not on the "
-                    "list any more. Set that input to Not connected first, then "
-                    "remove the signal."
-                )
-
-        assigned = [c.signal for c in self.channels if c.signal != UNUSED]
-        duplicates = {s for s in assigned if assigned.count(s) > 1}
-        if duplicates:
-            names = ", ".join(sorted(self.label_for(s) for s in duplicates))
-            raise ValueError(f"Each signal can only be on one channel. Repeated: {names}")
         return self
 
-    def label_for(self, key: str) -> str:
-        """What to call a signal on screen.
+    @property
+    def used_channels(self) -> list[ChannelMap]:
+        """The inputs something is wired to, in input order."""
+        return [channel for channel in self.channels if channel.used]
 
-        Falls back to the key itself for a signal that has since been removed,
-        so old history stays readable rather than blank.
+    def label_for(self, channel: int) -> str:
+        """What to call an input, falling back to its terminal marking.
+
+        Never empty. A reading from an input whose name has since been cleared
+        still has to be describable, and "DI4" is what is printed on the module.
         """
-        if key == UNUSED:
-            return "Not connected"
-        for signal in self.signals:
-            if signal.key == key:
-                return signal.label
-        return BUILTIN_SIGNAL_LABELS.get(key, key)
-
-    @property
-    def options(self) -> list[tuple[str, str]]:
-        """What each input's dropdown offers, in order."""
-        return [(UNUSED, "Not connected")] + [(s.key, s.label) for s in self.signals]
-
-    @property
-    def channel_of(self) -> dict[str, int]:
-        """Signal key to the input carrying it, for everything assigned."""
-        return {c.signal: c.channel for c in self.channels if c.signal != UNUSED}
-
-    def channel_for(self, signal: str) -> ChannelMap | None:
-        return next((c for c in self.channels if c.signal == signal), None)
+        for mapped in self.channels:
+            if mapped.channel == channel and mapped.used:
+                return mapped.label
+        return f"DI{channel}"
 
 
 class ShellySettings(BaseModel):

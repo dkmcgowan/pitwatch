@@ -17,7 +17,7 @@ from pitwatch.auth import DEFAULT_PASSWORD, DEFAULT_USERNAME, authenticate, ensu
 from pitwatch.db import migrate, migration_files
 from pitwatch.ingest.shelly import EmSample
 from pitwatch.ingest.sink import LiveState, SampleSink, record_device_status
-from pitwatch.schemas import ChannelMap, ShellySettings, Signal, WaveshareSettings
+from pitwatch.schemas import ChannelMap, ShellySettings, WaveshareSettings
 
 
 async def test_migrations_apply_to_an_empty_database(pool):
@@ -118,15 +118,15 @@ async def test_settings_round_trip(store):
     saved = WaveshareSettings(
         enabled=True,
         host="192.168.1.51",
-        channels=[ChannelMap(channel=3, signal=Signal.HIGH_WATER, invert=True)],
+        channels=[ChannelMap(channel=3, label="High water", invert=True)],
     )
 
     await store.put(saved)
     read_back = store.waveshare
 
     assert read_back.host == "192.168.1.51"
-    assert read_back.channel_for(Signal.HIGH_WATER).channel == 3
-    assert read_back.channel_for(Signal.HIGH_WATER).invert is True
+    assert read_back.channels[2].label == "High water"
+    assert read_back.channels[2].invert is True
 
 
 async def test_settings_survive_a_reload(pool, store):
@@ -269,3 +269,17 @@ async def test_the_extension_update_survives_a_database_without_timescale(config
         await connection.close()
 
     assert await update_timescale_extension(config) is None
+
+
+async def test_the_io_tables_record_what_an_input_was_called(pool):
+    """The channel is the key. The label is a snapshot of what it was named at
+    the time, so renaming an input does not rewrite last month's history."""
+    columns = {
+        row["column_name"]
+        for row in await pool.fetch(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'io_event'"
+        )
+    }
+
+    assert "label" in columns
+    assert "signal" not in columns, "007 renames it; a stale column means the migration did not run"

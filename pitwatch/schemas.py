@@ -2,8 +2,14 @@
 
 Each model here is stored as one JSON row in the setting table, under the key in
 its ``KEY`` attribute. Validation lives in the model, so a value that reaches
-the database has already been checked, and a value read back from an older
-version of the application picks up new fields as defaults rather than failing.
+the database has already been checked.
+
+**Nothing here carries settings forward across a rename or a change of shape.**
+While the schema is still moving, the way to take a change is to wipe and set up
+again, which is cheap and honest. Compatibility shims for a schema that is still
+being argued about cost more than they save, and a half applied one is worse
+than none: it turns "your settings are gone" into "your settings are subtly
+wrong". Add them when the shape settles, not before.
 """
 
 from __future__ import annotations
@@ -11,7 +17,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import ClassVar
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class Signal(StrEnum):
@@ -66,18 +72,9 @@ class ChannelMap(BaseModel):
     than assuming.
     """
 
-    model_config = ConfigDict(populate_by_name=True)
-
     channel: int = Field(ge=1, le=8)
     signal: Signal = Signal.UNUSED
-    # Named normally_closed before the reference panel turned out to be a 24 V
-    # wet contact system, where "normally closed" is the wrong vocabulary for
-    # the same behavior. The old name is still accepted so a saved setting is
-    # not silently reset to False, which would invert an alarm.
-    invert: bool = Field(
-        default=False,
-        validation_alias=AliasChoices("invert", "normally_closed"),
-    )
+    invert: bool = False
     # Contacts bounce, and float switches bounce for longer than most because a
     # float bobs. A state has to hold for this long before it counts.
     #
@@ -144,21 +141,6 @@ class ShellySettings(BaseModel):
     # The device pushes on change. This poll exists only to notice that it has
     # stopped pushing, which a silent socket does not tell us.
     heartbeat_s: int = Field(default=30, ge=5, le=600)
-
-    @model_validator(mode="before")
-    @classmethod
-    def carry_forward_a_missing_pump2(cls, data):
-        """Fill pump 2 in for settings saved before it was a stored field.
-
-        A one time compatibility shim, not the runtime rule. Without it, a saved
-        `{"pump1_channel": 1}` would take the default of 1 for pump 2, fail the
-        check below because both name the same clamp, and fall back to defaults,
-        silently moving pump 1 back to clamp 0. That is a wrong reading that
-        looks entirely plausible.
-        """
-        if isinstance(data, dict) and "pump1_channel" in data and "pump2_channel" not in data:
-            data = {**data, "pump2_channel": 1 - int(data["pump1_channel"])}
-        return data
 
     @model_validator(mode="after")
     def clamps_differ(self) -> ShellySettings:

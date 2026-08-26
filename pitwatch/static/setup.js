@@ -306,3 +306,55 @@
     first.value = opposite(second.value);
   });
 })();
+
+// Taking used signals out of the other channels' dropdowns.
+//
+// A signal belongs to exactly one input. Offering "Lead float" on all eight
+// channels when it is already on DI1 invites the duplicate that the server then
+// refuses, which is a worse way to find out than simply not being able to pick
+// it. So each select hides the signals that are spoken for elsewhere.
+//
+// Two things stay pickable everywhere: "Not connected", because any number of
+// inputs can be unused, and whatever this select is currently set to, because
+// hiding a select's own value is how a dropdown ends up showing a blank.
+//
+// The server still checks for duplicates. This makes the mistake hard to make;
+// it is not what makes it impossible, and with JavaScript off the check is
+// still the thing that catches it.
+
+(function () {
+  "use strict";
+
+  const UNUSED = "unused";
+  const selects = Array.prototype.slice.call(
+    document.querySelectorAll('select[name^="channel_"][name$="_signal"]')
+  );
+  if (selects.length < 2) {
+    return;
+  }
+
+  function refresh() {
+    const taken = new Set(
+      selects.map((select) => select.value).filter((value) => value !== UNUSED)
+    );
+
+    selects.forEach(function (select) {
+      Array.prototype.forEach.call(select.options, function (option) {
+        const spokenFor =
+          option.value !== UNUSED &&
+          option.value !== select.value &&
+          taken.has(option.value);
+        option.hidden = spokenFor;
+        // Hidden alone is not enough: a keyboard user can still reach a hidden
+        // option in some browsers, and it would submit.
+        option.disabled = spokenFor;
+      });
+    });
+  }
+
+  selects.forEach(function (select) {
+    select.addEventListener("change", refresh);
+  });
+
+  refresh();
+})();

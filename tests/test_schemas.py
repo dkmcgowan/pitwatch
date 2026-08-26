@@ -86,24 +86,17 @@ def test_both_pumps_cannot_read_the_same_clamp():
         ShellySettings(pump1_channel=1, pump2_channel=1)
 
 
-def test_settings_saved_before_pump2_was_stored_keep_their_mapping():
-    """The compatibility shim, and the reason it exists.
+def test_a_partial_setting_falls_back_rather_than_being_guessed_at():
+    """Nothing carries settings forward while the schema is still moving.
 
-    Without it a stored {"pump1_channel": 1} takes the default of 1 for pump 2,
-    fails the check that they differ, and falls back to defaults, quietly moving
-    pump 1 back to clamp 0. Both pumps would then read the wrong motor and the
-    page would look entirely reasonable.
+    A stored value that names only pump 1 no longer has pump 2 inferred for it.
+    It fails the check that the two differ and the store falls back to defaults,
+    which is the wipe and set up again path, and is deliberate: a half applied
+    compatibility shim turns "your settings are gone" into "your settings are
+    subtly wrong", and only one of those is obvious.
     """
-    settings = ShellySettings.model_validate({"host": "10.0.0.9", "pump1_channel": 1})
-
-    assert settings.pump1_channel == 1
-    assert settings.pump2_channel == 0
-
-
-def test_the_shim_does_not_touch_settings_that_name_both_clamps():
-    settings = ShellySettings.model_validate({"pump1_channel": 0, "pump2_channel": 1})
-
-    assert settings.clamp_for_pump == {1: 0, 2: 1}
+    with pytest.raises(ValidationError, match="cannot read the same clamp"):
+        ShellySettings.model_validate({"host": "10.0.0.9", "pump1_channel": 1})
 
 
 def test_pump_settings_are_looked_up_by_number():
@@ -113,15 +106,17 @@ def test_pump_settings_are_looked_up_by_number():
     assert pumps.by_number[2].name == "South"
 
 
-def test_a_setting_saved_under_the_old_name_still_inverts():
-    """The field was renamed from normally_closed to invert.
+def test_the_old_channel_field_name_is_no_longer_accepted():
+    """normally_closed became invert, with no alias kept.
 
-    Dropping the old name would read as False on the next load, which silently
-    un-inverts an alarm: it would then read as permanently on and go quiet at
-    the moment it fires. Exactly the failure the flag exists to prevent.
+    Pydantic ignores unknown keys, so an old value reads as False rather than
+    raising. That is only acceptable while every schema change is followed by a
+    wipe; when the shape settles this needs either an alias or a real migration,
+    because silently un-inverting an alarm is the worst failure in this
+    application.
     """
     channel = ChannelMap.model_validate(
         {"channel": 7, "signal": "pump1_overload", "normally_closed": True}
     )
 
-    assert channel.invert is True
+    assert channel.invert is False

@@ -309,6 +309,63 @@ class SmsSettings(BaseModel):
     gateway_domain: str = ""
 
 
+class DashboardSettings(BaseModel):
+    """Which input drives which lamp on the dashboard.
+
+    The settings above describe the wiring: input 3 is called High water. This
+    describes the display: the High water lamp is input 3. They are separate
+    because they are separate questions, and because a panel can bring out
+    things the dashboard has no lamp for and a lamp can go unassigned.
+
+    Every role is optional. Unassigned means that lamp reads "not set" rather
+    than reading off, which is the same distinction the inputs themselves make:
+    not knowing is not the same as knowing it is fine.
+
+    Two roles may share an input on purpose. A simple panel really can bring
+    out one contact that is both its high water float and its alarm, and
+    refusing that would be this application arguing with the panel.
+    """
+
+    KEY: ClassVar[str] = "dashboard"
+
+    # The red lamp on the panel door, and the one somebody wrote a plumber's
+    # number under.
+    system_alert: int | None = Field(default=None, ge=1, le=8)
+    high_water: int | None = Field(default=None, ge=1, le=8)
+
+    # The two the panel does not show at all. Worth having, because they are
+    # what the pumps are answering.
+    lead_float: int | None = Field(default=None, ge=1, le=8)
+    lag_float: int | None = Field(default=None, ge=1, le=8)
+
+    # The two lit selector switches along the bottom.
+    pump1_run: int | None = Field(default=None, ge=1, le=8)
+    pump2_run: int | None = Field(default=None, ge=1, le=8)
+
+    # Overload relays. These are what turn a pump's word on the display from
+    # LEAD or LAG into FAIL.
+    pump1_fault: int | None = Field(default=None, ge=1, le=8)
+    pump2_fault: int | None = Field(default=None, ge=1, le=8)
+
+    @property
+    def assignments(self) -> dict[str, int | None]:
+        return {role: getattr(self, role) for role, _ in DASHBOARD_ROLES}
+
+
+# Role to what the dashboard calls it, in the order the settings page asks.
+# Grouped the way the panel is: alarms, then floats, then pumps.
+DASHBOARD_ROLES: tuple[tuple[str, str], ...] = (
+    ("system_alert", "System alert"),
+    ("high_water", "High water"),
+    ("lead_float", "Lead float"),
+    ("lag_float", "Lag float"),
+    ("pump1_run", "Pump 1 running"),
+    ("pump2_run", "Pump 2 running"),
+    ("pump1_fault", "Pump 1 overload"),
+    ("pump2_fault", "Pump 2 overload"),
+)
+
+
 class SiteSettings(BaseModel):
     KEY: ClassVar[str] = "site"
 
@@ -365,6 +422,7 @@ SETTING_MODELS: tuple[type[BaseModel], ...] = (
     ShellySettings,
     WaveshareSettings,
     PumpsSettings,
+    DashboardSettings,
     SmtpSettings,
     SmsSettings,
 )

@@ -12,6 +12,69 @@
 
 <div class="banner" data-banner hidden></div>
 
+{# The panel door, near enough.
+
+   Laid out the way the real one is, because the people who read this already
+   know that one: the alarm lamp on the left, the controller display in the
+   middle, the two lit selector switches along the bottom. The floats across
+   the top are the part the panel does not show at all, which is most of why
+   this exists.
+
+   Which input drives which lamp is a setting, under /settings/dashboard. The
+   markup is here rather than built in JavaScript so the page has a shape
+   before the first reply arrives. #}
+<section class="door" aria-label="Panel">
+  <div class="lamp-row lamp-row-floats">
+    <div class="lamp lamp-amber" data-lamp="lead_float">
+      <span class="bulb" aria-hidden="true"></span>
+      <span class="lamp-title">Lead float</span>
+      <span class="lamp-state" data-lamp-state>No data</span>
+    </div>
+    <div class="lamp lamp-amber" data-lamp="lag_float">
+      <span class="bulb" aria-hidden="true"></span>
+      <span class="lamp-title">Lag float</span>
+      <span class="lamp-state" data-lamp-state>No data</span>
+    </div>
+  </div>
+
+  <div class="door-middle">
+    <div class="lamp-row lamp-row-alarms">
+      <div class="lamp lamp-red" data-lamp="system_alert">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">System alert</span>
+        <span class="lamp-state" data-lamp-state>No data</span>
+      </div>
+      <div class="lamp lamp-red" data-lamp="high_water">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">High water</span>
+        <span class="lamp-state" data-lamp-state>No data</span>
+      </div>
+    </div>
+
+    {# The controller's own screen, which is a two line green LCD. #}
+    <div class="lcd" role="status" aria-live="polite">
+      <span class="lcd-text" data-lcd>P1:--  P2:--</span>
+    </div>
+  </div>
+
+  <div class="lamp-row lamp-row-pumps">
+    <div class="lamp lamp-green" data-lamp="pump1_run">
+      <span class="bulb" aria-hidden="true"></span>
+      <span class="lamp-title">Pump 1 running</span>
+      <span class="lamp-state" data-lamp-state>No data</span>
+    </div>
+    <div class="lamp lamp-green" data-lamp="pump2_run">
+      <span class="bulb" aria-hidden="true"></span>
+      <span class="lamp-title">Pump 2 running</span>
+      <span class="lamp-state" data-lamp-state>No data</span>
+    </div>
+  </div>
+
+  {# The overloads have no lamp of their own on the real door either. They
+     show up by turning a pump's word on the display into FAIL. #}
+  <p class="door-note" data-door-note hidden></p>
+</section>
+
 <section class="panel" aria-label="Pump status">
   {% for number in [1, 2] %}
   <article class="pump" data-pump="{{ number }}">
@@ -53,14 +116,14 @@
   {% endfor %}
 </section>
 
-<section class="card">
-  <h2>Panel inputs</h2>
+{# Anything named that no lamp is showing. Hidden when there is nothing,
+   because on a panel whose eight inputs are all assigned there never is. #}
+<section class="card" data-other-card hidden>
+  <h2>Other inputs</h2>
   {# Empty on purpose. Which inputs exist and what they are called are
      settings, so the rows are built from the state rather than written out
      here. Shown in input order, which is the order they are wired in. #}
-  <div class="floats" data-inputs>
-    <p class="muted">Waiting for the first reading.</p>
-  </div>
+  <div class="floats" data-inputs></div>
 </section>
 
 <section class="card">

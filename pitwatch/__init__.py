@@ -1,3 +1,3 @@
 """PitWatch: monitoring and alerting for a duplex ejector pump panel."""
 
-__version__ = "0.8.2"
+__version__ = "0.9.0"

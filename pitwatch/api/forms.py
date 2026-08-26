@@ -14,7 +14,9 @@ from __future__ import annotations
 from starlette.datastructures import FormData
 
 from pitwatch.schemas import (
+    DASHBOARD_ROLES,
     ChannelMap,
+    DashboardSettings,
     PumpSettings,
     PumpsSettings,
     ShellySettings,
@@ -128,6 +130,13 @@ def waveshare_from(form: FormData) -> WaveshareSettings:
         timeout_s=number(form, "waveshare_timeout_s", 3.0),
         debounce_ms=integer(form, "waveshare_debounce_ms", 500),
         channels=channels,
+    )
+
+
+def dashboard_from(form: FormData) -> DashboardSettings:
+    """Which input drives which lamp. An empty box means that lamp is unassigned."""
+    return DashboardSettings(
+        **{role: optional_integer(form, f"role_{role}") for role, _ in DASHBOARD_ROLES}
     )
 
 

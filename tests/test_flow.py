@@ -790,3 +790,84 @@ def test_a_renamed_input_is_shown_under_its_new_name(client):
     assert 'value="TOP FLOAT"' in page
     inputs = {row["channel"]: row for row in client.get("/api/state").json()["inputs"]}
     assert inputs[3]["label"] == "TOP FLOAT"
+
+
+# -- the dashboard lamps -----------------------------------------------------
+
+
+def test_assigning_a_lamp_shows_the_input_by_its_name(client):
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    save = client.post(
+        "/settings/dashboard",
+        data={
+            "role_system_alert": "4",
+            "role_high_water": "3",
+            "role_lead_float": "1",
+            "role_lag_float": "2",
+            "role_pump1_run": "5",
+            "role_pump2_run": "6",
+            "role_pump1_fault": "7",
+            "role_pump2_fault": "8",
+        },
+        follow_redirects=False,
+    )
+    assert save.status_code == 303
+
+    dashboard = client.app.state.settings.dashboard
+    assert dashboard.high_water == 3
+    assert dashboard.pump2_fault == 8
+
+    panel = client.get("/api/state").json()["panel"]
+    assert panel["high_water"]["channel"] == 3
+    assert panel["high_water"]["label"] == "High water alarm float"
+    # Nothing has read the module, so every lamp is unknown rather than off.
+    assert panel["high_water"]["state"] is None
+    assert panel["display"] == {"1": "--", "2": "--"}
+
+
+def test_a_lamp_left_blank_stays_unassigned(client):
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    client.post("/settings/dashboard", data={"role_high_water": "3"})
+
+    panel = client.get("/api/state").json()["panel"]
+    assert panel["high_water"]["channel"] == 3
+    assert panel["system_alert"]["channel"] is None
+    assert panel["system_alert"]["label"] is None
+
+
+def test_an_input_a_lamp_is_showing_is_not_listed_again_below(client):
+    """The panel and the leftovers list are one screen. An input in both would
+    be read twice and counted once."""
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+    client.post(
+        "/settings/dashboard",
+        data={"role_lead_float": "1", "role_lag_float": "2", "role_high_water": "3"},
+    )
+
+    state = client.get("/api/state").json()
+    listed = {row["channel"] for row in state["inputs"]}
+
+    assert listed == {4, 5, 6, 7, 8}
+
+
+def test_two_lamps_may_share_one_input(client):
+    """A simple panel really can bring out one contact that is both its high
+    water float and its alarm."""
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    save = client.post(
+        "/settings/dashboard",
+        data={"role_high_water": "3", "role_system_alert": "3"},
+        follow_redirects=False,
+    )
+
+    assert save.status_code == 303
+    panel = client.get("/api/state").json()["panel"]
+    assert panel["high_water"]["channel"] == 3
+    assert panel["system_alert"]["channel"] == 3

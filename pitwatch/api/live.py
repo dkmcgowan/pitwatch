@@ -19,6 +19,7 @@ from pitwatch.ingest import waveshare as waveshare_ingest
 from pitwatch.ingest.sink import LiveIo, LiveState
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
+from pitwatch.schemas import DASHBOARD_ROLES, DashboardSettings, WaveshareSettings
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -35,6 +36,66 @@ router = APIRouter(prefix="/api")
 # interpret.
 ON_WORD = "ON"
 OFF_WORD = "Off"
+
+
+def lead_and_lag(dashboard: DashboardSettings, live_io: LiveIo) -> tuple[str, str]:
+    """The two words on the panel display, in pump order.
+
+    The controller alternates, so whichever pump went last is the one that sits
+    out next: if pump 1 ran last then pump 2 is lead. That also reads correctly
+    while pump 1 is still running, because what the word answers is which pump
+    goes next, and the answer during pump 1's run is pump 2.
+
+    An overload outranks it. A pump that has tripped is not lead or lag, it is
+    FAIL, and the other one is lead whether or not it was next in the rotation,
+    because it is the only one left. Both tripped is the display in the
+    photograph nobody wants to be looking at.
+    """
+    faulted = (
+        live_io.state_of(dashboard.pump1_fault) if dashboard.pump1_fault else None,
+        live_io.state_of(dashboard.pump2_fault) if dashboard.pump2_fault else None,
+    )
+    if faulted[0] and faulted[1]:
+        return ("FAIL", "FAIL")
+    if faulted[0]:
+        return ("FAIL", "LEAD")
+    if faulted[1]:
+        return ("LEAD", "FAIL")
+
+    last_1 = live_io.came_on_at(dashboard.pump1_run)
+    last_2 = live_io.came_on_at(dashboard.pump2_run)
+    if last_1 is None and last_2 is None:
+        # Nothing has run since this was wired up. Which pump is lead is the
+        # controller's business and it does not tell us, so this waits rather
+        # than picking one and being wrong half the time.
+        return ("--", "--")
+    if last_2 is None or (last_1 is not None and last_1 > last_2):
+        return ("LAG", "LEAD")
+    return ("LEAD", "LAG")
+
+
+def panel_state(
+    dashboard: DashboardSettings, waveshare: WaveshareSettings, live_io: LiveIo
+) -> dict:
+    """The lamps and the display, laid out the way the panel door is."""
+    lamps = {}
+    for role, title in DASHBOARD_ROLES:
+        channel = getattr(dashboard, role)
+        lamps[role] = {
+            "title": title,
+            "channel": channel,
+            # What the input is called, so the dashboard shows the panel's own
+            # word for it rather than ours when somebody has typed one.
+            "label": waveshare.label_for(channel) if channel else None,
+            # None covers both nothing assigned and nothing read yet. Neither
+            # is off, and a lamp that reads off when it means unknown is the
+            # lamp that gets believed.
+            "state": live_io.state_of(channel) if channel else None,
+        }
+
+    first, second = lead_and_lag(dashboard, live_io)
+    lamps["display"] = {"1": first, "2": second}
+    return lamps
 
 
 async def build_state(app) -> dict:
@@ -107,6 +168,7 @@ async def build_state(app) -> dict:
         }
 
     waveshare = store.waveshare
+    assigned = {channel for channel in store.dashboard.assignments.values() if channel}
 
     def input_state(mapped) -> dict:
         changed = live_io.changed_at(mapped.channel)
@@ -123,9 +185,14 @@ async def build_state(app) -> dict:
     return {
         "site": store.site.model_dump(mode="json"),
         "pumps": {"1": pump_state(1), "2": pump_state(2)},
-        # Only the inputs somebody has named. An unnamed input is one nothing
-        # is wired to, and eight rows of "not wired" is not a dashboard.
-        "inputs": [input_state(mapped) for mapped in waveshare.used_channels],
+        "panel": panel_state(store.dashboard, waveshare, live_io),
+        # Named inputs that no lamp is showing. Nothing should go missing just
+        # because the dashboard has no place built for it.
+        "inputs": [
+            input_state(mapped)
+            for mapped in waveshare.used_channels
+            if mapped.channel not in assigned
+        ],
         "devices": devices,
         "updated_at": live.updated_at.isoformat() if live.updated_at else None,
     }

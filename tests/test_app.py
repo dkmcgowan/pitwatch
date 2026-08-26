@@ -364,3 +364,163 @@ def test_saving_the_settings_page_unchanged_changes_nothing():
     # The Shelly password is never rendered back, so it is the one field that
     # cannot survive this on its own; everything else on that section must.
     assert forms.shelly_from(form, shelly) == shelly
+
+
+# -- the panel door ----------------------------------------------------------
+#
+# The two words in the middle are the only thing on this dashboard that is
+# derived rather than read, so they are the only thing that can be confidently
+# wrong. Every case below is one a real panel reaches.
+
+
+def io_with(**events):
+    """A live state where inputs came on in the order given, a second apart."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.ingest.sink import LiveIo
+    from pitwatch.ingest.waveshare import IoEvent
+
+    live = LiveIo()
+    base = datetime(2026, 8, 26, 3, 0, tzinfo=UTC)
+    for order, (name, channel) in enumerate(events.items()):
+        state = not name.startswith("off")
+        live.update(
+            IoEvent(
+                ts=base + timedelta(seconds=order),
+                channel=channel,
+                label=name,
+                state=state,
+                raw=state,
+            )
+        )
+    return live
+
+
+WIRED = {
+    "pump1_run": 5,
+    "pump2_run": 6,
+    "pump1_fault": 7,
+    "pump2_fault": 8,
+}
+
+
+def test_the_display_waits_rather_than_guessing_which_pump_is_lead():
+    """A fresh install has no idea. The controller alternates and does not say
+    so, and picking one would be wrong half the time."""
+    from pitwatch.api.live import lead_and_lag
+    from pitwatch.schemas import DashboardSettings
+
+    assert lead_and_lag(DashboardSettings(**WIRED), io_with()) == ("--", "--")
+
+
+def test_the_pump_that_ran_last_becomes_lag():
+    """The controller alternates, so whichever went last sits out the next
+    call. This is also right while that pump is still running: the question the
+    word answers is which pump goes next."""
+    from pitwatch.api.live import lead_and_lag
+    from pitwatch.schemas import DashboardSettings
+
+    settings = DashboardSettings(**WIRED)
+
+    assert lead_and_lag(settings, io_with(first=6, second=5)) == ("LAG", "LEAD")
+    assert lead_and_lag(settings, io_with(first=5, second=6)) == ("LEAD", "LAG")
+
+
+def test_one_pump_having_never_run_still_answers():
+    from pitwatch.api.live import lead_and_lag
+    from pitwatch.schemas import DashboardSettings
+
+    settings = DashboardSettings(**WIRED)
+
+    assert lead_and_lag(settings, io_with(only=5)) == ("LAG", "LEAD")
+    assert lead_and_lag(settings, io_with(only=6)) == ("LEAD", "LAG")
+
+
+def test_an_overload_outranks_the_rotation():
+    """A tripped pump is not lag waiting its turn, it is out. The other one is
+    lead because it is the only one left, whatever the rotation said."""
+    from pitwatch.api.live import lead_and_lag
+    from pitwatch.schemas import DashboardSettings
+
+    settings = DashboardSettings(**WIRED)
+
+    # Pump 2 ran last, so pump 1 would be lead. Its overload says otherwise.
+    assert lead_and_lag(settings, io_with(ran=6, tripped=7)) == ("FAIL", "LEAD")
+    assert lead_and_lag(settings, io_with(ran=5, tripped=8)) == ("LEAD", "FAIL")
+
+
+def test_both_overloads_tripped_is_its_own_display():
+    from pitwatch.api.live import lead_and_lag
+    from pitwatch.schemas import DashboardSettings
+
+    settings = DashboardSettings(**WIRED)
+    both = io_with(one=7, two=8)
+
+    assert lead_and_lag(settings, both) == ("FAIL", "FAIL")
+
+
+def test_unassigned_run_inputs_answer_nothing():
+    """Rather than reading as "neither has ever run", which looks the same on
+    screen and means something entirely different."""
+    from pitwatch.api.live import lead_and_lag
+    from pitwatch.schemas import DashboardSettings
+
+    assert lead_and_lag(DashboardSettings(), io_with(something=5)) == ("--", "--")
+
+
+def test_a_lamp_with_no_input_is_not_a_lamp_that_is_off():
+    """Three states, and the middle one is the whole point. A lamp reading off
+    when it means nobody wired it is a lamp that gets believed."""
+    from pitwatch.api.live import panel_state
+    from pitwatch.schemas import ChannelMap, DashboardSettings, WaveshareSettings
+
+    waveshare = WaveshareSettings(channels=[ChannelMap(channel=3, label="Top float")])
+    panel = panel_state(
+        DashboardSettings(high_water=3, system_alert=4),
+        waveshare,
+        io_with(high=3),
+    )
+
+    assert panel["high_water"]["state"] is True
+    assert panel["high_water"]["label"] == "Top float"
+    # Assigned, but nothing has ever read it.
+    assert panel["system_alert"]["state"] is None
+    assert panel["system_alert"]["channel"] == 4
+    # Not assigned at all.
+    assert panel["lead_float"]["channel"] is None
+    assert panel["lead_float"]["state"] is None
+
+
+def test_saving_the_dashboard_page_unchanged_changes_nothing():
+    """Same round trip as the settings page: what the form renders is what the
+    parser reads."""
+    from jinja2 import Environment, FileSystemLoader
+    from starlette.datastructures import FormData
+
+    from pitwatch.api import forms
+    from pitwatch.schemas import DASHBOARD_ROLES, ChannelMap, DashboardSettings, WaveshareSettings
+
+    dashboard = DashboardSettings(
+        system_alert=4,
+        high_water=3,
+        lead_float=1,
+        lag_float=2,
+        pump1_run=5,
+        pump2_run=6,
+        pump1_fault=7,
+        pump2_fault=8,
+    )
+    env = Environment(loader=FileSystemLoader("pitwatch/templates"), autoescape=True)
+    env.globals["csrf_token"] = lambda: "token"
+    env.globals["version"] = "test"
+    html = env.get_template("dashboard_settings.html").render(
+        site=None,
+        user=None,
+        roles=DASHBOARD_ROLES,
+        dashboard=dashboard,
+        waveshare=WaveshareSettings(channels=[ChannelMap(channel=3, label="Top float")]),
+        saved=False,
+        error=None,
+    )
+
+    assert forms.dashboard_from(FormData(submitted(html))) == dashboard

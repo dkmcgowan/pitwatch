@@ -93,13 +93,6 @@
 
   function buildInputs(container, list) {
     container.textContent = "";
-    if (!list.length) {
-      const empty = document.createElement("p");
-      empty.className = "muted";
-      empty.textContent = "No inputs are named. Name them in Settings.";
-      container.appendChild(empty);
-      return;
-    }
     list.forEach(function (reading) {
       const row = document.createElement("div");
       row.className = "float";
@@ -121,12 +114,83 @@
     });
   }
 
+  // The panel door.
+  //
+  // Three states per lamp and they are all different: on, off, and nothing to
+  // say. A lamp with no input assigned and a lamp whose input has never been
+  // read both read "not set" and stay dark rather than reading off, because a
+  // dark lamp that means unknown is the lamp somebody trusts.
+
+  function renderPanel(panel) {
+    const lamps = panel || {};
+
+    document.querySelectorAll("[data-lamp]").forEach(function (node) {
+      const role = node.getAttribute("data-lamp");
+      const lamp = lamps[role];
+      const state = node.querySelector("[data-lamp-state]");
+      const title = node.querySelector(".lamp-title");
+
+      if (!lamp || !lamp.channel) {
+        node.classList.remove("on");
+        node.classList.add("unset");
+        state.textContent = "not set";
+        return;
+      }
+      node.classList.remove("unset");
+      // The panel's own word for it when somebody has typed one, because that
+      // is what is printed next to the wire in the box.
+      if (lamp.label) {
+        title.textContent = lamp.label;
+      }
+      if (lamp.state === null) {
+        node.classList.remove("on");
+        state.textContent = "no data";
+        return;
+      }
+      node.classList.toggle("on", lamp.state === true);
+      state.textContent = lamp.state ? "ON" : "off";
+    });
+
+    const lcd = document.querySelector("[data-lcd]");
+    if (lcd) {
+      const display = lamps.display || { 1: "--", 2: "--" };
+      lcd.textContent = "P1:" + display["1"] + "  P2:" + display["2"];
+      lcd.classList.toggle(
+        "lcd-fail",
+        display["1"] === "FAIL" || display["2"] === "FAIL"
+      );
+    }
+
+    // The overloads have no lamp, so say in words when one has tripped.
+    const note = document.querySelector("[data-door-note]");
+    if (note) {
+      const tripped = ["pump1_fault", "pump2_fault"].filter(function (role) {
+        return lamps[role] && lamps[role].state === true;
+      });
+      if (tripped.length) {
+        note.textContent =
+          tripped.length === 2
+            ? "Both overloads have tripped. Neither pump can start."
+            : "The " +
+              (lamps[tripped[0]].label || tripped[0]) +
+              " overload has tripped. That pump cannot start.";
+        note.hidden = false;
+      } else {
+        note.hidden = true;
+      }
+    }
+  }
+
   function renderInputs(inputs) {
     const container = document.querySelector("[data-inputs]");
     if (!container) {
       return;
     }
     const list = inputs || [];
+    const card = document.querySelector("[data-other-card]");
+    if (card) {
+      card.hidden = list.length === 0;
+    }
     const shape = list
       .map(function (reading) {
         return reading.channel + ":" + reading.label;
@@ -204,13 +268,15 @@
     // The one thing worth interrupting the page for. Everything else has its
     // own place on the layout.
     //
-    // There used to be a high water line above this one, which is the more
-    // important of the two. It needed to know which input is the high water
-    // float, and inputs are free text labels now, so nothing can ask. See
-    // NOTES.md.
+    const panel = state.panel || {};
+    const high = panel.high_water;
     const both = state.pumps && state.pumps["1"].running && state.pumps["2"].running;
 
-    if (both) {
+    if (high && high.state) {
+      banner.className = "banner banner-crit";
+      banner.textContent = "High water. Both pumps should be running.";
+      banner.hidden = false;
+    } else if (both) {
       banner.className = "banner banner-warn";
       banner.textContent = "Both pumps are running.";
       banner.hidden = false;
@@ -222,6 +288,7 @@
   function render(state) {
     renderPump(1, (state.pumps || {})["1"]);
     renderPump(2, (state.pumps || {})["2"]);
+    renderPanel(state.panel);
     renderInputs(state.inputs);
     renderDevices(state.devices);
     renderBanner(state);

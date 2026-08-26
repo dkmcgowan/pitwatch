@@ -85,11 +85,22 @@ class LiveIo:
     """
 
     states: dict[int, IoEvent] = field(default_factory=dict)
+    # When each input was last seen to come on, which is not the same as when
+    # it last changed. A contact that went on at ten and off at four seconds
+    # past has a changed_at of four seconds past and says nothing about when it
+    # started, and when it started is the whole of the lead and lag question.
+    last_on: dict[int, datetime] = field(default_factory=dict)
     updated_at: datetime | None = None
 
     def update(self, event: IoEvent) -> None:
         self.states[event.channel] = event
+        if event.state:
+            self.last_on[event.channel] = event.ts
         self.updated_at = datetime.now(UTC)
+
+    def came_on_at(self, channel: int | None) -> datetime | None:
+        """When an input last came on, or None if it never has here."""
+        return self.last_on.get(channel) if channel is not None else None
 
     def state_of(self, channel: int) -> bool | None:
         """Whether an input is asserted, or None if nothing has read it yet.
@@ -306,6 +317,19 @@ class IoSink:
                 state=row["state"],
                 raw=row["raw"],
             )
+        # When each input last came on. Without this a restart forgets which
+        # pump ran last, so the dashboard cannot say which one is lead until
+        # one of them runs again, which on a dry week is days.
+        for row in await self._pool.fetch(
+            """
+            SELECT DISTINCT ON (channel) channel, ts
+            FROM io_event
+            WHERE state
+            ORDER BY channel, ts DESC
+            """
+        ):
+            self._live.last_on[row["channel"]] = row["ts"]
+
         if rows:
             log.info("Primed %d contact state(s) from the database", len(rows))
         return known

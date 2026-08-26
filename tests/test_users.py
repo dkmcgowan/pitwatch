@@ -368,3 +368,34 @@ def test_the_invitation_link_is_shown_once_and_then_cleared(client):
     assert "/set-password?token=" in shown
 
     assert "/set-password?token=" not in client.get("/users").text
+
+
+def test_a_signed_in_non_admin_cannot_reach_the_dashboard_lamps(client):
+    """Being able to sign in is not being able to configure the place.
+
+    Somebody who only gets alerts has a real account and a real session, which
+    is exactly the case a route guarded by nothing but "is signed in" would
+    let through.
+    """
+    sign_in_as_admin(client)
+    client.post("/users/add", data=SUPER | {"send_invite": ""})
+    link = invitation_link(client, user_id_of(client, "super"))
+    client.post("/logout")
+
+    client.post(
+        "/set-password",
+        data={
+            "token": token_from(link),
+            "new_password": "their-own-long-password",
+            "confirm_password": "their-own-long-password",
+        },
+    )
+    assert client.get("/").status_code == 200, "they are signed in"
+
+    page = client.get("/settings/dashboard", follow_redirects=False)
+    assert page.status_code in (303, 403), page.status_code
+    assert "/settings/dashboard" not in page.text
+
+    save = client.post("/settings/dashboard", data={"role_high_water": "3"}, follow_redirects=False)
+    assert save.status_code in (303, 403)
+    assert client.app.state.settings.dashboard.high_water is None

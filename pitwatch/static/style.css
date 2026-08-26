@@ -562,3 +562,27 @@ form.inline { display: inline; }
   color: var(--crit);
   border-color: color-mix(in srgb, var(--crit) 40%, transparent);
 }
+
+/* Header on a small screen ------------------------------------------------ */
+
+.icon-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.55rem;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+}
+
+.icon-link:hover, .icon-link.active { background: var(--surface-2); color: var(--text); }
+
+/* Four words plus a name and a sign out wraps onto two lines on a phone. The
+   gear buys back enough room that it does not. */
+@media (max-width: 30rem) {
+  .topbar { padding: 0.6rem 0.9rem; gap: 0.5rem; }
+  .topbar nav { gap: 0.1rem; }
+  .topbar nav a { padding: 0.4rem 0.5rem; }
+  .who { margin-left: 0.2rem; padding-left: 0.5rem; gap: 0.45rem; font-size: 0.82rem; }
+  .amps { font-size: 2.4rem; }
+}
+
+.login-single { max-width: 24rem; }

@@ -269,7 +269,8 @@ the wrong thing to do. The login page carries a summary of the same terms,
 because that is the page an unauthenticated visitor actually lands on.
 
 Fill in the site name, location and contact details in settings before pointing
-a carrier at those pages. They are what the pages say.
+a carrier at those pages. They are what the pages say, and
+`/messaging-policy` is the URL to register.
 
 ## Set it up
 
@@ -481,10 +482,27 @@ other one is lead next. A high water call, where both pumps start more or less
 together, does not update the assignment, because there is no first pump to
 read.
 
-**Only one phase is measured.** In the reference installation the clamps are on
-L1 of each motor. Three phase power figures derived from one phase are labeled
-as derived, everywhere they appear, because they are an estimate that assumes
-balanced phases and will not notice a single phasing fault.
+**Amps, and nothing derived from voltage.** The dashboard shows current and
+does not show volts, watts or power factor. That is not an omission.
+
+A current transformer measures the field around a conductor. It gives you the
+current in that conductor whatever the meter happens to be using as a voltage
+reference, so amps are a real measurement and can be trusted.
+
+Real power cannot be. Watts and power factor need voltage and current from the
+same phase, with the correct angle between them. In the reference installation
+the Shelly is powered from an ordinary 120 V outlet rather than tapped off one
+of the phases its clamps are around, so the angle between what it is measuring
+and what it is referencing is arbitrary. The magnitudes look plausible, which
+is exactly what makes reporting them a bad idea.
+
+Those fields are still recorded, in case the reference is ever moved onto a
+measured phase, but nothing displays them until it is.
+
+**Only one phase is measured.** The clamps go on L1 of each motor. A three phase
+figure derived from one phase assumes balanced phases and will not notice a
+single phasing fault, so anything of that kind is labeled as derived wherever it
+appears.
 
 ## Alerts
 

@@ -67,7 +67,7 @@ def integer(form: FormData, name: str, default: int) -> int:
 
 def site_from(form: FormData) -> SiteSettings:
     return SiteSettings(
-        name=text(form, "site_name", "Ejector pit") or "Ejector pit",
+        name=text(form, "site_name", "PitWatch") or "PitWatch",
         location=text(form, "site_location"),
         timezone=text(form, "site_timezone", "America/New_York") or "America/New_York",
         base_url=text(form, "site_base_url").rstrip("/"),

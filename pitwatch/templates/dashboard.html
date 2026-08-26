@@ -28,15 +28,21 @@
       <span class="pill pill-idle" data-run-pill>No data</span>
     </div>
 
-    {# Live readings only, for now. Run history, the average that ignores
-       inrush, and the lead and lag inference all come from pump_run, which the
-       run detector has not been written to fill in yet. Showing those as
-       permanent dashes would be worse than not showing them. #}
+    {# Amps and the contacts, and nothing derived from voltage.
+
+       The Shelly's own supply is a 120 V outlet, not a tap off the phase the
+       clamps are around, so its voltage reading belongs to a different circuit.
+       Current does not care: a CT measures the field around a conductor and is
+       independent of what the meter is using as a voltage reference. Watts and
+       power factor very much do care, because real power needs voltage and
+       current from the same phase with the right angle between them, and there
+       is no reason to think that angle is right here. So they are not shown.
+
+       Run history and the average that ignores inrush come from pump_run, which
+       the run detector does not fill in yet. #}
     <dl class="detail">
       <div><dt>Run contact</dt><dd data-contact>--</dd></div>
       <div><dt>Overload</dt><dd data-overload>--</dd></div>
-      <div><dt>Volts</dt><dd data-voltage>--</dd></div>
-      <div><dt>Power</dt><dd data-power>--</dd></div>
     </dl>
   </article>
   {% endfor %}

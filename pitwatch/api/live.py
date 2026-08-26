@@ -76,13 +76,17 @@ async def build_state(app) -> dict:
         current = sample.current if sample else None
         drawing = current is not None and current >= settings.running_amps
         contact = live_io.state_of(run_signal[number])
+        # Amps only. The device reports voltage, power and power factor as
+        # well, and they are still recorded, but they are not reported here
+        # because in this installation they are not measurements of the motor:
+        # the meter's voltage reference is its own supply rather than the phase
+        # the clamps are on. Current is unaffected, since a CT measures the
+        # conductor directly. If the reference is ever moved onto a measured
+        # phase, this is the place to start showing them again.
         return {
             "name": settings.name,
             "channel": channel,
             "current": current,
-            "voltage": sample.voltage if sample else None,
-            "act_power": sample.act_power if sample else None,
-            "pf": sample.pf if sample else None,
             "reading_at": sample.ts.isoformat() if sample else None,
             # Two independent answers to the same question, reported separately
             # rather than merged. When they disagree, that disagreement is the

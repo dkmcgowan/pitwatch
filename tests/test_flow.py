@@ -426,6 +426,11 @@ def test_the_live_feed_reports_a_pump_with_no_readings_as_unknown(client):
     pump = client.get("/api/state").json()["pumps"]["1"]
 
     assert pump["current"] is None
+    # Voltage and power are still recorded but never reported: the meter's
+    # voltage reference is its own supply rather than a measured phase, so
+    # anything derived from it would be a number about the wrong circuit.
+    assert "voltage" not in pump
+    assert "act_power" not in pump
     assert pump["running"] is False
     assert pump["drawing_current"] is False
     assert pump["run_contact"] is None
@@ -514,3 +519,19 @@ def test_adding_the_io_module_later_does_not_need_a_restart(client):
     state = client.get("/api/state").json()
     assert state["devices"]["waveshare"]["configured"] is True
     assert client.app.state.settings.waveshare.host == "192.168.1.51"
+
+
+def test_the_dashboard_shows_amps_and_nothing_derived_from_voltage(client):
+    """A CT measures the conductor, so current is valid whatever the meter is
+    using as a voltage reference. Watts and power factor need voltage and
+    current from the same phase with the right angle between them, which is not
+    true when the meter is powered from a different outlet, so they are not
+    shown at all rather than shown and quietly wrong."""
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    page = client.get("/").text
+
+    assert "data-amps" in page
+    assert "data-voltage" not in page
+    assert "data-power" not in page

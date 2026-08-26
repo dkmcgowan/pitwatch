@@ -91,12 +91,6 @@
           (channel + 1) +
           "</th><td class=\"mono\">" +
           escape(amps(reading.current)) +
-          "</td><td class=\"mono\">" +
-          escape(
-            typeof reading.voltage === "number"
-              ? reading.voltage.toFixed(1) + " V"
-              : "no reading"
-          ) +
           "</td><td>" +
           errors +
           "</td></tr>"

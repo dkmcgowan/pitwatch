@@ -258,7 +258,9 @@ class SmsSettings(BaseModel):
 class SiteSettings(BaseModel):
     KEY: ClassVar[str] = "site"
 
-    name: str = "Ejector pit"
+    # A label for this installation, shown on the dashboard and in every alert.
+    # The application is called PitWatch everywhere; this is which pumps.
+    name: str = "PitWatch"
     # Free text, put in every alert. "123 Example St, basement, rear" saves a
     # phone call at two in the morning.
     location: str = ""

@@ -97,11 +97,6 @@
     } else {
       overload.textContent = "healthy";
     }
-
-    card.querySelector("[data-voltage]").textContent =
-      typeof pump.voltage === "number" ? pump.voltage.toFixed(1) + " V" : "--";
-    card.querySelector("[data-power]").textContent =
-      typeof pump.act_power === "number" ? Math.round(pump.act_power) + " W" : "--";
   }
 
   function renderFloats(floats) {

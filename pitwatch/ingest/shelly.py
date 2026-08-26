@@ -597,9 +597,6 @@ async def probe(settings: ShellySettings) -> dict:
             status = await connection.request("EM1.GetStatus", {"id": channel})
             channels[channel] = {
                 "current": status.get("current"),
-                "voltage": status.get("voltage"),
-                "act_power": status.get("act_power"),
-                "pf": status.get("pf"),
                 "errors": status.get("errors") or [],
             }
         record("Read both clamps", True, "both answered")

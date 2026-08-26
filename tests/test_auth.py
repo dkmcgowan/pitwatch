@@ -81,11 +81,11 @@ def test_the_messaging_policy_says_what_carriers_look_for(client):
         assert phrase in page.lower()
 
 
-def test_the_login_page_carries_the_consent_summary(client):
-    """It is the page an unauthenticated visitor actually lands on."""
+def test_the_login_page_links_to_the_policies(client):
+    """The consent terms live on their own page, which is the URL registered
+    with the carrier. The login page only has to be able to reach them."""
     page = client.get("/login").text
 
-    assert "STOP" in page
     assert "/messaging-policy" in page
     assert "/privacy" in page
 

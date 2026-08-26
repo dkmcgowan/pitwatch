@@ -77,7 +77,7 @@ name: pitwatch
 
 services:
   db:
-    image: timescale/timescaledb:2.29.2-pg17
+    image: timescale/timescaledb:latest-pg17
     restart: unless-stopped
     environment:
       POSTGRES_DB: pitwatch
@@ -94,7 +94,7 @@ services:
       start_period: 30s
 
   app:
-    image: ghcr.io/dkmcgowan/pitwatch:0.2.2
+    image: ghcr.io/dkmcgowan/pitwatch:latest
     restart: unless-stopped
     depends_on:
       db:
@@ -639,23 +639,60 @@ in, for `linux/amd64` and `linux/arm64`.
 | --- | --- |
 | `latest` | The tip of `main`. Moves whenever something is merged. |
 | `main` | The same image, named after the branch. |
-| `0.1.0` | A tagged release. Never moves. |
-| `0.1` | The newest patch release on that minor line. |
+| `0.2` | The newest patch release on that minor line. |
+| `0.2.2` | One release. Never moves. |
 
-Pin a release tag on anything you are relying on. `latest` is fine for trying it
-out and is exactly the wrong thing to leave a pump alarm running on, because it
-changes under you.
+The compose files use `latest`, which is right while you are setting this up:
+a fix is then one `docker compose pull && docker compose up -d` away. **Pin a
+version once it is watching a real pump.** A tag that moves under you is not
+what you want standing between a basement and a flood, and `0.2` is a good
+middle ground: patch fixes arrive, nothing else does.
+
+Whichever you choose, a pull only gets you something new if the tag you asked
+for has moved. Pulling a pinned version and wondering why the fix did not
+arrive is a very easy afternoon to have.
+
+To check what is actually running, ask it:
+
+```sh
+curl -s http://<your-host>:8080/healthz
+```
+
+It answers with the version. The page footer shows it too.
 
 A push to `main` builds `latest` and `main`. Pushing a `v*` git tag additionally
 builds the version tags:
 
 ```sh
-git tag -a v0.2.0 -m "Version 0.2.0"
-git push origin v0.2.0
+git tag -a v0.2.3 -m "Version 0.2.3"
+git push origin v0.2.3
 ```
 
 To build it yourself instead, the compose file has a commented `build: .` on the
 app service. Swap it for the `image:` line and `docker compose build`.
+
+### The database image
+
+The compose files use `timescale/timescaledb:latest-pg17`, which floats
+Timescale releases while pinning the Postgres major version at 17. That pin is
+deliberate and worth keeping.
+
+Plain `latest` would follow Postgres major versions too. Postgres refuses to
+start on a data directory written by an older major, so the day that tag moved
+from 17 to 18 the database would stop coming up, and getting it back would mean
+a dump and restore rather than a rollback. `latest-pg17` cannot do that to you.
+
+It is also not the `-oss` tag. Compression, retention policies and continuous
+aggregate refresh are Timescale Community License features that the open source
+build does not have, so the rollups in migration 003 would fail on it.
+
+When a newer Timescale image does arrive, its binaries are newer than the
+extension registered inside your database. PitWatch notices at startup and runs
+`ALTER EXTENSION timescaledb UPDATE` for you, on its own connection before
+anything else touches the database, which is the only place that statement is
+allowed to run. If it cannot, it says so in the log and carries on rather than
+refusing to start, on the grounds that a monitor that will not run is worse than
+one running on a slightly older extension.
 
 ## License
 

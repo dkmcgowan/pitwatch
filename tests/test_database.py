@@ -208,3 +208,33 @@ async def test_device_status_is_upserted_and_keeps_the_last_seen_time(pool):
     # is how you tell a device that just dropped from one that has been dead
     # for a week.
     assert row["last_seen"] == seen
+
+
+async def test_the_timescale_extension_is_left_alone_when_it_is_current(pool, config):
+    """Nothing to do is the normal case, and it must not be noisy or slow.
+
+    This runs on every start, so it has to be a cheap no-op when the image has
+    not changed.
+    """
+    from pitwatch.db import update_timescale_extension
+
+    assert await update_timescale_extension(config) is None
+
+
+async def test_the_extension_update_survives_a_database_without_timescale(config, database_url):
+    """A fresh database has no extension yet; migration 001 creates it.
+
+    Returning quietly rather than raising is what lets this run before the
+    migrations without a special case for first boot.
+    """
+    import asyncpg
+
+    from pitwatch.db import update_timescale_extension
+
+    connection = await asyncpg.connect(dsn=database_url)
+    try:
+        await connection.execute("DROP EXTENSION IF EXISTS timescaledb CASCADE")
+    finally:
+        await connection.close()
+
+    assert await update_timescale_extension(config) is None

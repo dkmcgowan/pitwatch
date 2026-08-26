@@ -204,3 +204,32 @@ def test_health_and_healthz_answer_different_questions():
 
     assert client.get("/health").status_code == 200
     assert client.get("/healthz").status_code == 503
+
+
+def test_the_database_image_pins_the_postgres_major_version():
+    """The examples float the database image, and that pin is what makes it safe.
+
+    Plain `latest` would follow Postgres majors. Postgres will not start on a
+    data directory written by an older major, so the day that tag moved the
+    database would stop coming up and the way back would be a dump and restore
+    rather than a rollback. `-pg17` cannot do that.
+
+    Not the `-oss` build either: compression, retention policies and continuous
+    aggregate refresh are Community License features it lacks, so migration 003
+    fails on it.
+    """
+    root = Path(__file__).parent.parent
+    checked = 0
+    for name in ("docker-compose.yml", "docker-compose.host.yml", "README.md"):
+        text = (root / name).read_text(encoding="utf-8")
+        for line in text.splitlines():
+            stripped = line.strip()
+            # Only real declarations. The README also discusses the tag in
+            # prose, and that is not a thing to parse.
+            if not stripped.startswith("image: timescale/timescaledb:"):
+                continue
+            tag = stripped.split("timescale/timescaledb:", 1)[1].strip()
+            assert tag.endswith("-pg17"), f"{name}: {tag} does not pin the Postgres major"
+            checked += 1
+
+    assert checked == 3, "every compose example and the README should declare the image"

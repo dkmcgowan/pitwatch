@@ -12,10 +12,15 @@ name: pitwatch
 
 services:
   db:
-    # Not the -oss tag. Compression, retention policies and continuous
-    # aggregate refresh are Timescale Community License features and the -oss
-    # build does not have them, so migration 003 would fail on it.
-    image: timescale/timescaledb:2.29.2-pg17
+    # Floats Timescale releases, and deliberately pins the Postgres major at 17.
+    # Plain `latest` would follow Postgres majors too, and Postgres refuses to
+    # start on a data directory written by an older major, so that tag moving
+    # would take the database down and need a dump and restore to undo.
+    #
+    # Not the -oss tag: compression, retention policies and continuous aggregate
+    # refresh are Community License features the -oss build does not have, so
+    # migration 003 would fail on it.
+    image: timescale/timescaledb:latest-pg17
     restart: unless-stopped
     environment:
       POSTGRES_DB: pitwatch
@@ -45,10 +50,11 @@ services:
     #   - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
 
   app:
-    # Pin a release tag on anything you are relying on. `latest` follows main
-    # and will change under you, which is fine while trying it out and is the
-    # wrong thing to leave a pump alarm running on.
-    image: ghcr.io/dkmcgowan/pitwatch:0.2.2
+    # `latest` while you are setting this up, so that a fix is one `pull` away.
+    # Pin a version, for example `0.2.2`, once it is watching a real pump: a tag
+    # that moves under you is not what you want standing between a basement and
+    # a flood.
+    image: ghcr.io/dkmcgowan/pitwatch:latest
     # Building from a checkout instead of pulling the published image:
     # build: .
     restart: unless-stopped

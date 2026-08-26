@@ -119,8 +119,60 @@ async def migrate(pool: asyncpg.Pool) -> list[str]:
     return applied
 
 
+async def update_timescale_extension(config: Config) -> str | None:
+    """Bring the installed extension up to the version the image ships.
+
+    The compose files float the database image on `latest-pg17`, so pulling a
+    newer one arrives with newer Timescale binaries while the database still has
+    the old extension version registered. Postgres does not reconcile that
+    itself, and the mismatch surfaces later as functions that are missing or
+    behave oddly, which is a miserable thing to debug.
+
+    Two constraints make this its own connection rather than part of migrate():
+    the statement cannot run inside a transaction, and Timescale requires it to
+    be the first thing a session does, before anything has touched the
+    extension.
+
+    Returns the version it moved to, or None if there was nothing to do.
+    """
+    connection = await asyncpg.connect(dsn=config.dsn)
+    try:
+        installed = await connection.fetchval(
+            "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'"
+        )
+        # Not installed yet means a fresh database, where migration 001 is about
+        # to create it at the current version anyway.
+        if installed is None:
+            return None
+
+        available = await connection.fetchval(
+            "SELECT default_version FROM pg_available_extensions WHERE name = 'timescaledb'"
+        )
+        if not available or available == installed:
+            return None
+
+        log.info("Updating the timescaledb extension from %s to %s", installed, available)
+        await connection.execute("ALTER EXTENSION timescaledb UPDATE")
+        return str(available)
+    except asyncpg.PostgresError as error:
+        # Worth continuing. The application may well work fine on the older
+        # extension, and refusing to start over this would take the monitoring
+        # away for something that is usually cosmetic.
+        log.warning(
+            "Could not update the timescaledb extension: %s. "
+            "If something later fails oddly, run ALTER EXTENSION timescaledb UPDATE by hand.",
+            error,
+        )
+        return None
+    finally:
+        await connection.close()
+
+
 @asynccontextmanager
 async def lifespan_pool(config: Config) -> AsyncIterator[asyncpg.Pool]:
+    # Before the pool, so that no pooled connection has touched the extension
+    # by the time the update runs.
+    await update_timescale_extension(config)
     pool = await connect(config)
     try:
         await migrate(pool)

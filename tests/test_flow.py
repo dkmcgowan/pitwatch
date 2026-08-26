@@ -679,3 +679,52 @@ def _user_id(client, username: str) -> int:
         if f"<code>{username}</code>" in rest:
             return int(identifier)
     raise AssertionError(f"{username} is not on the people page")
+
+
+def test_setup_records_the_administrator_as_somebody_to_alert(client):
+    """It used to ask for a public contact and nothing else, so the person
+    doing the setup ended up with no way to be reached and no sign of it."""
+    sign_in_as_admin(client)
+
+    client.post(
+        "/setup",
+        data=SETUP_FORM
+        | {
+            "admin_name": "David",
+            "admin_email": "david@example.com",
+            "admin_phone": "(212) 555-0142",
+            "admin_notify_email": "on",
+            "admin_notify_sms": "on",
+        },
+    )
+
+    profile = client.get("/profile").text
+    assert 'value="david@example.com"' in profile
+    assert 'value="+12125550142"' in profile
+
+
+def test_the_public_contact_and_your_own_are_kept_apart(client):
+    """Two emails and two phone numbers on one page, for opposite purposes.
+
+    One pair is printed on a page anybody can read. The other is where a text
+    arrives at two in the morning. Confusing them is how somebody ends up with
+    their mobile number on a public policy and no alerts.
+    """
+    sign_in_as_admin(client)
+
+    client.post(
+        "/setup",
+        data=SETUP_FORM
+        | {
+            "site_contact_email": "super@building.example.com",
+            "admin_email": "david@example.com",
+            "admin_notify_email": "on",
+        },
+    )
+
+    assert client.app.state.settings.site.contact_email == "super@building.example.com"
+    assert 'value="david@example.com"' in client.get("/profile").text
+    # And the public page shows only the public one.
+    policy = client.get("/messaging-policy").text
+    assert "super@building.example.com" in policy
+    assert "david@example.com" not in policy

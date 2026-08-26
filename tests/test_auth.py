@@ -7,12 +7,27 @@ password can do, and whether guessing is cheap.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from pitwatch import auth
 from pitwatch.middleware import PUBLIC_PATHS
 
 NEW_PASSWORD = "a-long-enough-password"
+
+
+def prose(html: str) -> str:
+    """The visible text with its line breaks collapsed.
+
+    Asserting a phrase against raw HTML fails whenever the template happens to
+    wrap in the middle of it, which is a fact about the source formatting and
+    not about anything a person reads. This test file kept failing on exactly
+    that: "who added you to these alerts" is one sentence on the page and two
+    lines in the template.
+    """
+    text = re.sub(r"<[^>]+>", " ", html)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 @pytest.fixture(autouse=True)
@@ -72,7 +87,7 @@ def test_the_policy_pages_are_public(client, path):
 
 
 def test_the_messaging_policy_says_what_carriers_look_for(client):
-    page = client.get("/messaging-policy").text
+    page = prose(client.get("/messaging-policy").text)
 
     assert "STOP" in page
     assert "HELP" in page
@@ -286,7 +301,7 @@ def test_the_policies_never_print_a_placeholder_building(client):
     a page a carrier reads. The application is PitWatch; the building is
     whatever somebody types, and until they do it is not named at all."""
     for path in ("/messaging-policy", "/privacy"):
-        page = client.get(path).text
+        page = prose(client.get(path).text)
         assert "PitWatch monitors the pumps in this building" in page, path
         assert "Ejector" not in page, path
 
@@ -298,7 +313,7 @@ def test_the_policies_name_the_building_once_it_is_set(client):
         data={"site_name": "822 Greenwich St"},
     )
 
-    page = client.get("/messaging-policy").text
+    page = prose(client.get("/messaging-policy").text)
 
     assert "the pumps at 822 Greenwich St" in page
     # The part of the building the pumps are in belongs in an alert, not in
@@ -338,12 +353,12 @@ def test_the_policy_stands_up_without_any_contact_details(client):
     sign_in_as_admin(client)
     client.post("/settings/site", data={"site_name": "822 Greenwich St"})
 
-    page = client.get("/messaging-policy").text
+    page = prose(client.get("/messaging-policy").text)
 
     assert "STOP" in page
     assert "HELP" in page
     assert "Message and data rates may apply" in page
-    assert "never have to reach anybody" in page
+    assert "You never have to reach anybody to stop these messages" in page
     assert "who added you to these alerts" in page
 
 
@@ -354,7 +369,7 @@ def test_contact_details_are_shown_when_there_are_some(client):
         data={"site_name": "822 Greenwich St", "site_contact_email": "pumps@example.com"},
     )
 
-    page = client.get("/messaging-policy").text
+    page = prose(client.get("/messaging-policy").text)
 
     assert "pumps@example.com" in page
     # And STOP is still the first thing offered, because it is the one that

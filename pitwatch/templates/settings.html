@@ -45,58 +45,9 @@
 
 <section class="card">
   <h2>Who gets told</h2>
-  <form method="post" action="/settings/recipients">
-    <p class="hint">
-      A row needs a name and at least one of an email address or a phone number.
-      Clear the name to remove someone.
-    </p>
-    <div class="table-scroll">
-    <table class="recipients">
-      <thead>
-        <tr><th>Name</th><th>Email</th><th>Phone</th><th>Send</th><th>On</th></tr>
-      </thead>
-      <tbody>
-      {% for recipient in recipients %}
-        <tr>
-          <td><input type="text" name="recipient_{{ loop.index }}_name" value="{{ recipient['name'] }}"></td>
-          <td><input type="email" name="recipient_{{ loop.index }}_email" value="{{ recipient['email'] or '' }}"></td>
-          <td><input type="tel" name="recipient_{{ loop.index }}_phone" value="{{ recipient['phone'] or '' }}"></td>
-          <td>
-            <select name="recipient_{{ loop.index }}_min_severity">
-              {% for value, label in [('info', 'Everything'), ('warning', 'Warnings and worse'), ('critical', 'Critical only')] %}
-              <option value="{{ value }}" {% if recipient['min_severity'] == value %}selected{% endif %}>{{ label }}</option>
-              {% endfor %}
-            </select>
-          </td>
-          <td class="center">
-            <input type="checkbox" name="recipient_{{ loop.index }}_enabled"
-                   aria-label="Send to {{ recipient['name'] }}"
-                   {% if recipient['enabled'] %}checked{% endif %}>
-          </td>
-        </tr>
-      {% endfor %}
-      {# Three empty rows so adding someone does not need a button. #}
-      {% for extra in range(3) %}
-        {% set index = recipients|length + loop.index %}
-        <tr>
-          <td><input type="text" name="recipient_{{ index }}_name" placeholder="Name"></td>
-          <td><input type="email" name="recipient_{{ index }}_email" placeholder="name@example.com"></td>
-          <td><input type="tel" name="recipient_{{ index }}_phone" placeholder="+12125550142"></td>
-          <td>
-            <select name="recipient_{{ index }}_min_severity">
-              <option value="info">Everything</option>
-              <option value="warning" selected>Warnings and worse</option>
-              <option value="critical">Critical only</option>
-            </select>
-          </td>
-          <td class="center"><input type="checkbox" name="recipient_{{ index }}_enabled" aria-label="Send to this new recipient" checked></td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    </div>
-    <button type="submit" class="button">Save</button>
-  </form>
+  <p>Alerts go to the people on the <a href="/users">People</a> page, using the
+    email address and mobile number recorded there.</p>
+  <p><a class="button secondary" href="/users">Manage people</a></p>
 </section>
 
 <section class="card">

@@ -263,6 +263,17 @@ class SiteSettings(BaseModel):
     # phone call at two in the morning.
     location: str = ""
     timezone: str = "America/New_York"
+    # The address this is reachable at from outside, used to build invitation
+    # links. Behind a reverse proxy the application cannot work this out for
+    # itself: it sees the proxy's idea of the request, not the name somebody
+    # typed. Leave it empty and links are built from the incoming request,
+    # which is right often enough but not always.
+    base_url: str = ""
+    # Shown on the public messaging policy, because a carrier reviewing a
+    # toll-free registration wants a way to contact somebody, and so does a
+    # recipient who wants to be taken off the list.
+    contact_email: str = ""
+    contact_phone: str = ""
     # An alert has to stay open this long before anyone is told, which stops a
     # float that bobs once from waking the building. Critical alerts ignore it.
     notify_delay_s: int = Field(default=30, ge=0, le=3600)

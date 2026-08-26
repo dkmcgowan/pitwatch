@@ -77,6 +77,9 @@ services:
       PITWATCH_PORT: ${PITWATCH_PORT:-8080}
       PITWATCH_TIMEZONE: ${PITWATCH_TIMEZONE:-America/New_York}
       PITWATCH_LOG_LEVEL: ${PITWATCH_LOG_LEVEL:-INFO}
+      # Turn on when a proxy in front is terminating TLS. It marks the session
+      # cookie Secure, so it is never sent over plain HTTP.
+      PITWATCH_SECURE_COOKIES: ${PITWATCH_SECURE_COOKIES:-false}
 
 volumes:
   pitwatch-db:

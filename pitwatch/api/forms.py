@@ -11,8 +11,6 @@ overcurrent threshold that is not set means do not run that check.
 
 from __future__ import annotations
 
-from typing import Any
-
 from starlette.datastructures import FormData
 
 from pitwatch.schemas import (
@@ -72,6 +70,9 @@ def site_from(form: FormData) -> SiteSettings:
         name=text(form, "site_name", "Ejector pit") or "Ejector pit",
         location=text(form, "site_location"),
         timezone=text(form, "site_timezone", "America/New_York") or "America/New_York",
+        base_url=text(form, "site_base_url").rstrip("/"),
+        contact_email=text(form, "site_contact_email"),
+        contact_phone=text(form, "site_contact_phone"),
         notify_delay_s=integer(form, "notify_delay_s", 30),
         notify_cooldown_s=integer(form, "notify_cooldown_s", 900),
     )
@@ -184,33 +185,3 @@ def sms_from(form: FormData, existing: SmsSettings) -> SmsSettings:
         sender_id=text(form, "sms_sender_id"),
         gateway_domain=text(form, "sms_gateway_domain"),
     )
-
-
-def recipients_from(form: FormData) -> list[dict[str, Any]]:
-    """Read the repeating recipient rows.
-
-    Rows are numbered by the template rather than being a list, because a row
-    that is deleted in the browser leaves a gap and a positional list would
-    then reassign everyone else's details to the wrong person.
-    """
-    recipients = []
-    for key in form:
-        if not key.startswith("recipient_") or not key.endswith("_name"):
-            continue
-        index = key.removeprefix("recipient_").removesuffix("_name")
-        name = text(form, key)
-        email = text(form, f"recipient_{index}_email")
-        phone = text(form, f"recipient_{index}_phone")
-        if not name or (not email and not phone):
-            continue
-        recipients.append(
-            {
-                "name": name,
-                "email": email or None,
-                "phone": phone or None,
-                "min_severity": text(form, f"recipient_{index}_min_severity", "warning")
-                or "warning",
-                "enabled": checkbox(form, f"recipient_{index}_enabled"),
-            }
-        )
-    return recipients

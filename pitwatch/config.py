@@ -44,6 +44,14 @@ class Config(BaseSettings):
     # sessions that survive a restart.
     secret_key: str | None = None
 
+    # Set this when a proxy in front is terminating TLS, which it should be if
+    # this is reachable from anywhere but your own network. It marks the session
+    # cookie Secure, so a browser will not send it over plain HTTP.
+    secure_cookies: bool = False
+    # How long "stay signed in" lasts. A session without it ends with the
+    # browser.
+    session_days: int = 30
+
     log_level: str = "INFO"
 
     # The timezone the dashboard renders in. Timestamps are stored in UTC.

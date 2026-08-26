@@ -269,6 +269,24 @@
     <input type="text" id="site_timezone" name="site_timezone" value="{{ site.timezone }}">
   </div>
   <div class="field">
+    <label for="site_base_url">Public address</label>
+    <input type="text" id="site_base_url" name="site_base_url" value="{{ site.base_url }}"
+           placeholder="https://pitwatch.example.com">
+    <p class="hint">Used to build the links in invitation emails. Behind a
+      reverse proxy PitWatch cannot work this out for itself, because it sees
+      the proxy's request rather than the address somebody typed.</p>
+  </div>
+  <div class="field">
+    <label for="site_contact_email">Contact email</label>
+    <input type="email" id="site_contact_email" name="site_contact_email" value="{{ site.contact_email }}">
+    <p class="hint">Shown on the public messaging policy, so a recipient can ask
+      to be removed and a carrier reviewing your number can reach somebody.</p>
+  </div>
+  <div class="field">
+    <label for="site_contact_phone">Contact phone</label>
+    <input type="tel" id="site_contact_phone" name="site_contact_phone" value="{{ site.contact_phone }}">
+  </div>
+  <div class="field">
     <label for="notify_delay_s">Wait (s) before sending an alert</label>
     <input type="number" min="0" id="notify_delay_s" name="notify_delay_s" value="{{ site.notify_delay_s }}">
     <p class="hint">Stops a float that bobs once from waking the building.

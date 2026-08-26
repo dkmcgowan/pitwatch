@@ -23,11 +23,12 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from pitwatch import __version__, auth
 from pitwatch.api import live as live_api
-from pitwatch.api import pages, stream
+from pitwatch.api import pages, stream, users
 from pitwatch.config import Config, get_config
 from pitwatch.db import lifespan_pool
 from pitwatch.ingest.sink import LiveIo, LiveState
 from pitwatch.ingest.supervisor import Supervisor
+from pitwatch.middleware import RequireSignIn
 from pitwatch.settings import SettingsStore, seed_from_environment
 
 log = logging.getLogger(__name__)
@@ -64,6 +65,9 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
             store = SettingsStore(pool)
             await store.load()
             await seed_from_environment(store, config)
+            # There has to be a way in, so the first boot makes one. It cannot
+            # go anywhere until its password is changed; see pitwatch.auth.
+            await auth.ensure_default_admin(pool)
 
             live = LiveState()
             live_io = LiveIo()
@@ -95,11 +99,20 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
         openapi_url=None,
     )
 
+    # Order matters and reads backwards: the last one added is the outermost,
+    # so the session has to be added after the guard in order to run before it.
+    app.add_middleware(RequireSignIn)
     app.add_middleware(
         SessionMiddleware,
         secret_key=secret_key or config.secret_key or secrets.token_urlsafe(48),
         session_cookie="pitwatch_session",
-        https_only=False,
+        max_age=config.session_days * 24 * 60 * 60,
+        # Marked Secure when a proxy is terminating TLS, so the cookie is never
+        # sent in clear.
+        https_only=config.secure_cookies,
+        # Lax is what stops another site posting this application's forms with
+        # your cookie attached. Strict would also break arriving from an
+        # emailed invitation link, which is a normal thing to do.
         same_site="lax",
     )
 
@@ -108,8 +121,12 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
     # Every template gets the version and the signed in user without each route
     # having to remember to pass them.
     templates.env.globals["version"] = __version__
+    # Shown on the policy pages, which are the sort of thing a carrier looks at
+    # the date on.
+    templates.env.globals["policy_updated"] = "26 August 2026"
     app.state.templates = templates
 
+    users.register(app)
     pages.register(app)
     live_api.register(app)
     stream.register(app)
@@ -156,25 +173,32 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
             return JSONResponse({"status": "unhealthy", "detail": str(error)}, status_code=503)
         return JSONResponse({"status": "ok", "version": __version__})
 
+    @app.get("/messaging-policy", include_in_schema=False)
+    async def messaging_policy(request: Request) -> HTMLResponse:
+        """Public on purpose. See pitwatch.middleware for why."""
+        store: SettingsStore = request.app.state.settings
+        return templates.TemplateResponse(
+            request, "messaging_policy.html", {"site": store.site, "user": None}
+        )
+
+    @app.get("/privacy", include_in_schema=False)
+    async def privacy(request: Request) -> HTMLResponse:
+        store: SettingsStore = request.app.state.settings
+        return templates.TemplateResponse(
+            request, "privacy.html", {"site": store.site, "user": None}
+        )
+
     @app.get("/", include_in_schema=False)
     async def index(request: Request) -> HTMLResponse:
-        """The dashboard, or an invitation to set up if nothing is configured.
-
-        Readable without signing in, on the argument that a superintendent at a
-        wall tablet should not have to type a password to see whether the pit
-        is full. Changing anything still needs an account.
-        """
+        """The dashboard, or an invitation to set up if nothing is configured."""
         store: SettingsStore = request.app.state.settings
-        if not await auth.any_user_exists(request.app.state.pool):
+        user = auth.current_user(request)
+        if not await store.is_setup_complete():
             return templates.TemplateResponse(
-                request,
-                "index.html",
-                {"site": store.site, "user": None, "setup_complete": False},
+                request, "index.html", {"site": store.site, "user": user, "setup_complete": False}
             )
         return templates.TemplateResponse(
-            request,
-            "dashboard.html",
-            {"site": store.site, "user": auth.current_user(request)},
+            request, "dashboard.html", {"site": store.site, "user": user}
         )
 
     return app

@@ -1,36 +1,22 @@
 <!doctype html>
+{# The layout for pages a signed out visitor can see: the login page and the
+   policies. Deliberately without the application navigation, which would be a
+   row of links to somewhere they cannot go. #}
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>{% block title %}PitWatch{% endblock %}</title>
+<title>{% block title %}PitWatch{% endblock %} &middot; {{ site.name }}</title>
 <link rel="icon" href="{{ url_for('static', path='favicon.svg') }}" type="image/svg+xml">
 <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
-{% block head %}{% endblock %}
 </head>
-<body>
+<body class="public">
 <header class="topbar">
   <a class="brand" href="/">
     <span class="brand-mark" aria-hidden="true"></span>
     PitWatch
   </a>
-  <nav>
-    <a href="/" {% if active == 'dashboard' %}class="active"{% endif %}>Dashboard</a>
-    {% if user and user.is_admin %}
-    <a href="/users" {% if active == 'users' %}class="active"{% endif %}>People</a>
-    <a href="/settings" {% if active == 'settings' %}class="active"{% endif %}>Settings</a>
-    {% endif %}
-    {% if user %}
-    <span class="who">
-      {{ user.display_name }}
-      <a href="/change-password">Password</a>
-      <form method="post" action="/logout" class="inline">
-        <button type="submit" class="linkish">Sign out</button>
-      </form>
-    </span>
-    {% endif %}
-  </nav>
 </header>
 
 <main>
@@ -45,7 +31,5 @@
     &middot; PitWatch {{ version }}
   </span>
 </footer>
-
-{% block scripts %}{% endblock %}
 </body>
 </html>

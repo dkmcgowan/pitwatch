@@ -488,3 +488,77 @@ table.steps th { font-weight: 500; }
 
 .test-row input { max-width: 22rem; }
 .test-row .button { margin-top: 0.5rem; }
+
+/* Sign in and policy pages ------------------------------------------------ */
+
+.login-layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--gap);
+  align-items: start;
+}
+
+.prose { max-width: 68ch; }
+.prose h2 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; }
+.prose h2:first-of-type { margin-top: 1rem; }
+.prose li { margin-bottom: 0.35rem; }
+.prose a { color: var(--accent); }
+
+.break { word-break: break-all; }
+
+.notice-inline {
+  padding: 0.7rem 1rem;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  color: var(--warn);
+}
+
+/* Who is signed in, in the header ----------------------------------------- */
+
+.who {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-left: 0.5rem;
+  padding-left: 0.8rem;
+  border-left: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.who a, .linkish {
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+form.inline { display: inline; }
+
+/* People ------------------------------------------------------------------ */
+
+.person {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+  margin-top: 1rem;
+}
+
+.checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
+}
+
+.checkboxes label { font-weight: 500; }
+
+.row-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+.button.danger {
+  background: var(--surface-2);
+  color: var(--crit);
+  border-color: color-mix(in srgb, var(--crit) 40%, transparent);
+}

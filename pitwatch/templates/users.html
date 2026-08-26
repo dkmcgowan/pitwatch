@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% set active = 'users' %}
+{% block title %}People{% endblock %}
+
+{% block content %}
+
+{% if error %}
+<p class="error" role="alert">{{ error }}</p>
+{% elif saved %}
+<p class="saved" role="status">Saved.</p>
+{% endif %}
+
+{% if invite_link %}
+{# Shown when the email could not be sent, which is normal before SMTP is set
+   up. Better than an invitation that silently never arrives. #}
+<section class="card notice">
+  <h2>Send this link yourself</h2>
+  <p>
+    The invitation could not be emailed, so here it is. It works once and
+    expires in three days.
+  </p>
+  <p><code class="break">{{ invite_link }}</code></p>
+</section>
+{% endif %}
+
+<section class="card">
+  <h1>People</h1>
+  <p class="hint">
+    Everyone here can be sent alerts. A password is optional: most people only
+    ever receive messages, and never sign in. Send an invitation to anyone who
+    also wants to watch the dashboard.
+  </p>
+
+  {% for person in users %}
+  <form method="post" action="/users/{{ person.id }}/save" class="person">
+    <div class="grid">
+      <div class="field">
+        <label for="name-{{ person.id }}">Name</label>
+        <input type="text" id="name-{{ person.id }}" name="name" value="{{ person.name }}" required>
+        <p class="hint">Signs in as <code>{{ person.username }}</code>{% if not person.has_password %}, once a password is set{% endif %}.</p>
+      </div>
+      <div class="field">
+        <label for="email-{{ person.id }}">Email</label>
+        <input type="email" id="email-{{ person.id }}" name="email" value="{{ person.email or '' }}">
+      </div>
+      <div class="field">
+        <label for="phone-{{ person.id }}">Mobile</label>
+        <input type="tel" id="phone-{{ person.id }}" name="phone" value="{{ person.phone or '' }}"
+               placeholder="+12125550142">
+      </div>
+      <div class="field">
+        <label for="severity-{{ person.id }}">Send them</label>
+        <select id="severity-{{ person.id }}" name="min_severity">
+          {% for value, label in [('info', 'Everything'), ('warning', 'Warnings and worse'), ('critical', 'Critical only')] %}
+          <option value="{{ value }}" {% if person.min_severity == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="field checkboxes">
+      <label>
+        <input type="checkbox" name="notify_email" {% if person.notify_email %}checked{% endif %}>
+        Email them
+      </label>
+      <label>
+        <input type="checkbox" name="notify_sms" {% if person.notify_sms %}checked{% endif %}>
+        Text them
+      </label>
+      <label>
+        <input type="checkbox" name="is_admin" {% if person.is_admin %}checked{% endif %}>
+        Administrator
+      </label>
+      <label>
+        <input type="checkbox" name="enabled" {% if person.enabled %}checked{% endif %}>
+        Active
+      </label>
+    </div>
+
+    <div class="row-actions">
+      <button type="submit" class="button">Save</button>
+      {% if person.email %}
+      <button type="submit" class="button secondary" formaction="/users/{{ person.id }}/invite">
+        {% if person.has_password %}Send a reset link{% else %}Send an invitation{% endif %}
+      </button>
+      {% endif %}
+      {% if person.id != user.id %}
+      <button type="submit" class="button danger" formaction="/users/{{ person.id }}/delete"
+              formnovalidate
+              onclick="return confirm('Remove {{ person.name|e }}? They will stop getting alerts.')">
+        Remove
+      </button>
+      {% endif %}
+    </div>
+  </form>
+  {% endfor %}
+</section>
+
+<section class="card">
+  <h2>Add someone</h2>
+  <p class="hint">
+    Only add a phone number for somebody who has agreed to be texted. That
+    agreement is what the <a href="/messaging-policy">messaging policy</a>
+    describes, and it is what the carriers require.
+  </p>
+  <form method="post" action="/users/add">
+    <div class="grid">
+      <div class="field">
+        <label for="new_name">Name</label>
+        <input type="text" id="new_name" name="name" required>
+      </div>
+      <div class="field">
+        <label for="new_username">User name</label>
+        <input type="text" id="new_username" name="username" autocomplete="off">
+        <p class="hint">Only needed if they will sign in. Made from their name if left empty.</p>
+      </div>
+      <div class="field">
+        <label for="new_email">Email</label>
+        <input type="email" id="new_email" name="email">
+      </div>
+      <div class="field">
+        <label for="new_phone">Mobile</label>
+        <input type="tel" id="new_phone" name="phone" placeholder="+12125550142">
+      </div>
+      <div class="field">
+        <label for="new_severity">Send them</label>
+        <select id="new_severity" name="min_severity">
+          <option value="info">Everything</option>
+          <option value="warning" selected>Warnings and worse</option>
+          <option value="critical">Critical only</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field checkboxes">
+      <label><input type="checkbox" name="notify_email" checked> Email them</label>
+      <label><input type="checkbox" name="notify_sms"> Text them</label>
+      <label><input type="checkbox" name="is_admin"> Administrator</label>
+      <label><input type="checkbox" name="send_invite" checked> Email them a link to set a password</label>
+    </div>
+
+    <button type="submit" class="button">Add</button>
+  </form>
+</section>
+
+{% endblock %}

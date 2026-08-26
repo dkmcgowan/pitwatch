@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 import asyncpg
 import pytest
 
-from pitwatch.auth import authenticate, create_user
+from pitwatch.auth import DEFAULT_PASSWORD, DEFAULT_USERNAME, authenticate, ensure_default_admin
 from pitwatch.db import migrate, migration_files
 from pitwatch.ingest.shelly import EmSample
 from pitwatch.ingest.sink import LiveState, SampleSink, record_device_status
@@ -102,9 +102,16 @@ async def test_one_open_alert_per_rule_and_pump(pool):
     )
 
 
-async def test_a_recipient_needs_a_way_to_be_reached(pool):
-    with pytest.raises(asyncpg.CheckViolationError):
-        await pool.execute("INSERT INTO recipient (name) VALUES ('Nobody')")
+async def test_one_email_address_belongs_to_one_person(pool):
+    """Two rows with one address makes "who is this going to" ambiguous."""
+    await pool.execute(
+        "INSERT INTO app_user (username, name, email) VALUES ('a', 'A', 'shared@example.com')"
+    )
+
+    with pytest.raises(asyncpg.UniqueViolationError):
+        await pool.execute(
+            "INSERT INTO app_user (username, name, email) VALUES ('b', 'B', 'SHARED@example.com')"
+        )
 
 
 async def test_settings_round_trip(store):
@@ -144,20 +151,44 @@ async def test_saving_a_setting_wakes_the_subscribers(store):
 
 
 async def test_a_password_verifies_and_a_wrong_one_does_not(pool):
-    await create_user(pool, "Admin", "a-long-enough-password")
+    await ensure_default_admin(pool)
 
-    assert await authenticate(pool, "admin", "a-long-enough-password") == "admin"
-    assert await authenticate(pool, "admin", "the-wrong-password") is None
-    assert await authenticate(pool, "nobody", "a-long-enough-password") is None
+    signed_in = await authenticate(pool, DEFAULT_USERNAME, DEFAULT_PASSWORD)
+    assert signed_in is not None
+    assert signed_in.username == DEFAULT_USERNAME
+    assert signed_in.is_admin is True
+    # Shipped with a known password, so it can go exactly one place until it is
+    # changed. See pitwatch.middleware.
+    assert signed_in.must_change_password is True
+
+    assert await authenticate(pool, DEFAULT_USERNAME, "the-wrong-password") is None
+    assert await authenticate(pool, "nobody", DEFAULT_PASSWORD) is None
 
 
 async def test_the_stored_hash_is_not_the_password(pool):
-    await create_user(pool, "admin", "a-long-enough-password")
+    await ensure_default_admin(pool)
 
     stored = await pool.fetchval("SELECT password_hash FROM app_user")
 
-    assert "a-long-enough-password" not in stored
+    assert DEFAULT_PASSWORD not in stored
     assert stored.startswith("$argon2")
+
+
+async def test_the_default_admin_is_only_ever_created_once(pool):
+    """Otherwise a restart would reinstate it after somebody removed it."""
+    assert await ensure_default_admin(pool) is True
+    assert await ensure_default_admin(pool) is False
+
+
+async def test_somebody_with_no_password_cannot_sign_in(pool):
+    """Most people here are recipients, not users. That is not a way in."""
+    await pool.execute(
+        "INSERT INTO app_user (username, name, phone, notify_sms) "
+        "VALUES ('super', 'Super', '+12125550142', true)"
+    )
+
+    assert await authenticate(pool, "super", "") is None
+    assert await authenticate(pool, "super", "anything-at-all") is None
 
 
 async def test_samples_are_written_and_primed_back(pool):

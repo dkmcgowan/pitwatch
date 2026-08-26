@@ -1,0 +1,58 @@
+{% extends "public.html" %}
+{% block title %}Privacy{% endblock %}
+
+{% block content %}
+<section class="card prose">
+  <h1>Privacy notice</h1>
+  <p class="muted">Last updated {{ policy_updated }}</p>
+
+  <p>
+    PitWatch monitors the sewage ejector pumps at {{ site.name }}. This notice
+    covers the personal information it holds, which is only what it needs in
+    order to tell somebody that a pump needs attention.
+  </p>
+
+  <h2>What is held</h2>
+  <ul>
+    <li><strong>Name</strong>, so an alert can be addressed to a person.</li>
+    <li><strong>Email address</strong>, if that person wants email alerts.</li>
+    <li><strong>Mobile number</strong>, if that person wants text alerts.</li>
+    <li>
+      <strong>Whether they want each of those</strong>, and a record of when
+      messages were sent to them, so a missed alert can be investigated.
+    </li>
+    <li>
+      For anyone who signs in, a <strong>password</strong>, stored only as an
+      Argon2 hash which cannot be turned back into the password.
+    </li>
+  </ul>
+  <p>
+    Everything else PitWatch records is about equipment: electrical current,
+    float switch positions, when pumps ran. None of it is about people.
+  </p>
+
+  <h2>Where it is held</h2>
+  <p>
+    On the building's own system, in its own database. It is not hosted by a
+    third party, and it is not sold, rented or shared. Phone numbers and email
+    addresses are passed to the messaging and email providers only to deliver a
+    message, and for no other purpose.
+  </p>
+
+  <h2>How long it is kept</h2>
+  <p>
+    Contact details are kept until somebody asks to be removed, or until the
+    administrator removes them. Equipment readings are kept on a rolling
+    schedule and are not personal information.
+  </p>
+
+  <h2>Your choices</h2>
+  <p>
+    You can ask at any time to see what is held about you, to correct it, to
+    stop either kind of message, or to be removed entirely. Replying
+    <strong>STOP</strong> to a text message stops text messages immediately,
+    without needing to ask anybody.
+  </p>
+  <p>See also the <a href="/messaging-policy">messaging policy</a>.</p>
+</section>
+{% endblock %}

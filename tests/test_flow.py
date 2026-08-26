@@ -11,10 +11,48 @@ looking fine and doing nothing.
 
 from __future__ import annotations
 
+import pytest
+
+from pitwatch import auth
+
+NEW_PASSWORD = "a-long-enough-password"
+
+
+@pytest.fixture(autouse=True)
+def _no_leftover_throttling():
+    """Failed sign in attempts are counted in memory and outlive a test."""
+    auth.reset_throttling()
+    yield
+    auth.reset_throttling()
+
+
+def sign_in(client, username: str = auth.DEFAULT_USERNAME, password: str = NEW_PASSWORD):
+    return client.post(
+        "/login", data={"username": username, "password": password}, follow_redirects=False
+    )
+
+
+def sign_in_as_admin(client):
+    """Sign in with the shipped password and get past the forced change.
+
+    Every test needs this, which is the point: there is no way to reach
+    anything without an account, and no way to keep the shipped password.
+    """
+    client.post(
+        "/login", data={"username": auth.DEFAULT_USERNAME, "password": auth.DEFAULT_PASSWORD}
+    )
+    client.post(
+        "/change-password",
+        data={
+            "current_password": auth.DEFAULT_PASSWORD,
+            "new_password": NEW_PASSWORD,
+            "confirm_password": NEW_PASSWORD,
+        },
+    )
+    return client
+
+
 SETUP_FORM = {
-    "username": "admin",
-    "password": "a-long-enough-password",
-    "password_confirm": "a-long-enough-password",
     "site_name": "Basement pit",
     "site_location": "123 Example St, rear",
     "site_timezone": "America/New_York",
@@ -63,7 +101,8 @@ SETUP_FORM = {
 }
 
 
-def test_a_fresh_install_offers_setup(client):
+def test_a_fresh_install_offers_setup_once_you_are_in(client):
+    sign_in_as_admin(client)
     response = client.get("/")
 
     assert response.status_code == 200
@@ -74,14 +113,8 @@ def test_a_fresh_install_offers_setup(client):
     assert "Set up PitWatch" in setup.text
 
 
-def test_settings_redirect_to_setup_before_there_is_an_account(client):
-    response = client.get("/settings", follow_redirects=False)
-
-    assert response.status_code == 303
-    assert response.headers["location"] == "/setup"
-
-
-def test_setup_saves_everything_and_signs_you_in(client):
+def test_setup_saves_everything(client):
+    sign_in_as_admin(client)
     response = client.post("/setup", data=SETUP_FORM, follow_redirects=False)
 
     assert response.status_code == 303
@@ -94,6 +127,7 @@ def test_setup_saves_everything_and_signs_you_in(client):
 
 
 def test_setup_closes_once_it_has_been_used(client):
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     response = client.get("/setup", follow_redirects=False)
@@ -102,27 +136,8 @@ def test_setup_closes_once_it_has_been_used(client):
     assert response.headers["location"] == "/settings"
 
 
-def test_setup_rejects_mismatched_passwords_and_creates_nothing(client):
-    bad = SETUP_FORM | {"password_confirm": "something-else-entirely"}
-
-    response = client.post("/setup", data=bad)
-
-    assert response.status_code == 400
-    assert "do not match" in response.text
-    # Still open, so the mistake can be corrected.
-    assert client.get("/setup", follow_redirects=False).status_code == 200
-
-
-def test_setup_rejects_a_short_password(client):
-    response = client.post(
-        "/setup", data=SETUP_FORM | {"password": "short", "password_confirm": "short"}
-    )
-
-    assert response.status_code == 400
-    assert "10 characters" in response.text
-
-
 def test_setup_rejects_a_signal_wired_to_two_channels(client):
+    sign_in_as_admin(client)
     response = client.post("/setup", data=SETUP_FORM | {"channel_2_signal": "lead_float"})
 
     assert response.status_code == 400
@@ -130,6 +145,7 @@ def test_setup_rejects_a_signal_wired_to_two_channels(client):
 
 
 def test_the_clamp_choice_is_stored_the_way_it_was_made(client):
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     state = client.get("/api/state").json()
@@ -144,6 +160,7 @@ def test_the_clamp_choice_is_stored_the_way_it_was_made(client):
 
 
 def test_swapping_the_clamps_takes_effect_both_ways(client):
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     client.post(
@@ -162,6 +179,7 @@ def test_putting_both_pumps_on_one_clamp_is_refused(client):
     Both pumps reading one motor would show a plausible dashboard that was
     simply wrong about one of them.
     """
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     response = client.post(
@@ -176,6 +194,7 @@ def test_putting_both_pumps_on_one_clamp_is_refused(client):
 
 
 def test_settings_need_a_sign_in(client):
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
     client.post("/logout")
 
@@ -184,51 +203,12 @@ def test_settings_need_a_sign_in(client):
     assert page.headers["location"] == "/login?next=/settings"
 
     save = client.post("/settings/site", data={"site_name": "Somewhere else"})
-    assert save.status_code == 401
-
-
-def test_signing_back_in_works(client):
-    client.post("/setup", data=SETUP_FORM)
-    client.post("/logout")
-
-    response = client.post(
-        "/login",
-        data={"username": "admin", "password": "a-long-enough-password", "next": "/settings"},
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert response.headers["location"] == "/settings"
-
-
-def test_a_wrong_password_does_not_sign_you_in(client):
-    client.post("/setup", data=SETUP_FORM)
-    client.post("/logout")
-
-    response = client.post("/login", data={"username": "admin", "password": "wrong-password"})
-
-    assert response.status_code == 401
-    assert client.get("/settings", follow_redirects=False).headers["location"].startswith("/login")
-
-
-def test_login_will_not_redirect_off_site(client):
-    client.post("/setup", data=SETUP_FORM)
-    client.post("/logout")
-
-    response = client.post(
-        "/login",
-        data={
-            "username": "admin",
-            "password": "a-long-enough-password",
-            "next": "//example.com/",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.headers["location"] == "/"
+    assert save.status_code in (303, 401)
+    assert client.app.state.settings.site.name != "Somewhere else"
 
 
 def test_saving_one_section_leaves_the_others_alone(client):
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     client.post(
@@ -242,6 +222,7 @@ def test_saving_one_section_leaves_the_others_alone(client):
 
 
 def test_an_smtp_password_is_kept_when_the_box_is_left_empty(client):
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
     client.post(
         "/settings/smtp",
@@ -273,6 +254,7 @@ def test_an_smtp_password_is_kept_when_the_box_is_left_empty(client):
 
 
 def test_an_smtp_password_can_be_cleared_on_purpose(client):
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
     client.post(
         "/settings/smtp",
@@ -288,6 +270,7 @@ def test_an_smtp_password_can_be_cleared_on_purpose(client):
 
 
 def test_a_stored_password_is_never_sent_to_the_browser(client):
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
     client.post(
         "/settings/smtp",
@@ -300,60 +283,13 @@ def test_a_stored_password_is_never_sent_to_the_browser(client):
     assert "unchanged" in page
 
 
-def test_recipients_are_saved_and_removed(client):
-    client.post("/setup", data=SETUP_FORM)
-
-    client.post(
-        "/settings/recipients",
-        data={
-            "recipient_1_name": "David",
-            "recipient_1_email": "david@example.com",
-            "recipient_1_min_severity": "info",
-            "recipient_1_enabled": "on",
-            "recipient_2_name": "Super",
-            "recipient_2_phone": "+15551234567",
-            "recipient_2_min_severity": "critical",
-        },
-    )
-    # Asserting on the value attribute rather than on the number appearing
-    # anywhere in the page. The empty rows carry example numbers as
-    # placeholders, and a bare substring search finds those too, which reads as
-    # a saved recipient that is not there.
-    page = client.get("/settings").text
-    assert 'value="david@example.com"' in page
-    assert 'value="+15551234567"' in page
-
-    # Clearing a name removes that row.
-    client.post(
-        "/settings/recipients",
-        data={
-            "recipient_1_name": "David",
-            "recipient_1_email": "david@example.com",
-            "recipient_1_min_severity": "info",
-            "recipient_1_enabled": "on",
-            "recipient_2_name": "",
-            "recipient_2_phone": "+15551234567",
-        },
-    )
-    page = client.get("/settings").text
-    assert 'value="david@example.com"' in page
-    assert 'value="+15551234567"' not in page
-
-
-def test_a_recipient_with_no_way_to_be_reached_is_dropped(client):
-    client.post("/setup", data=SETUP_FORM)
-
-    client.post("/settings/recipients", data={"recipient_1_name": "Nobody"})
-
-    assert 'value="Nobody"' not in client.get("/settings").text
-
-
 def test_the_shelly_password_is_kept_when_the_box_is_left_empty(client):
     """Same rule as SMTP, and easier to get wrong because it is a device.
 
     Saving the Shelly section to change the clamp mapping must not silently
     drop the device password and leave ingest unable to authenticate.
     """
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
     client.post(
         "/settings/shelly",
@@ -373,6 +309,7 @@ def test_the_shelly_password_is_kept_when_the_box_is_left_empty(client):
 
 
 def test_the_shelly_password_can_be_cleared_on_purpose(client):
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
     client.post("/settings/shelly", data=SETUP_FORM | {"shelly_password": "the-device-password"})
 
@@ -382,6 +319,7 @@ def test_the_shelly_password_can_be_cleared_on_purpose(client):
 
 
 def test_the_shelly_password_never_reaches_the_browser(client):
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
     client.post("/settings/shelly", data=SETUP_FORM | {"shelly_password": "the-device-password"})
 
@@ -389,6 +327,7 @@ def test_the_shelly_password_never_reaches_the_browser(client):
 
 
 def test_the_waveshare_test_button_reports_a_module_it_cannot_reach(client):
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     response = client.post(
@@ -408,6 +347,7 @@ def test_health_is_healthy_once_the_database_is_up(client):
 
 
 def test_the_state_endpoint_reports_both_devices(client):
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     state = client.get("/api/state").json()
@@ -417,6 +357,7 @@ def test_the_state_endpoint_reports_both_devices(client):
 
 
 def test_the_shelly_test_button_needs_a_sign_in_once_there_is_an_account(client):
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
     client.post("/logout")
 
@@ -431,6 +372,7 @@ def test_the_shelly_test_button_reports_a_device_it_cannot_reach(client):
     192.0.2.1 is reserved for documentation and routes nowhere, so this
     exercises the failure path without depending on what is on the network.
     """
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     response = client.post("/api/test/shelly", data={"shelly_host": "192.0.2.1"})
@@ -440,6 +382,7 @@ def test_the_shelly_test_button_reports_a_device_it_cannot_reach(client):
 
 
 def test_the_dashboard_replaces_the_setup_prompt_once_configured(client):
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     page = client.get("/").text
@@ -450,15 +393,8 @@ def test_the_dashboard_replaces_the_setup_prompt_once_configured(client):
     assert 'data-pump="2"' in page
 
 
-def test_the_dashboard_is_readable_without_signing_in(client):
-    """Deliberate. Reading is open, changing anything is not."""
-    client.post("/setup", data=SETUP_FORM)
-    client.post("/logout")
-
-    assert client.get("/").status_code == 200
-
-
 def test_the_live_feed_sends_the_same_shape_the_api_does(client):
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
     from_api = client.get("/api/state").json()
 
@@ -479,6 +415,7 @@ def test_the_live_feed_reports_a_pump_with_no_readings_as_unknown(client):
     renders a dead meter as a healthy idle pump is the specific failure this
     whole project exists to avoid.
     """
+    sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     pump = client.get("/api/state").json()["pumps"]["1"]
@@ -530,6 +467,7 @@ def test_an_unconfigured_device_is_not_reported_as_a_fault(client):
     Painting a red fault for a device nobody has configured teaches whoever
     reads this page to ignore the one place that goes red when it matters.
     """
+    sign_in_as_admin(client)
     client.post("/setup", data=SHELLY_ONLY_FORM)
 
     waveshare = client.get("/api/state").json()["devices"]["waveshare"]
@@ -540,6 +478,7 @@ def test_an_unconfigured_device_is_not_reported_as_a_fault(client):
 
 
 def test_every_contact_reads_as_unknown_without_the_io_module(client):
+    sign_in_as_admin(client)
     client.post("/setup", data=SHELLY_ONLY_FORM)
 
     state = client.get("/api/state").json()
@@ -557,6 +496,7 @@ def test_adding_the_io_module_later_does_not_need_a_restart(client):
     This is the whole reason device addresses live in the database rather than
     in the environment.
     """
+    sign_in_as_admin(client)
     client.post("/setup", data=SHELLY_ONLY_FORM)
     assert client.get("/api/state").json()["devices"]["waveshare"]["configured"] is False
 

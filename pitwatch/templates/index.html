@@ -10,9 +10,11 @@
     your Shelly EM or your Waveshare I/O module are, or which contact is wired
     to which channel.
   </p>
-  <p>
-    <a class="button" href="/setup">Start setup</a>
-  </p>
+  {% if user and user.is_admin %}
+  <p><a class="button" href="/setup">Start setup</a></p>
+  {% else %}
+  <p class="muted">An administrator needs to finish setting this up.</p>
+  {% endif %}
 </section>
 {% else %}
 <section class="card">

@@ -37,10 +37,16 @@ def test_static_files_are_served():
 
 
 def test_the_api_documentation_is_not_exposed():
+    """Turned off, and behind the sign in guard as well.
+
+    Either alone would do. Asserting "not reachable" rather than a specific
+    code means this keeps meaning the same thing if the guard changes which one
+    it answers with.
+    """
     client = build()
 
-    assert client.get("/docs").status_code == 404
-    assert client.get("/openapi.json").status_code == 404
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert client.get(path).status_code in (401, 404), path
 
 
 def test_version_is_a_release_number():

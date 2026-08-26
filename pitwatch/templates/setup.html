@@ -19,30 +19,6 @@
 </section>
 
 <section class="card">
-  <h2>An account</h2>
-  <p class="hint">
-    This protects the settings and the alert history. The dashboard stays
-    readable without it, on the argument that someone standing at a wall tablet
-    should not have to type a password to see whether the pit is full.
-  </p>
-  <div class="grid">
-    <div class="field">
-      <label for="username">User name</label>
-      <input type="text" id="username" name="username" value="admin" autocomplete="username" required>
-    </div>
-    <div class="field">
-      <label for="password">Password</label>
-      <input type="password" id="password" name="password" autocomplete="new-password" required minlength="10">
-      <p class="hint">At least 10 characters.</p>
-    </div>
-    <div class="field">
-      <label for="password_confirm">Password again</label>
-      <input type="password" id="password_confirm" name="password_confirm" autocomplete="new-password" required minlength="10">
-    </div>
-  </div>
-</section>
-
-<section class="card">
   <h2>This site</h2>
   {{ fields.site_fields(site) }}
 </section>
@@ -64,8 +40,8 @@
 
 <section class="card">
   <p>
-    Email and SMS are set up afterwards, on the settings page, once you can see
-    that the readings are right.
+    Email, text messages and who receives them are set up afterwards, once you
+    can see that the readings are right.
   </p>
   <button type="submit" class="button">Finish setup</button>
 </section>

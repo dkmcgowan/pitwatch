@@ -1,24 +1,61 @@
-{% extends "base.html" %}
-{% set active = 'login' %}
-{% block title %}Sign in to PitWatch{% endblock %}
+{% extends "public.html" %}
+{% block title %}Sign in{% endblock %}
 
 {% block content %}
-<section class="card narrow">
-  <h1>Sign in</h1>
-  {% if error %}
-  <p class="error" role="alert">{{ error }}</p>
-  {% endif %}
-  <form method="post" action="/login">
-    <input type="hidden" name="next" value="{{ next }}">
-    <div class="field">
-      <label for="username">User name</label>
-      <input type="text" id="username" name="username" autocomplete="username" required autofocus>
-    </div>
-    <div class="field">
-      <label for="password">Password</label>
-      <input type="password" id="password" name="password" autocomplete="current-password" required>
-    </div>
-    <button type="submit" class="button">Sign in</button>
-  </form>
-</section>
+<div class="login-layout">
+  <section class="card narrow">
+    <h1>Sign in</h1>
+    {% if error %}
+    <p class="error" role="alert">{{ error }}</p>
+    {% endif %}
+    <form method="post" action="/login">
+      <input type="hidden" name="next" value="{{ next }}">
+      <div class="field">
+        <label for="username">User name</label>
+        <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <div class="field">
+        <label>
+          <input type="checkbox" name="remember" value="on" checked>
+          Stay signed in on this device
+        </label>
+      </div>
+      <button type="submit" class="button">Sign in</button>
+    </form>
+  </section>
+
+  {# The consent summary sits on the page an unauthenticated visitor actually
+     lands on, rather than only behind a link. A carrier reviewing a toll-free
+     registration should not have to hunt for it, and neither should somebody
+     deciding whether to hand over their phone number. #}
+  <section class="card prose">
+    <h2>About the alerts this system sends</h2>
+    <p>
+      {{ site.name }} uses PitWatch to watch its sewage ejector pumps. It sends
+      email and text message alerts to a small number of people responsible for
+      the building, and only when the equipment needs attention.
+    </p>
+    <ul>
+      <li>Operational alerts only. No marketing, ever.</li>
+      <li>
+        Recipients are added by the building administrator, with their
+        agreement. There is no public sign up and no purchased list.
+      </li>
+      <li>
+        Reply <strong>STOP</strong> to any text to stop texts to that number.
+        Reply <strong>HELP</strong> for help.
+      </li>
+      <li>Message and data rates may apply.</li>
+      <li>Contact details are never sold, rented or shared.</li>
+    </ul>
+    <p>
+      <a href="/messaging-policy">Full messaging policy</a> &middot;
+      <a href="/privacy">Privacy notice</a>
+    </p>
+  </section>
+</div>
 {% endblock %}

@@ -136,10 +136,6 @@ async def test_shelly(request: Request) -> JSONResponse:
     otherwise it is a way to make the server open connections to arbitrary
     hosts on the local network.
     """
-    pool = request.app.state.pool
-    if await auth.any_user_exists(pool):
-        auth.require_user(request)
-
     form = await request.form()
     try:
         settings = forms.shelly_from(form)
@@ -168,10 +164,6 @@ async def test_waveshare(request: Request) -> JSONResponse:
     That is by far the fastest way to get the mapping right, and reading the
     wire labels is how it ends up wrong.
     """
-    pool = request.app.state.pool
-    if await auth.any_user_exists(pool):
-        auth.require_user(request)
-
     form = await request.form()
     try:
         settings = forms.waveshare_from(form)

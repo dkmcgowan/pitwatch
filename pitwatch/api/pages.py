@@ -51,6 +51,8 @@ def _templates(request: Request):
 @router.get("/setup", include_in_schema=False)
 async def setup_page(request: Request, admin: auth.IsAdmin):
     store: SettingsStore = request.app.state.settings
+    if await store.is_setup_complete():
+        return RedirectResponse("/settings", status_code=303)
     return _templates(request).TemplateResponse(
         request,
         "setup.html",

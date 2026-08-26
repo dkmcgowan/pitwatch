@@ -97,13 +97,14 @@ class RequireSignIn(BaseHTTPMiddleware):
 def _wants_html(request: Request) -> bool:
     """Whether to redirect or to answer with a status code.
 
-    A browser following a link wants the login page. Anything the front end
-    asked for wants a code it can act on, because a login page arriving where
-    JSON was expected parses as gibberish and reports the wrong problem.
+    Decided by path rather than by the Accept header. Browsers do send
+    text/html, but plenty of other clients send */* and mean a page, so
+    trusting the header turned ordinary page loads into 401s. The paths under
+    /api and /ws are the only things the front end calls with fetch, and they
+    are the only ones that want a code rather than a login page arriving where
+    JSON was expected.
     """
-    if request.url.path.startswith(("/api/", "/ws/")):
-        return False
-    return "text/html" in request.headers.get("accept", "")
+    return not request.url.path.startswith(("/api/", "/ws/"))
 
 
 def _refuse(request: Request):

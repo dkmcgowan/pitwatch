@@ -54,13 +54,20 @@ def sign_in_as_admin(client):
 
 
 def user_id_of(client, username: str) -> int:
-    """Find somebody's id from the page, the way a browser would."""
+    """Find somebody's id from the page, the way a browser would.
+
+    Split into forms first rather than searching the whole page. A lazy match
+    across the page happily starts at one person's form and runs on to the next
+    person's name, which returns the wrong id and then edits the wrong person.
+    That is exactly what it did, and the test that noticed was the one where
+    the wrong person turned out to be the admin.
+    """
     page = client.get("/users").text
-    match = re.search(
-        rf'<form method="post" action="/users/(\d+)/save"[\s\S]*?<code>{username}</code>', page
-    )
-    assert match, f"{username} is not on the people page"
-    return int(match.group(1))
+    for chunk in page.split('<form method="post" action="/users/')[1:]:
+        identifier, _, rest = chunk.partition("/save")
+        if f"<code>{username}</code>" in rest.split('<form method="post"')[0]:
+            return int(identifier)
+    raise AssertionError(f"{username} is not on the people page")
 
 
 def invitation_link(client, user_id: int) -> str:

@@ -126,7 +126,9 @@ def test_setup_saves_everything(client):
     assert "North pump" in settings.text
 
 
-def test_setup_closes_once_it_has_been_used(client):
+def test_setup_sends_you_to_settings_once_it_has_been_used(client):
+    """Setup is the same settings under a friendlier name, so once it is done
+    there is one place to change them and it is not this one."""
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
@@ -427,8 +429,8 @@ def test_the_live_feed_reports_a_pump_with_no_readings_as_unknown(client):
 
 
 def test_unwired_signals_report_as_unknown_rather_than_off(client):
-    form = SETUP_FORM | {"channel_3_signal": "unused"}
-    client.post("/setup", data=form)
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM | {"channel_3_signal": "unused"})
 
     floats = client.get("/api/state").json()["floats"]
 
@@ -451,6 +453,7 @@ def test_setup_works_with_only_the_clamps_configured(client):
     Waiting on hardware is the usual case, not an edge case: the clamps go on
     in ten minutes and the I/O module needs the panel opened up.
     """
+    sign_in_as_admin(client)
     response = client.post("/setup", data=SHELLY_ONLY_FORM, follow_redirects=False)
 
     assert response.status_code == 303

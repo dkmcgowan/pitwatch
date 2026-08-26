@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import UTC, datetime
+from pathlib import Path
 
 from pitwatch.ingest.shelly import (
     AUTH_USERNAME,
@@ -133,3 +134,37 @@ def test_nonce_count_is_eight_hex_digits():
     auth = digest_response({"realm": "r", "nonce": "n"}, "pw", cnonce="c", nc=255)
 
     assert auth["nc"] == "000000ff"
+
+
+def test_the_websocket_is_never_routed_through_a_proxy():
+    """A meter on the LAN must not be reached through HTTP_PROXY.
+
+    The websockets library defaults to proxy=True, which reads HTTP_PROXY and
+    ALL_PROXY from the environment. That fails in a way that looks like a
+    broken device rather than a proxy: plain HTTP to the same address works,
+    because a proxy forwards that happily, while the upgrade needs a CONNECT
+    tunnel it may refuse. The symptom is "HTTP worked but the websocket did
+    not", which sends you looking at the wrong thing entirely.
+    """
+    source = (Path(__file__).parent.parent / "pitwatch" / "ingest" / "shelly.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "proxy=None" in source, "websockets.connect must disable the proxy"
+    assert "trust_env=False" in source, "the HTTP probe must disable it too"
+
+
+def test_every_http_client_ignores_the_environment_proxy():
+    """Both checks have to take the same path.
+
+    If the HTTP probe went through a proxy and the websocket did not, one
+    succeeding while the other failed would say nothing about the device, which
+    is the whole point of checking both.
+    """
+    source = (Path(__file__).parent.parent / "pitwatch" / "ingest" / "shelly.py").read_text(
+        encoding="utf-8"
+    )
+
+    for line in source.splitlines():
+        if "httpx2.AsyncClient(" in line:
+            assert "trust_env=False" in line, line.strip()

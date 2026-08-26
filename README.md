@@ -94,7 +94,7 @@ services:
       start_period: 30s
 
   app:
-    image: ghcr.io/dkmcgowan/pitwatch:0.2.1
+    image: ghcr.io/dkmcgowan/pitwatch:0.2.2
     restart: unless-stopped
     depends_on:
       db:

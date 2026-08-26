@@ -36,7 +36,13 @@ from datetime import UTC, datetime
 
 import httpx2
 import websockets
-from websockets.exceptions import WebSocketException
+from websockets.exceptions import (
+    InvalidProxy,
+    InvalidProxyStatus,
+    InvalidStatus,
+    ProxyError,
+    WebSocketException,
+)
 
 from pitwatch.schemas import ShellySettings
 
@@ -163,6 +169,10 @@ class ShellyConnection:
         self._next_id = 0
         self._pending: dict[int, asyncio.Future[dict]] = {}
         self._nonce_count = 0
+        # Notifications land here so that reading the socket and consuming
+        # notifications are not the same loop. See _read_forever.
+        self._notifications: asyncio.Queue[dict | None] = asyncio.Queue(maxsize=256)
+        self._reader: asyncio.Task | None = None
 
     @property
     def url(self) -> str:
@@ -170,8 +180,23 @@ class ShellyConnection:
 
     async def open(self) -> None:
         self._socket = await asyncio.wait_for(
-            websockets.connect(self.url, open_timeout=CONNECT_TIMEOUT_S, max_queue=64),
+            websockets.connect(
+                self.url,
+                open_timeout=CONNECT_TIMEOUT_S,
+                max_queue=64,
+                # Never through a proxy. The websockets library defaults to
+                # proxy=True, which reads HTTP_PROXY and ALL_PROXY from the
+                # environment, and a meter on the LAN is the last thing that
+                # should be reached through one. Worse, it fails in a way that
+                # looks like the device: plain HTTP to the same device works,
+                # because a proxy will forward that happily, while the upgrade
+                # needs a CONNECT tunnel the proxy may well refuse.
+                proxy=None,
+            ),
             timeout=CONNECT_TIMEOUT_S,
+        )
+        self._reader = asyncio.create_task(
+            self._read_forever(), name=f"shelly-read-{self._settings.host}"
         )
         log.info("Connected to the Shelly at %s", self._settings.host)
 
@@ -180,10 +205,16 @@ class ShellyConnection:
             with contextlib.suppress(WebSocketException, OSError):
                 await self._socket.close()
             self._socket = None
-        for future in self._pending.values():
-            if not future.done():
-                future.cancel()
-        self._pending.clear()
+        if self._reader is not None:
+            self._reader.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._reader
+            self._reader = None
+        self._fail_pending(ShellyError("The connection was closed"))
+        # Unblock anyone iterating frames(), which is otherwise waiting on a
+        # queue nothing will ever put anything on again.
+        with contextlib.suppress(asyncio.QueueFull):
+            self._notifications.put_nowait(None)
 
     async def request(self, method: str, params: dict | None = None) -> dict:
         """Send an RPC request and wait for its answer, retrying once with auth.
@@ -237,27 +268,58 @@ class ShellyConnection:
         finally:
             self._pending.pop(request_id, None)
 
-    async def frames(self):
-        """Yield notification frames, resolving responses as they go by."""
-        if self._socket is None:
-            raise ShellyError("Not connected")
-        async for message in self._socket:
-            try:
-                frame = json.loads(message)
-            except json.JSONDecodeError:
-                log.warning("Ignoring a frame that is not JSON")
-                continue
-            if not isinstance(frame, dict):
-                continue
+    async def _read_forever(self) -> None:
+        """Drain the socket for as long as it is open.
 
-            request_id = frame.get("id")
-            if request_id in self._pending:
-                future = self._pending[request_id]
-                if not future.done():
-                    future.set_result(frame)
-                continue
-            if frame.get("method"):
-                yield frame
+        This runs as its own task from the moment the connection opens, and it
+        is the only thing that ever reads the socket. That matters more than it
+        looks: a reply only arrives because something is reading, so if this
+        were folded into the notification loop instead, the first request would
+        wait on a future that nothing could possibly resolve until somebody
+        started iterating notifications. Which is after the first request. The
+        result is a socket that connects perfectly and then times out on every
+        call.
+        """
+        assert self._socket is not None
+        try:
+            async for message in self._socket:
+                try:
+                    frame = json.loads(message)
+                except json.JSONDecodeError:
+                    log.warning("Ignoring a frame that is not JSON")
+                    continue
+                if not isinstance(frame, dict):
+                    continue
+
+                future = self._pending.get(frame.get("id"))
+                if future is not None:
+                    if not future.done():
+                        future.set_result(frame)
+                    continue
+                if frame.get("method"):
+                    await self._notifications.put(frame)
+        except (WebSocketException, OSError) as error:
+            log.debug("Shelly read loop ended: %s", error)
+        finally:
+            # Whoever is waiting needs to hear that nothing more is coming,
+            # rather than sitting out the full request timeout for an answer
+            # that cannot arrive.
+            self._fail_pending(ShellyError("The connection closed"))
+            await self._notifications.put(None)
+
+    def _fail_pending(self, error: Exception) -> None:
+        for future in self._pending.values():
+            if not future.done():
+                future.set_exception(error)
+        self._pending.clear()
+
+    async def frames(self):
+        """Yield notification frames until the connection closes."""
+        while True:
+            frame = await self._notifications.get()
+            if frame is None:
+                return
+            yield frame
 
 
 def _challenge_from(error: dict) -> dict:
@@ -487,7 +549,12 @@ async def probe(settings: ShellySettings) -> dict:
     # 3. HTTP RPC. Authentication shows up here as a 401 rather than as a
     #    puzzling websocket failure later.
     try:
-        async with httpx2.AsyncClient(timeout=REQUEST_TIMEOUT_S) as client:
+        # trust_env=False for the same reason the websocket sets proxy=None:
+        # this is a device on the local network, and routing it through
+        # whatever HTTP_PROXY happens to be set is never what was meant. It
+        # also keeps this check and the websocket taking the same path, so one
+        # succeeding while the other fails means something real.
+        async with httpx2.AsyncClient(timeout=REQUEST_TIMEOUT_S, trust_env=False) as client:
             response = await client.post(
                 f"http://{host}/rpc",
                 json={"id": 1, "src": CLIENT_ID, "method": "Shelly.GetDeviceInfo"},
@@ -547,13 +614,32 @@ async def probe(settings: ShellySettings) -> dict:
     except ShellyAuthError as error:
         record("Open the websocket", False, str(error))
         return answer(False, str(error))
-    except (ShellyError, WebSocketException, OSError, TimeoutError) as error:
-        record("Open the websocket", False, str(error))
+    except InvalidStatus as error:
+        # The device answered the upgrade and refused it, which is a different
+        # thing from never answering, and the status says which.
+        status = error.response.status_code
+        record("Open the websocket", False, f"the device answered the upgrade with {status}")
         return answer(
             False,
-            f"HTTP worked but the websocket did not: {error}. The device is "
-            "reachable, so this is usually a proxy in the way rather than the "
-            "network.",
+            f"{host} refused the websocket upgrade with HTTP {status}. HTTP RPC "
+            "worked, so the device is reachable and this is the device or "
+            "something in front of it declining the upgrade specifically.",
+        )
+    except (ProxyError, InvalidProxy, InvalidProxyStatus) as error:
+        record("Open the websocket", False, f"a proxy refused it: {error}")
+        return answer(
+            False,
+            "A proxy refused to tunnel the websocket. PitWatch does not use a "
+            "proxy for devices on your network, so if you are seeing this, "
+            f"something is intercepting the connection to {host}.",
+        )
+    except (ShellyError, WebSocketException, OSError, TimeoutError) as error:
+        record("Open the websocket", False, f"{type(error).__name__}: {error}")
+        return answer(
+            False,
+            f"HTTP worked but the websocket did not: {type(error).__name__}: "
+            f"{error}. The device answers ordinary requests, so the address and "
+            "the network are fine, and this is specific to the upgrade.",
         )
     finally:
         await connection.close()

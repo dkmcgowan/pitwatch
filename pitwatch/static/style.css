@@ -56,7 +56,14 @@ body {
   color: var(--text);
   display: flex;
   flex-direction: column;
+  /* dvh, not vh. On a phone 100vh counts the space behind the browser's own
+     URL bar, so a page that fits exactly still pushes its footer just below the
+     fold and asks for a scroll to reach links that were never off screen. dvh
+     is the viewport actually being shown. vh stays as the fallback for the few
+     browsers that do not know dvh, where the old behavior is no worse than it
+     was. */
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* Header ------------------------------------------------------------------ */
@@ -589,6 +596,12 @@ form.inline { display: inline; }
   .topbar nav a { padding: 0.4rem 0.5rem; }
   .who { margin-left: 0.2rem; padding-left: 0.5rem; gap: 0.45rem; font-size: 0.82rem; }
   .amps { font-size: 2.4rem; }
+
+  /* Room back for the footer, so a short page such as the sign in keeps its
+     policy links on screen rather than one scroll below it. */
+  main { padding: 1rem 0.9rem; }
+  .card { padding: 1rem 1.1rem; }
+  .footer { padding: 0.75rem 0.9rem; font-size: 0.8rem; }
 }
 
 .login-single { max-width: 24rem; }

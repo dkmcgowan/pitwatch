@@ -454,7 +454,7 @@ what it needs.
 | High water | The high water float is wet. |
 | Both pumps running | Normal during a lag call, worth knowing about the rest of the time. |
 | Run too long | One run past the limit you set. Stuck float, or pumping against something. |
-| Short cycling | Too many starts in an hour. Usually a check valve letting the discharge run back into the pit. |
+| Short cycling | The pumps restarting unusually soon after stopping, several times running. Usually a check valve letting the discharge run back into the pit. Off until you set a threshold, because a pit that takes roof water cycles continuously through a storm and that is the equipment working. |
 | Contactor without current | The run contact closed and no current followed. |
 | Current without contactor | Current with no run contact. Either a miswired channel or a contactor that is welded shut. |
 | Device offline | The Shelly or the Waveshare stopped answering. |

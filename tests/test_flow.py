@@ -97,8 +97,7 @@ SETUP_FORM = {
     "inrush_ignore_ms": "800",
     "stop_hold_ms": "1000",
     "max_runtime_ms": "10000",
-    "max_starts": "20",
-    "starts_window_min": "60",
+    "restart_streak": "4",
     "quiet_minutes_before_flag": "240",
 }
 

@@ -238,3 +238,24 @@ def test_there_is_no_undercurrent_alert():
     should be drawing, which varies with head and with what is in the pit, and
     a threshold guessed at would mostly produce false alarms."""
     assert "undercurrent" not in str(PumpSettings.model_fields)
+
+
+def test_short_cycling_is_off_until_somebody_sets_a_gap():
+    """A threshold guessed at before there is run history to look at is a
+    threshold that mostly produces false alarms, and an alert that cries wolf
+    gets ignored along with the ones that matter."""
+    assert PumpsSettings().restart_gap_ms is None
+
+
+def test_short_cycling_is_measured_by_the_gap_not_by_a_rate():
+    """A pit that takes roof water cycles continuously through a storm, which is
+    the equipment doing its job. A rule counting starts per hour fires on every
+    rainstorm. The gap between runs is what separates a failed check valve, where
+    the same column of water falls back in about the same short time each time,
+    from inflow, which has to refill a real volume and varies with the weather.
+    """
+    fields = PumpsSettings.model_fields
+
+    assert "restart_gap_ms" in fields
+    assert "max_starts" not in fields
+    assert "starts_window_min" not in fields

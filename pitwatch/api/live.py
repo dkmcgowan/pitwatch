@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from pitwatch import auth
 from pitwatch.api import forms
+from pitwatch.domain.history import CurrentHistory, Typical
 from pitwatch.ingest import shelly as shelly_ingest
 from pitwatch.ingest import waveshare as waveshare_ingest
 from pitwatch.ingest.sink import LiveIo, LiveState
@@ -39,29 +40,54 @@ OFF_WORD = "Off"
 
 
 def lead_and_lag(dashboard: DashboardSettings, live_io: LiveIo) -> tuple[str, str]:
-    """The two words on the panel display, in pump order.
+    """The two words in the middle of the panel, in pump order.
 
-    The controller alternates, so whichever pump went last is the one that sits
-    out next: if pump 1 ran last then pump 2 is lead. That also reads correctly
-    while pump 1 is still running, because what the word answers is which pump
-    goes next, and the answer during pump 1's run is pump 2.
+    Written to match the controller on the wall, because the point of this
+    display is that somebody who has stood in front of that panel already knows
+    how to read it.
 
-    An overload outranks it. A pump that has tripped is not lead or lag, it is
-    FAIL, and the other one is lead whether or not it was next in the rotation,
-    because it is the only one left. Both tripped is the display in the
-    photograph nobody wants to be looking at.
+    **A running pump is LEAD.** It holds the word for as long as its contact is
+    closed, and the rotation flips when it stops, not when it starts. So pump 1
+    reads LEAD all the way through its run and becomes LAG the moment it drops
+    out, at which point pump 2 is lead and is the one that answers the next
+    call.
+
+    **Both running is ON and ON.** That is the high water case: the pit has
+    come up past the lag float and the controller has called both. Neither is
+    leading anything at that point, they are both just running, and calling one
+    of them lead would be describing a rotation that has been overtaken by
+    events.
+
+    **An overload outranks all of it.** A tripped pump reads FAIL and the other
+    is lead, whether or not the rotation said so, because it is the only one
+    left. Both tripped is the display in the photograph that nobody wants to be
+    looking at.
     """
-    faulted = (
-        live_io.state_of(dashboard.pump1_fault) if dashboard.pump1_fault else None,
-        live_io.state_of(dashboard.pump2_fault) if dashboard.pump2_fault else None,
-    )
-    if faulted[0] and faulted[1]:
+    faulted_1 = live_io.state_of(dashboard.pump1_fault) if dashboard.pump1_fault else None
+    faulted_2 = live_io.state_of(dashboard.pump2_fault) if dashboard.pump2_fault else None
+    if faulted_1 and faulted_2:
         return ("FAIL", "FAIL")
-    if faulted[0]:
+
+    running_1 = live_io.state_of(dashboard.pump1_run) if dashboard.pump1_run else None
+    running_2 = live_io.state_of(dashboard.pump2_run) if dashboard.pump2_run else None
+
+    if faulted_1:
         return ("FAIL", "LEAD")
-    if faulted[1]:
+    if faulted_2:
         return ("LEAD", "FAIL")
 
+    if running_1 and running_2:
+        return ("ON", "ON")
+    if running_1:
+        return ("LEAD", "LAG")
+    if running_2:
+        return ("LAG", "LEAD")
+
+    # Neither is running, so the rotation decides, and the pump that went last
+    # is the one sitting out. came_on_at is when a contact was last seen to
+    # close, which outlives the run itself; changed_at would only say when it
+    # dropped out and would be the same answer for a pump that has not run in a
+    # month as for one that stopped a second ago.
     last_1 = live_io.came_on_at(dashboard.pump1_run)
     last_2 = live_io.came_on_at(dashboard.pump2_run)
     if last_1 is None and last_2 is None:
@@ -138,6 +164,17 @@ async def build_state(app) -> dict:
     clamp = shelly.clamp_for_pump
     pump_settings = pumps.by_number
 
+    # What each pump has been drawing when it runs, which is the number that
+    # says something on a pit that is dry most of the time. Cached and slow
+    # moving; see pitwatch.domain.history.
+    history: CurrentHistory | None = getattr(app.state, "history", None)
+    typical: dict[int, Typical] = {}
+    for number, settings in pump_settings.items():
+        if history is None:
+            typical[number] = Typical()
+            continue
+        typical[number] = await history.typical(pool, clamp[number], settings.running_amps)
+
     def pump_state(number: int) -> dict:
         channel = clamp[number]
         sample = live.samples.get(channel)
@@ -165,6 +202,7 @@ async def build_state(app) -> dict:
             "drawing_current": drawing,
             "running": drawing,
             "nameplate_amps": settings.nameplate_amps,
+            "typical": typical[number].as_json(),
         }
 
     waveshare = store.waveshare

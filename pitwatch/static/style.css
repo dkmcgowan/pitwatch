@@ -562,6 +562,17 @@ table.probe td, table.probe th { border-bottom: none; padding: 0.2rem 0.6rem 0.2
 
 /* Every state carries a word as well as a color. A red pill and a green pill
    are the same pill to a colorblind reader, and this is an alarm display. */
+/* The line under a pump's numbers that says whether its draw is moving. Not
+   painted red: a pump drawing more than it did is worth reading, not worth
+   alarming about, and the alert rules are where an alarm belongs. */
+.drift {
+  margin: 0.6rem 0 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.drift-up { color: var(--warn); font-weight: 550; }
+
 .pill {
   display: inline-block;
   padding: 0.2rem 0.6rem;

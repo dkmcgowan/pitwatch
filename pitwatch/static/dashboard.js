@@ -82,6 +82,48 @@
       nameplate.textContent =
         pump.nameplate_amps === null ? "not set" : pump.nameplate_amps + " A";
     }
+
+    renderTypical(card, pump.typical || {});
+  }
+
+  // What the pump draws when it is actually running, and whether that is
+  // moving. The second part is the point: a steady draw climbing over weeks is
+  // an impeller packing up or a bearing going dry, and it is invisible in any
+  // single reading.
+  function renderTypical(card, typical) {
+    const value = card.querySelector("[data-typical]");
+    const drift = card.querySelector("[data-drift]");
+    if (!value || !drift) {
+      return;
+    }
+
+    if (typical.median === null || typical.median === undefined) {
+      value.innerHTML = '<span class="muted">not enough runs yet</span>';
+      drift.hidden = true;
+      return;
+    }
+    value.textContent = typical.median.toFixed(1) + " A";
+
+    if (typical.drift === null || typical.drift === undefined) {
+      drift.hidden = true;
+      return;
+    }
+    // A tenth of an amp either way is measurement, not a trend.
+    if (Math.abs(typical.drift) < 0.2) {
+      drift.className = "drift";
+      drift.textContent = "Steady against the four weeks before.";
+      drift.hidden = false;
+      return;
+    }
+    const up = typical.drift > 0;
+    drift.className = up ? "drift drift-up" : "drift";
+    drift.textContent =
+      (up ? "Up " : "Down ") +
+      Math.abs(typical.drift).toFixed(1) +
+      " A on the four weeks before, which were " +
+      typical.earlier_median.toFixed(1) +
+      " A.";
+    drift.hidden = false;
   }
 
   // Which inputs exist and what they are called are settings, so the rows are

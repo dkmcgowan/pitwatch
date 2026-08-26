@@ -56,21 +56,25 @@
 <section class="card">
   <h2>What the display says</h2>
   <p class="hint">
-    The two words in the middle of the dashboard work the way the controller
-    does. Whichever pump ran last sits out the next call, so if pump 1 ran last
-    then pump 2 is <strong>LEAD</strong>. That still reads correctly while pump
-    1 is running, because the question the word answers is which pump goes
-    next.
+    The two words in the middle of the dashboard read the way the controller on
+    the wall does. A running pump is <strong>LEAD</strong> and holds that until
+    its contact drops out, at which point it becomes <strong>LAG</strong> and
+    the other one is lead for the next call.
   </p>
   <p class="hint">
-    An overload outranks that. A pump whose overload has tripped reads
-    <strong>FAIL</strong>, and the other one is lead whether or not it was next
-    in the rotation, because it is the only one left.
+    Both running is <strong>ON</strong> and <strong>ON</strong>. That is the
+    high water case, where the pit has come up past the lag float and the
+    controller has called both. Neither is leading anything at that point.
   </p>
   <p class="hint">
-    Until one of the run contacts has been seen to close, both read
-    <strong>--</strong>. Which pump is lead is the controller's business and it
-    does not tell us, so this waits rather than guessing.
+    An overload outranks all of it. A tripped pump reads
+    <strong>FAIL</strong> and the other is lead whether or not it was next in
+    the rotation, because it is the only one left.
+  </p>
+  <p class="hint">
+    Until a run contact has been seen to close, both read <strong>--</strong>.
+    Which pump is lead is the controller's business and it does not tell us, so
+    this waits rather than guessing.
   </p>
   <p><a class="button secondary" href="/settings">Back to settings</a></p>
 </section>

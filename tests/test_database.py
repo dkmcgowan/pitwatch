@@ -283,3 +283,49 @@ async def test_the_io_tables_record_what_an_input_was_called(pool):
 
     assert "label" in columns
     assert "signal" not in columns, "007 renames it; a stale column means the migration did not run"
+
+
+async def test_the_current_history_query_runs_and_splits_its_two_windows(pool):
+    """The query itself, against a real hypertable.
+
+    Ordered set aggregates with FILTER, an interval passed as a parameter, and
+    a boundary that has to split one scan into two windows without overlapping.
+    None of that can be checked by reading it.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.history import CurrentHistory
+
+    now = datetime.now(UTC)
+    rows = []
+    # Four weeks ago it drew 14 A while running. This week it draws 16.
+    for day, amps in ((20, 14.0), (2, 16.0)):
+        for index in range(200):
+            rows.append((now - timedelta(days=day, seconds=index), 0, amps))
+        # Plus the hours it spends switched off, which must not count.
+        for index in range(500):
+            rows.append((now - timedelta(days=day, seconds=1000 + index), 0, 0.03))
+    # And one starting surge per window, which the median has to ignore.
+    rows.append((now - timedelta(days=2, seconds=900), 0, 61.0))
+    rows.append((now - timedelta(days=20, seconds=900), 0, 58.0))
+
+    await pool.executemany("INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)", rows)
+
+    typical = await CurrentHistory().typical(pool, channel=0, running_amps=1.0)
+
+    assert typical.median == pytest.approx(16.0)
+    assert typical.earlier_median == pytest.approx(14.0)
+    assert typical.drift == pytest.approx(2.0)
+    # The off hours were excluded, so only the running readings were counted.
+    assert typical.samples == 201
+
+
+async def test_the_history_says_nothing_when_there_is_nothing_to_say(pool):
+    """A fresh install, where reporting a median off three readings would be
+    worse than reporting none."""
+    from pitwatch.domain.history import CurrentHistory
+
+    typical = await CurrentHistory().typical(pool, channel=1, running_amps=1.0)
+
+    assert typical.median is None
+    assert typical.drift is None

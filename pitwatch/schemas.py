@@ -54,11 +54,6 @@ class ChannelMap(BaseModel):
     label: str = Field(default="", max_length=60)
     invert: bool = False
 
-    # There is no debounce setting. Contacts bounce and floats bounce longest,
-    # so a reading has to hold before it counts, but how long is a fact about
-    # mechanical contacts rather than about this pit. See
-    # pitwatch.ingest.waveshare.CONTACT_DEBOUNCE_MS.
-
     @field_validator("label")
     @classmethod
     def tidy(cls, value: str) -> str:
@@ -82,6 +77,23 @@ class WaveshareSettings(BaseModel):
     # difference between catching a two second lag float call and missing it.
     poll_ms: int = Field(default=200, ge=50, le=10_000)
     timeout_s: float = Field(default=3.0, gt=0, le=60)
+
+    # How long a reading has to hold before it counts as a change. One number
+    # for all eight inputs, not one each: contacts bounce, floats bounce
+    # longest because a float bobs, and without this one call for water writes
+    # a dozen events and the run detector sees a dozen starts.
+    #
+    # This also covers an AC control circuit, where a bidirectional optocoupler
+    # drops out at every zero crossing, 120 times a second on 60 Hz, so a poll
+    # can land in a gap and read a live signal as off. Anything longer than a
+    # couple of poll intervals discards that, because the next poll disagrees
+    # and the candidate change is abandoned. Hence a default that is not zero.
+    #
+    # The cost is that every transition is reported this much later than it
+    # happened, which against a run of a few seconds is invisible: the start
+    # and the end move together, so the duration is unchanged.
+    debounce_ms: int = Field(default=500, ge=0, le=30_000)
+
     channels: list[ChannelMap] = Field(default_factory=list)
 
     @model_validator(mode="after")

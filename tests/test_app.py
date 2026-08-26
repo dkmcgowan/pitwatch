@@ -230,3 +230,137 @@ def test_only_named_inputs_are_shown():
 
     assert [c.channel for c in settings.used_channels] == [2, 5]
     assert [c.label for c in settings.used_channels] == ["Lead float", "Seal failure"]
+
+
+# -- the page and the parser have to agree ----------------------------------
+#
+# Every setting makes the same round trip: a template renders a field, a
+# browser posts it, a forms.*_from reads it back. A field the parser does not
+# read still renders, still accepts what you type, and still says Saved. It
+# just quietly keeps the old value, and nothing anywhere reports a problem.
+#
+# That has now happened twice, so it is a test rather than a habit. No database
+# needed: this is templates and parsers, and both are pure.
+
+
+def render_settings(**overrides) -> str:
+    from jinja2 import Environment, FileSystemLoader
+
+    from pitwatch.schemas import (
+        PumpsSettings,
+        ShellySettings,
+        SiteSettings,
+        SmsSettings,
+        SmtpSettings,
+        WaveshareSettings,
+    )
+
+    env = Environment(loader=FileSystemLoader("pitwatch/templates"), autoescape=True)
+    env.globals["csrf_token"] = lambda: "token"
+    env.globals["version"] = "test"
+    context = {
+        "site": SiteSettings(),
+        "shelly": ShellySettings(),
+        "waveshare": WaveshareSettings(),
+        "pumps": PumpsSettings(),
+        "smtp": SmtpSettings(),
+        "sms": SmsSettings(),
+        "user": None,
+        "error": None,
+        "saved": False,
+    }
+    context.update(overrides)
+    return env.get_template("settings.html").render(**context)
+
+
+def submitted(html: str) -> list[tuple[str, str]]:
+    """What a browser would post from that page, left exactly as rendered."""
+    fields: list[tuple[str, str]] = []
+    for tag in re.finditer(r"<input [^>]*>", html):
+        name = re.search(r'name="([^"]+)"', tag.group())
+        if not name:
+            continue
+        kind = re.search(r'type="([^"]+)"', tag.group())
+        kind = kind.group(1) if kind else "text"
+        if kind == "checkbox":
+            # An unchecked box posts nothing at all.
+            if "checked" in tag.group():
+                fields.append((name.group(1), "on"))
+            continue
+        value = re.search(r'value="([^"]*)"', tag.group())
+        fields.append((name.group(1), value.group(1) if value else ""))
+    for select in re.finditer(r'<select [^>]*name="([^"]+)"[^>]*>(.*?)</select>', html, re.S):
+        chosen = re.search(r'<option value="([^"]*)"[^>]*selected', select.group(2))
+        if chosen:
+            fields.append((select.group(1), chosen.group(1)))
+    return fields
+
+
+def test_saving_the_settings_page_unchanged_changes_nothing():
+    """Render every section with values that are not the defaults, post the page
+    back exactly as rendered, and get the same settings out.
+
+    This is the check that catches a field the parser never learned to read.
+    Such a field renders, accepts what you type, and reports Saved, while
+    keeping the old value and reporting nothing.
+    """
+    from starlette.datastructures import FormData
+
+    from pitwatch.api import forms
+    from pitwatch.schemas import (
+        ChannelMap,
+        PumpSettings,
+        PumpsSettings,
+        ShellySettings,
+        SiteSettings,
+        WaveshareSettings,
+    )
+
+    site = SiteSettings(
+        name="822 Greenwich St",
+        timezone="America/Chicago",
+        base_url="https://pitwatch.example.com",
+        contact_email="pumps@example.com",
+        contact_phone="+12125550142",
+        notify_delay_s=11,
+        notify_cooldown_s=1234,
+    )
+    shelly = ShellySettings(enabled=True, host="10.0.0.5", pump1_channel=1, pump2_channel=0)
+    waveshare = WaveshareSettings(
+        enabled=True,
+        host="10.0.0.6",
+        port=5020,
+        unit_id=7,
+        poll_ms=350,
+        debounce_ms=750,
+        channels=[
+            ChannelMap(channel=1, label="Bottom float"),
+            ChannelMap(channel=7, label="Pump 1 overload", invert=True),
+        ],
+    )
+    pumps = PumpsSettings(
+        pump1=PumpSettings(
+            name="North",
+            running_amps=1.5,
+            nameplate_amps=9.6,
+            overcurrent_amps=18.0,
+            overcurrent_hold_ms=1700,
+        ),
+        pump2=PumpSettings(name="South", running_amps=1.6),
+        inrush_ignore_ms=900,
+        max_runtime_ms=12_000,
+        restart_gap_ms=4000,
+        restart_streak=6,
+        quiet_minutes_before_flag=300,
+    )
+
+    form = FormData(
+        submitted(render_settings(site=site, shelly=shelly, waveshare=waveshare, pumps=pumps))
+    )
+
+    assert forms.site_from(form) == site
+    assert forms.waveshare_from(form) == waveshare
+    assert forms.pumps_from(form) == pumps
+    # The Shelly password is never rendered back, so it is the one field that
+    # cannot survive this on its own; everything else on that section must.
+    assert forms.shelly_from(form, shelly) == shelly

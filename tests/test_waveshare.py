@@ -11,12 +11,16 @@ these run instantly instead of sleeping through every hold time.
 
 from __future__ import annotations
 
-from pitwatch.ingest.waveshare import CONTACT_DEBOUNCE_MS, Debouncer, WaveshareReader
+from pitwatch.ingest.waveshare import Debouncer, WaveshareReader
 from pitwatch.schemas import ChannelMap, WaveshareSettings
 
 
-def settings_with(*channels: ChannelMap) -> WaveshareSettings:
-    return WaveshareSettings(enabled=True, host="192.0.2.10", channels=list(channels))
+def settings_with(*channels: ChannelMap, debounce_ms: int = 0) -> WaveshareSettings:
+    """A configured module. No debounce by default, so a frame is a transition
+    and the reader tests do not have to move a clock to say anything."""
+    return WaveshareSettings(
+        enabled=True, host="192.0.2.10", debounce_ms=debounce_ms, channels=list(channels)
+    )
 
 
 def bits(**closed: bool) -> list[bool]:
@@ -87,15 +91,26 @@ def test_channels_settle_independently():
     assert debouncer.feed(1, True, now=100.6) is True
 
 
-def test_the_shipped_hold_is_long_enough_to_be_worth_having():
-    """It is not a setting any more, so this is the only place it can be wrong.
+def test_the_default_hold_is_long_enough_to_be_worth_having():
+    """One setting for all eight inputs, so its default is what most installs
+    will run on and nobody will think about it again.
 
     Long enough to outlast contact bounce and to bridge the zero crossing gaps
     of an AC control circuit, which needs more than a couple of poll intervals.
     Short enough to be invisible against a run of a few seconds.
     """
-    assert 200 <= CONTACT_DEBOUNCE_MS <= 1000
-    assert 2 * WaveshareSettings().poll_ms < CONTACT_DEBOUNCE_MS
+    settings = WaveshareSettings()
+
+    assert 200 <= settings.debounce_ms <= 1000
+    assert 2 * settings.poll_ms < settings.debounce_ms
+
+
+def test_the_reader_uses_the_hold_from_the_settings():
+    """Changing it on the page has to reach the thing that debounces, which is
+    the one link in that chain nothing else would notice was broken."""
+    reader = WaveshareReader(settings_with(debounce_ms=1234), on_events=None)
+
+    assert reader._debouncer._hold_ms == 1234
 
 
 # -- the first frame ---------------------------------------------------------
@@ -107,7 +122,6 @@ def test_the_first_frame_matching_what_was_stored_produces_no_events():
         settings_with(ChannelMap(channel=1, label="Lead float")),
         on_events=None,
         initial_state=all_off(),
-        debounce_ms=0,
     )
 
     assert reader._apply(bits(), first=True) == []
@@ -137,7 +151,6 @@ def test_the_first_frame_reports_what_changed_while_we_were_down():
         settings_with(ChannelMap(channel=3, label="High water")),
         on_events=None,
         initial_state=all_off(),
-        debounce_ms=0,
     )
 
     events = reader._apply(bits(di3=True), first=True)
@@ -169,7 +182,6 @@ def test_an_inverted_channel_reads_the_opposite_of_the_wire():
         ),
         on_events=None,
         initial_state=all_off(),
-        debounce_ms=0,
     )
 
     # Closed contact, nothing wrong. Inverted, that reads as off, which is what
@@ -188,7 +200,6 @@ def test_a_plain_channel_is_not_inverted():
         settings_with(ChannelMap(channel=1, label="Lead float")),
         on_events=None,
         initial_state=all_off(),
-        debounce_ms=0,
     )
     reader._apply(bits(), first=True)
 
@@ -212,7 +223,6 @@ def test_an_unmapped_channel_still_produces_an_event():
         settings_with(ChannelMap(channel=5)),
         on_events=None,
         initial_state=all_off(),
-        debounce_ms=0,
     )
     reader._apply(bits(), first=True)
 
@@ -227,7 +237,6 @@ def test_a_channel_that_does_not_change_produces_nothing():
         settings_with(ChannelMap(channel=1, label="Lead float")),
         on_events=None,
         initial_state=all_off(),
-        debounce_ms=0,
     )
     reader._apply(bits(di1=True), first=True)
 

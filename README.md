@@ -354,6 +354,33 @@ the container and reattaches the same volume, and migrations run on start.
 along with every reading, and there is no undo. That flag is the only routine
 way to lose the data.
 
+### Taking it down and bringing it back
+
+`docker compose down` followed by `docker compose up -d` reuses the same volume.
+Compose matches it by project name and volume name, both of which are fixed in
+the compose file, so it reattaches whatever was there: your history, your
+settings, and your account. You will not be sent back through setup, and you do
+not need to reconfigure the devices.
+
+Because the project name is set explicitly in the file rather than taken from
+the directory, this holds even if you rename or move the folder you run it from.
+
+Two ways to lose it by accident:
+
+- **`docker volume prune`**, or `docker system prune --volumes`. After a `down`
+  the volume is attached to no container, so a prune counts it as unused and
+  removes it. Doing a `down`, then tidying up, is the realistic way this
+  happens.
+- **Changing `POSTGRES_PASSWORD` after the first start.** The Postgres image
+  only applies that on an empty data directory, so the stored password stays
+  what it was and the application starts failing to authenticate against its own
+  database. The symptom is the app container retrying forever. Either put the
+  old password back, or change it properly with `ALTER ROLE pitwatch PASSWORD
+  '...'` inside `psql` and then update `.env` to match.
+
+If you do want a genuinely clean slate, `docker compose down -v` is how, and it
+means going through setup again.
+
 ### Putting it in the compose folder instead
 
 If you would rather see it next to the compose file, swap the volume for a bind

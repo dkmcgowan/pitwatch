@@ -367,10 +367,12 @@ the directory, this holds even if you rename or move the folder you run it from.
 
 Two ways to lose it by accident:
 
-- **`docker volume prune`**, or `docker system prune --volumes`. After a `down`
-  the volume is attached to no container, so a prune counts it as unused and
-  removes it. Doing a `down`, then tidying up, is the realistic way this
-  happens.
+- **`docker volume prune --all`**, when the stack is down. Since Docker Engine
+  23.0 a plain `docker volume prune` only removes anonymous volumes, so it will
+  not touch this one; it is `--all` that includes named volumes, and on Docker
+  older than 23.0 the plain form does too. Either way "unused" means not
+  referenced by any container, so the exposure is only while the stack is down.
+  See [Cleaning up](#cleaning-up).
 - **Changing `POSTGRES_PASSWORD` after the first start.** The Postgres image
   only applies that on an empty data directory, so the stored password stays
   what it was and the application starts failing to authenticate against its own
@@ -378,8 +380,42 @@ Two ways to lose it by accident:
   old password back, or change it properly with `ALTER ROLE pitwatch PASSWORD
   '...'` inside `psql` and then update `.env` to match.
 
-If you do want a genuinely clean slate, `docker compose down -v` is how, and it
-means going through setup again.
+### Cleaning up
+
+Two different jobs, and the commands are not interchangeable.
+
+**To start PitWatch over**, use the scoped command rather than a prune. It
+removes this project's containers, network and volumes and touches nothing else
+on the machine:
+
+```sh
+docker compose -f docker-compose.host.yml down -v --remove-orphans
+docker compose -f docker-compose.host.yml up -d
+```
+
+Use the same `-f` file you brought it up with. `--remove-orphans` is worth
+having because both compose files share one project name, so switching between
+the bridge setup and the host networking one can leave the other mode's
+container behind. Add `--rmi all` to drop the images too, if you want the next
+`up` to pull fresh.
+
+That means going through setup again, and it is the only way to genuinely reset.
+
+**To tidy up unused volumes across the whole machine**, do it with everything
+you care about running. A volume attached to any container, running or stopped,
+does not count as unused, so anything that is up is protected. Look before you
+leap:
+
+```sh
+docker volume ls -f dangling=true   # exactly what a prune would take
+docker volume prune -a              # take them, named volumes included
+```
+
+The `-a` matters in both directions. Without it, on Docker 23.0 and newer, a
+prune only removes anonymous volumes and leaves named ones such as
+`pitwatch_pitwatch-db` alone. With it, an unused named volume is fair game. So
+the safe habit is to bring your stacks up first, then prune, and to read the
+`dangling=true` list rather than trusting either default.
 
 ### Putting it in the compose folder instead
 

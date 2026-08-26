@@ -288,3 +288,28 @@ def test_the_token_in_a_form_is_the_token_and_not_a_function(client):
     assert "0x" not in token
     assert len(token) >= 32
     assert f'value="{token}"' in page
+
+
+def test_changing_your_own_password_does_not_sign_you_out(client):
+    """The other half of ending every other session.
+
+    Every session for the account becomes stale, deliberately. The browser
+    doing the changing has to be handed a fresh one, or the feature that
+    protects you also locks you out for using it.
+    """
+    sign_in_as_admin(client)
+
+    response = client.post(
+        "/change-password",
+        data={
+            "current_password": NEW_PASSWORD,
+            "new_password": "a-different-long-password",
+            "confirm_password": "a-different-long-password",
+            "csrf_token": token_from(client, "/change-password"),
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
+    assert client.get("/").status_code == 200, "signed out by their own change"

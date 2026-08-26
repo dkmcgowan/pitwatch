@@ -584,29 +584,78 @@ form.inline { display: inline; }
   border-color: color-mix(in srgb, var(--crit) 40%, transparent);
 }
 
-/* Header on a small screen ------------------------------------------------ */
+/* Header icons and the account menu ---------------------------------------- */
 
 .icon-link {
   display: inline-flex;
   align-items: center;
-  padding: 0.4rem 0.55rem;
+  justify-content: center;
+  /* A 44px target. Anything smaller is a coin toss with a thumb. */
+  width: 2.75rem;
+  height: 2.75rem;
   border-radius: var(--radius);
+  color: var(--text-muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.icon-link svg { width: 22px; height: 22px; }
+.icon-link:hover { background: var(--surface-2); color: var(--text); }
+.icon-link.active { background: var(--surface-2); color: var(--accent); }
+
+/* Safari draws a disclosure triangle on a summary unless told twice. */
+.icon-link::-webkit-details-marker { display: none; }
+
+.menu { position: relative; }
+
+.menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  z-index: 20;
+  min-width: 13rem;
+  padding: 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+}
+
+.menu-who {
+  margin: 0 0 0.4rem;
+  padding: 0.25rem 0.5rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
   color: var(--text-muted);
 }
 
-.icon-link:hover, .icon-link.active { background: var(--surface-2); color: var(--text); }
+.menu-who strong { display: block; color: var(--text); }
+.menu-who .muted { font-size: 0.78rem; }
 
-/* Four words plus a name and a sign out wraps onto two lines on a phone. The
-   gear buys back enough room that it does not. */
+.menu-panel a,
+.menu-panel button {
+  display: block;
+  width: 100%;
+  padding: 0.5rem;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.menu-panel a:hover,
+.menu-panel button:hover { background: var(--surface-2); }
+.menu-panel form { margin: 0; }
+
 @media (max-width: 30rem) {
-  .topbar { padding: 0.6rem 0.9rem; gap: 0.5rem; }
-  .topbar nav { gap: 0.1rem; }
-  .topbar nav a { padding: 0.4rem 0.5rem; }
-  .who { margin-left: 0.2rem; padding-left: 0.5rem; gap: 0.45rem; font-size: 0.82rem; }
+  .topbar { padding: 0.4rem 0.75rem; gap: 0.25rem; }
+  .topbar nav { gap: 0; }
+  .icon-link { width: 2.5rem; height: 2.5rem; }
   .amps { font-size: 2.4rem; }
-
-  /* Room back for the footer, so a short page such as the sign in keeps its
-     policy links on screen rather than one scroll below it. */
   main { padding: 1rem 0.9rem; }
   .card { padding: 1rem 1.1rem; }
   .footer { padding: 0.75rem 0.9rem; font-size: 0.8rem; }

@@ -8,6 +8,7 @@ gives you nothing to look at when you need it most.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -230,16 +231,78 @@ def test_the_database_image_pins_the_postgres_major_version():
     """
     root = Path(__file__).parent.parent
     checked = 0
-    for name in ("docker-compose.yml", "docker-compose.host.yml", "README.md"):
+    # The compose files only. The README used to carry a copy of one of them
+    # and it drifted, so it now tells people to fetch the real file instead.
+    for name in ("docker-compose.yml", "docker-compose.host.yml"):
         text = (root / name).read_text(encoding="utf-8")
         for line in text.splitlines():
             stripped = line.strip()
-            # Only real declarations. The README also discusses the tag in
-            # prose, and that is not a thing to parse.
             if not stripped.startswith("image: timescale/timescaledb:"):
                 continue
             tag = stripped.split("timescale/timescaledb:", 1)[1].strip()
             assert tag.endswith("-pg17"), f"{name}: {tag} does not pin the Postgres major"
             checked += 1
 
-    assert checked == 3, "every compose example and the README should declare the image"
+    assert checked == 2, "both compose files should declare the image"
+
+
+def test_the_readme_does_not_carry_a_copy_of_the_compose_file():
+    """It did, and the copy went stale within a day.
+
+    Somebody pasting a compose block out of a README gets whatever was true
+    when it was written. Telling them to fetch the file cannot drift.
+    """
+    readme = (Path(__file__).parent.parent / "README.md").read_text(encoding="utf-8")
+
+    install = readme[readme.index("## Install") : readme.index("### What is in .env")]
+    assert "services:" not in install, "the README is duplicating the compose file again"
+    assert "docker-compose.yml" in install
+    assert "docker-compose.host.yml" in install
+
+
+def test_the_readme_documents_every_setting_the_compose_files_use():
+    """Documentation that drifts is worse than none.
+
+    The README's table is what somebody reads before editing .env. If a compose
+    file starts reading a variable that is not in that table, nobody discovers
+    it except by reading the yaml, which is the thing the table exists to save
+    them from.
+    """
+    root = Path(__file__).parent.parent
+    readme = (root / "README.md").read_text(encoding="utf-8")
+
+    used = set()
+    for name in ("docker-compose.yml", "docker-compose.host.yml"):
+        text = (root / name).read_text(encoding="utf-8")
+        used.update(re.findall(r"\$\{([A-Z_]+)", text))
+
+    missing = sorted(name for name in used if f"`{name}`" not in readme)
+    assert not missing, f"not documented in the README: {missing}"
+
+
+def test_the_env_example_offers_every_setting_the_readme_documents():
+    """The file somebody actually edits should mention the same things."""
+    root = Path(__file__).parent.parent
+    example = (root / ".env.example").read_text(encoding="utf-8")
+
+    used = set()
+    for name in ("docker-compose.yml", "docker-compose.host.yml"):
+        text = (root / name).read_text(encoding="utf-8")
+        used.update(re.findall(r"\$\{([A-Z_]+)", text))
+
+    # SEED_* are pointed at by SHELLY_HOST and WAVESHARE_HOST, which are there.
+    missing = sorted(name for name in used if name not in example)
+    assert not missing, f"not offered in .env.example: {missing}"
+
+
+def test_only_the_database_password_is_required():
+    """Everything else has a default, so a first run is one edit.
+
+    A compose file that refuses to start over a setting somebody has no opinion
+    about yet is a bad first five minutes.
+    """
+    root = Path(__file__).parent.parent
+    for name in ("docker-compose.yml", "docker-compose.host.yml"):
+        text = (root / name).read_text(encoding="utf-8")
+        required = set(re.findall(r"\$\{([A-Z_]+):\?", text))
+        assert required == {"POSTGRES_PASSWORD"}, f"{name}: {required}"

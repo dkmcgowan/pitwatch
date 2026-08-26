@@ -243,3 +243,31 @@ def test_the_csrf_token_is_long_enough_to_be_unguessable():
 
     assert len(token) >= 32
     assert csrf.token_for(request) == token, "stable within a session"
+
+
+def test_checking_the_token_does_not_eat_the_form(client):
+    """The trap that broke every form at once.
+
+    Starlette caches the raw body so middleware can read it and the handler
+    still sees it, but that caching is at the body() level. Calling form() in
+    middleware drains the stream and every downstream handler receives an empty
+    form, which presents as a dozen unrelated failures rather than as one cause.
+
+    So this posts a real form through the guard and checks the handler actually
+    received the fields.
+    """
+    sign_in_as_admin(client)
+
+    client.post(
+        "/settings/site",
+        data={
+            "site_name": "822 Greenwich St",
+            "site_location": "Basement, rear",
+            "site_timezone": "America/New_York",
+            "csrf_token": token_from(client, "/settings"),
+        },
+    )
+
+    site = client.app.state.settings.site
+    assert site.name == "822 Greenwich St", "the handler saw an empty form"
+    assert site.location == "Basement, rear"

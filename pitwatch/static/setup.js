@@ -1,3 +1,16 @@
+// The CSRF token, for the fetch calls on this page.
+//
+// They post a FormData built from a real form, which the browser sends as
+// multipart. The server cannot parse a multipart body without draining the
+// request out from under the handler that needs it, so for those the token
+// travels in a header instead. The hidden field is right there in the form
+// either way.
+
+function csrfHeader(form) {
+  const field = form && form.querySelector('input[name="csrf_token"]');
+  return field ? { "X-CSRF-Token": field.value } : {};
+}
+
 // The test connection button on the Shelly section.
 //
 // It posts the form as it currently stands rather than what is saved, because
@@ -131,6 +144,7 @@
       const response = await fetch("/api/test/shelly", {
         method: "POST",
         body: new FormData(form),
+        headers: csrfHeader(form),
       });
       // A 401 arrives as HTML, not JSON, so read defensively.
       const text = await response.text();
@@ -234,6 +248,7 @@
       const response = await fetch("/api/test/waveshare", {
         method: "POST",
         body: new FormData(form),
+        headers: csrfHeader(form),
       });
       const text = await response.text();
       try {
@@ -393,7 +408,11 @@
       show(sendingText, "");
 
       try {
-        const response = await fetch(endpoint, { method: "POST", body: new FormData(form) });
+        const response = await fetch(endpoint, {
+          method: "POST",
+          body: new FormData(form),
+          headers: csrfHeader(form),
+        });
         const body = await response.text();
         let result;
         try {

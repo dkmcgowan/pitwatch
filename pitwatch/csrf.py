@@ -23,6 +23,7 @@ from __future__ import annotations
 import hmac
 import logging
 import secrets
+from urllib.parse import parse_qs
 
 from starlette.requests import Request
 
@@ -56,22 +57,30 @@ def rotate(request: Request) -> None:
 
 
 async def submitted_token(request: Request) -> str:
-    """Read the token off the request, from a form field or a header.
+    """Read the token off the request, from a header or a form field.
 
-    The header exists for the fetch calls the front end makes. They send a
-    FormData built from a real form, so they carry the hidden field already, but
-    accepting either means a future JSON call is not a special case.
+    Never with `request.form()`, which is the trap here. Starlette caches the
+    raw body so middleware can read it and the endpoint still sees it, but that
+    caching is at the `body()` level: parsing a form in middleware drains the
+    stream and the handler downstream receives nothing at all. The symptom is
+    every form arriving empty, which reads like a dozen unrelated bugs.
+
+    So: the raw body, parsed here for the ordinary urlencoded case. Anything
+    else, which in practice means the multipart bodies the front end's fetch
+    calls send, has to use the header. They build their FormData from a real
+    form, so they have the token to hand.
     """
     header = request.headers.get(HEADER_NAME)
     if header:
         return header
 
     content_type = request.headers.get("content-type", "")
-    if content_type.startswith(("application/x-www-form-urlencoded", "multipart/form-data")):
-        form = await request.form()
-        value = form.get(FIELD_NAME)
-        if isinstance(value, str):
-            return value
+    if content_type.startswith("application/x-www-form-urlencoded"):
+        body = await request.body()
+        fields = parse_qs(body.decode("utf-8", "replace"), keep_blank_values=True)
+        values = fields.get(FIELD_NAME)
+        if values:
+            return values[0]
     return ""
 
 

@@ -498,7 +498,13 @@ table.steps th { font-weight: 500; }
   align-items: start;
 }
 
-.prose { max-width: 68ch; }
+/* The card fills the page; the text inside it does not.
+ *
+ * Capping the card left a narrow column against a lot of empty space on a
+ * laptop. Capping the lines instead keeps them at a readable measure while the
+ * card, its background and its headings use the width they are given. */
+.prose h1, .prose h2, .prose p, .prose ul, .prose ol { max-width: 72ch; }
+.prose table { max-width: 100%; }
 .prose h2 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; }
 .prose h2:first-of-type { margin-top: 1rem; }
 .prose li { margin-bottom: 0.35rem; }

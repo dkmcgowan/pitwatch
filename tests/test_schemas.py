@@ -8,10 +8,13 @@ fires.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from pydantic import ValidationError
 
 from pitwatch.schemas import (
+    SETTING_MODELS,
     ChannelMap,
     PumpSettings,
     PumpsSettings,
@@ -120,3 +123,35 @@ def test_the_old_channel_field_name_is_no_longer_accepted():
     )
 
     assert channel.invert is False
+
+
+def test_every_settings_model_survives_a_save_and_a_load():
+    """What the store does to every model, without needing a store.
+
+    Settings are written as JSON and read back through the same model, so
+    anything whose own defaults do not survive that trip is broken for every
+    install that has not set it. A validator that rejects the model's own
+    default values is the specific way this goes wrong, and it did: adding a
+    check that the two clamps differ, while both defaulted to the same number,
+    would have made ShellySettings unloadable.
+
+    This runs without a database, which is where the equivalent failure was
+    caught late twice.
+    """
+    for model in SETTING_MODELS:
+        fresh = model()
+        # json.dumps and back, because that is literally the round trip the
+        # setting table performs, and it catches types that only look fine.
+        dumped = json.loads(json.dumps(fresh.model_dump(mode="json")))
+
+        assert model.model_validate(dumped) == fresh, f"{model.__name__} does not round trip"
+
+
+def test_every_settings_model_loads_from_nothing():
+    """An unset key reads as an empty object, which every model must accept.
+
+    This is the state of every setting on a fresh install, so a model that
+    cannot be built from `{}` is one the wizard can never render.
+    """
+    for model in SETTING_MODELS:
+        assert model.model_validate({}) == model()

@@ -125,15 +125,14 @@ async def test_settings_round_trip(store):
 async def test_settings_survive_a_reload(pool, store):
     from pitwatch.settings import SettingsStore
 
-    await store.put(ShellySettings(enabled=True, host="10.0.0.9", pump1_channel=1))
+    await store.put(ShellySettings(enabled=True, host="10.0.0.9", pump1_channel=1, pump2_channel=0))
 
     fresh = SettingsStore(pool)
     await fresh.load()
 
     assert fresh.shelly.host == "10.0.0.9"
-    assert fresh.shelly.pump1_channel == 1
-    # Derived, not stored, so the two pumps can never end up on one clamp.
-    assert fresh.shelly.pump2_channel == 0
+    # Both stored, both read back as they were saved.
+    assert fresh.shelly.clamp_for_pump == {1: 1, 2: 0}
 
 
 async def test_saving_a_setting_wakes_the_subscribers(store):

@@ -7,7 +7,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>{% block title %}PitWatch{% endblock %} &middot; {{ site.name }}</title>
+<title>{% block title %}PitWatch{% endblock %}</title>
 <link rel="icon" href="{{ url_for('static', path='favicon.svg') }}" type="image/svg+xml">
 <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
 </head>
@@ -24,11 +24,10 @@
 </main>
 
 <footer class="footer">
-  <span>{{ site.name }}{% if site.location %} &middot; {{ site.location }}{% endif %}</span>
+  <span>PitWatch {{ version }}</span>
   <span>
     <a href="/messaging-policy">Messaging policy</a>
     &middot; <a href="/privacy">Privacy</a>
-    &middot; PitWatch {{ version }}
   </span>
 </footer>
 </body>

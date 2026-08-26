@@ -279,3 +279,36 @@ def test_the_api_gets_a_status_code_rather_than_a_login_page(client):
 
     assert response.status_code == 401
     assert response.json()["error"]
+
+
+def test_the_policies_never_print_a_placeholder_building(client):
+    """Before setup there is no building name, and inventing one shows up on
+    a page a carrier reads. The application is PitWatch; the building is
+    whatever somebody types, and until they do it is not named at all."""
+    for path in ("/messaging-policy", "/privacy"):
+        page = client.get(path).text
+        assert "PitWatch monitors this building's pumps" in page, path
+        assert "Ejector" not in page, path
+
+
+def test_the_policies_name_the_building_once_it_is_set(client):
+    sign_in_as_admin(client)
+    client.post(
+        "/settings/site",
+        data={"site_name": "822 Greenwich St", "site_location": "Basement, rear"},
+    )
+
+    page = client.get("/messaging-policy").text
+
+    assert "the pumps at 822 Greenwich St" in page
+    # The part of the building the pumps are in belongs in an alert, not in
+    # prose on a policy page.
+    assert "822 Greenwich St, Basement, rear" not in page
+
+
+def test_the_public_pages_are_named_after_the_product(client):
+    """Not after the building, which may not be set and is not the point."""
+    page = client.get("/privacy").text
+
+    assert "<title>Privacy</title>" in page
+    assert "PitWatch" in page

@@ -255,16 +255,16 @@
 {% macro site_fields(site) %}
 <div class="grid">
   <div class="field">
-    <label for="site_name">Name</label>
+    <label for="site_name">Building</label>
     <input type="text" id="site_name" name="site_name" value="{{ site.name }}">
     <p class="hint">Which pumps these are. Shown on the dashboard and in every
       alert, so something like the building or the address is more use than the
       word PitWatch.</p>
   </div>
   <div class="field">
-    <label for="site_location">Location</label>
+    <label for="site_location">Where in the building</label>
     <input type="text" id="site_location" name="site_location" value="{{ site.location }}"
-           placeholder="123 Example St, basement, rear">
+           placeholder="Basement, rear">
     <p class="hint">Goes in every alert. Saves a phone call at two in the morning.</p>
   </div>
   <div class="field">

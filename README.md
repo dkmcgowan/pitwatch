@@ -268,9 +268,18 @@ number. Putting consent terms behind a login is both a failed registration and
 the wrong thing to do. The login page carries a summary of the same terms,
 because that is the page an unauthenticated visitor actually lands on.
 
-Fill in the site name, location and contact details in settings before pointing
-a carrier at those pages. They are what the pages say, and
+**Fill in the building and the contact details in settings before pointing a
+carrier at those pages**, because they are what the pages say. Until the
+building is set they read "PitWatch monitors this building's pumps", which is
+true and vague; once it is set they read "the pumps at 822 Greenwich St".
+
 `/messaging-policy` is the URL to register.
+
+The application is called PitWatch everywhere. The **building** is a separate
+thing: an address or a name, whichever somebody woken at two in the morning
+would recognize. It goes in the subject line of every alert and on the policy
+pages, and it has no default, so that a placeholder nobody chose never ends up
+printed on a page a carrier is reading.
 
 ## Set it up
 

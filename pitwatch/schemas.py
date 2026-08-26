@@ -258,11 +258,16 @@ class SmsSettings(BaseModel):
 class SiteSettings(BaseModel):
     KEY: ClassVar[str] = "site"
 
-    # A label for this installation, shown on the dashboard and in every alert.
-    # The application is called PitWatch everywhere; this is which pumps.
-    name: str = "PitWatch"
-    # Free text, put in every alert. "123 Example St, basement, rear" saves a
-    # phone call at two in the morning.
+    # The building. An address or a name, whichever somebody woken at two in the
+    # morning would recognize: "822 Greenwich St".
+    #
+    # This is not the name of the application, which is always PitWatch. It is
+    # which pumps, and it goes in the subject line of every alert. It has no
+    # default, because a placeholder here would end up printed on the public
+    # policy pages, and "Ejector pit uses PitWatch to monitor" reads exactly as
+    # badly as it sounds.
+    name: str = ""
+    # Where in the building. "Basement, rear" saves a phone call.
     location: str = ""
     timezone: str = "America/New_York"
     # The address this is reachable at from outside, used to build invitation
@@ -276,6 +281,29 @@ class SiteSettings(BaseModel):
     # recipient who wants to be taken off the list.
     contact_email: str = ""
     contact_phone: str = ""
+
+    @property
+    def where(self) -> str:
+        """The building, for prose, or empty if nobody has said yet.
+
+        Empty rather than a placeholder on purpose. Every caller has to decide
+        what to say when it is not set, which is the only way the policy pages
+        avoid announcing a default nobody chose.
+        """
+        return ", ".join(part for part in (self.name.strip(), self.location.strip()) if part)
+
+    @property
+    def pumps_at(self) -> str:
+        """A phrase for prose: "the pumps at 822 Greenwich St".
+
+        The building only, without the part of it the pumps are in. "The pumps
+        at 822 Greenwich St, basement, rear" is accurate and reads like a form
+        being read aloud. The fuller version is `where`, which is for an alert,
+        where somebody does want telling which end of the basement.
+        """
+        building = self.name.strip()
+        return f"the pumps at {building}" if building else "this building's pumps"
+
     # An alert has to stay open this long before anyone is told, which stops a
     # float that bobs once from waking the building. Critical alerts ignore it.
     notify_delay_s: int = Field(default=30, ge=0, le=3600)

@@ -324,11 +324,11 @@ async def _send_invitation(request: Request, user_id: int, name: str, email: str
         await email_sender.send(
             smtp,
             email,
-            f"Set your password for {store.site.name}",
+            "Set your password for PitWatch",
             f"Hello {name},\n\n"
-            f"You have been added to PitWatch, which watches the pumps at "
-            f"{store.site.name}. If you would like to sign in and see their "
-            f"status, set a password here:\n\n{link}\n\n"
+            f"You have been added to PitWatch, which watches {store.site.pumps_at}. "
+            f"If you would like to sign in and see their status, set a password "
+            f"here:\n\n{link}\n\n"
             "The link works once and expires in three days.\n\n"
             "You do not have to. Alerts will reach you either way.\n",
         )

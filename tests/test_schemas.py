@@ -13,14 +13,19 @@ import json
 import pytest
 from pydantic import ValidationError
 
+from pitwatch import domain
 from pitwatch.schemas import (
+    BUILTIN_SIGNALS,
     SETTING_MODELS,
+    UNUSED,
     ChannelMap,
     PumpSettings,
     PumpsSettings,
     ShellySettings,
     Signal,
+    SignalDef,
     WaveshareSettings,
+    signal_key,
 )
 
 
@@ -28,8 +33,8 @@ def test_channels_are_filled_in_when_missing():
     settings = WaveshareSettings(channels=[ChannelMap(channel=3, signal=Signal.HIGH_WATER)])
 
     assert [channel.channel for channel in settings.channels] == [1, 2, 3, 4, 5, 6, 7, 8]
-    assert settings.channels[2].signal is Signal.HIGH_WATER
-    assert settings.channels[0].signal is Signal.UNUSED
+    assert settings.channels[2].signal == Signal.HIGH_WATER
+    assert settings.channels[0].signal == Signal.UNUSED
 
 
 def test_a_signal_cannot_be_on_two_channels():
@@ -45,7 +50,7 @@ def test_a_signal_cannot_be_on_two_channels():
 def test_unused_channels_may_repeat():
     settings = WaveshareSettings(channels=[])
 
-    assert all(channel.signal is Signal.UNUSED for channel in settings.channels)
+    assert all(channel.signal == Signal.UNUSED for channel in settings.channels)
 
 
 def test_channel_lookup_by_signal():
@@ -226,11 +231,34 @@ def test_the_inrush_window_is_long_enough_to_cover_a_start():
 
 def test_a_run_can_end_before_the_next_one_starts():
     """These pumps alternate, seconds apart. If it took longer to notice a stop
-    than the gap between runs, two runs would be recorded as one."""
-    pumps = PumpsSettings()
+    than the gap between runs, two runs would be recorded as one.
 
-    assert pumps.stop_hold_ms < pumps.max_runtime_ms
-    assert pumps.stop_hold_ms <= 2000
+    Not a setting any more, which is the point of checking it here. It is a
+    fact about how often the meter reports, so it lives in the detector and the
+    only thing left to get wrong is this number.
+    """
+    assert domain.RUN_STOP_HOLD_MS <= 2000
+    assert PumpsSettings().max_runtime_ms > domain.RUN_STOP_HOLD_MS
+
+
+def test_every_alert_threshold_can_be_turned_off():
+    """Empty means do not run that check, everywhere, with no exceptions.
+
+    The two that used to be compulsory were compulsory by accident rather than
+    by argument, and a threshold that cannot be turned off is one that gets set
+    to an absurd value instead, which reads as configured and behaves as off.
+    """
+    off = PumpsSettings(
+        max_runtime_ms=None,
+        restart_gap_ms=None,
+        quiet_minutes_before_flag=None,
+        pump1=PumpSettings(overcurrent_amps=None),
+    )
+
+    assert off.max_runtime_ms is None
+    assert off.restart_gap_ms is None
+    assert off.quiet_minutes_before_flag is None
+    assert off.pump1.overcurrent_amps is None
 
 
 def test_there_is_no_undercurrent_alert():
@@ -259,3 +287,93 @@ def test_short_cycling_is_measured_by_the_gap_not_by_a_rate():
     assert "restart_gap_ms" in fields
     assert "max_starts" not in fields
     assert "starts_window_min" not in fields
+
+
+# -- the signal catalog -----------------------------------------------------
+#
+# Which signals a panel brings out is a property of the panel, so the list is a
+# setting. What has to hold is that renaming one is only a rename: the key is
+# what every recorded reading points at, and a rename that changed the key
+# would quietly detach the history behind it.
+
+
+def test_a_new_install_starts_with_the_usual_signals():
+    settings = WaveshareSettings()
+
+    assert [signal.key for signal in settings.signals] == [key for key, _ in BUILTIN_SIGNALS]
+    assert settings.label_for(Signal.HIGH_WATER) == "High water alarm float"
+    assert settings.label_for(UNUSED) == "Not connected"
+
+
+def test_renaming_a_signal_keeps_its_key():
+    settings = WaveshareSettings(
+        signals=[SignalDef(key="high_water", label="Top float (the loud one)")],
+        channels=[ChannelMap(channel=4, signal="high_water")],
+    )
+
+    assert settings.label_for("high_water") == "Top float (the loud one)"
+    assert settings.channel_for("high_water").channel == 4
+
+
+def test_a_signal_this_application_has_never_heard_of_works_like_any_other():
+    settings = WaveshareSettings(
+        signals=[SignalDef(key="seal_failure", label="Seal failure")],
+        channels=[ChannelMap(channel=6, signal="seal_failure", invert=True)],
+    )
+
+    assert settings.channel_for("seal_failure").channel == 6
+    assert settings.channel_of == {"seal_failure": 6}
+    assert (UNUSED, "Not connected") in settings.options
+    assert ("seal_failure", "Seal failure") in settings.options
+
+
+def test_removing_a_signal_still_wired_to_an_input_is_refused():
+    """And it says which input, because that is the whole of the fix.
+
+    The alternative is a save that succeeds and leaves a channel pointing at a
+    name nothing knows, which reads on screen as a blank dropdown.
+    """
+    with pytest.raises(ValidationError, match="DI3"):
+        WaveshareSettings(
+            signals=[SignalDef(key="lead_float", label="Lead float")],
+            channels=[ChannelMap(channel=3, signal="high_water")],
+        )
+
+
+def test_two_signals_cannot_share_a_name():
+    with pytest.raises(ValidationError, match="cannot share a name"):
+        WaveshareSettings(
+            signals=[
+                SignalDef(key="lead_float", label="Lead float"),
+                SignalDef(key="lead_float", label="Also lead float"),
+            ]
+        )
+
+
+def test_nothing_can_be_called_unused():
+    """It is how an input with nothing on it is recorded, not a signal.
+
+    A catalog entry with that key would make "not connected" pickable twice and
+    the duplicate check would then refuse two spare inputs.
+    """
+    with pytest.raises(ValidationError, match="Nothing can be named"):
+        WaveshareSettings(signals=[SignalDef(key="unused", label="Spare")])
+
+
+def test_a_label_for_a_signal_that_has_been_removed_still_reads():
+    """History outlives the catalog. An event recorded last month under a name
+    that has since been deleted should show that name, not a blank."""
+    settings = WaveshareSettings(signals=[SignalDef(key="lead_float", label="Lead float")])
+
+    assert settings.label_for("high_water") == "High water alarm float"
+    assert settings.label_for("something_nobody_remembers") == "something_nobody_remembers"
+
+
+def test_keys_made_from_labels_are_storable():
+    assert signal_key("Seal failure") == "seal_failure"
+    assert signal_key("  Hand / Off / Auto  ") == "hand_off_auto"
+    assert signal_key("Pump #1 -- Overload!") == "pump_1_overload"
+    # Has to start with a letter, and has to be something even when the label
+    # is nothing a key can be made from.
+    assert signal_key("240V").startswith("s_")
+    assert signal_key("!!!") == "signal"

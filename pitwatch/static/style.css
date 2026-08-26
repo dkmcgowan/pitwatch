@@ -178,6 +178,12 @@ main {
 
 .button:hover { filter: brightness(1.08); }
 
+.button.small {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
 .button.secondary {
   background: var(--surface-2);
   color: var(--text);
@@ -235,8 +241,32 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 0 1.25rem;
+  /* A row gap on top of the margin each field already carries. Without it, a
+     grid that wraps to two rows stacks the second row straight onto the first
+     and the two read as one column of unrelated boxes. */
+  gap: 0.4rem 1.25rem;
 }
+
+/* A subheading divides a card into groups of fields. The space above it is
+   what separates the group from the last field of the one before, so it is
+   larger than the space below. */
+.card h3 {
+  margin: 2rem 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.card h3:first-child { margin-top: 0; }
+
+/* Explanation followed immediately by the thing it explains. Without this the
+   first label sits on the last line of the paragraph and reads as part of it
+   rather than as the start of the form. */
+.hint + .grid,
+.hint + .field,
+.hint + .table-scroll,
+.hint + fieldset.field,
+p + .grid,
+p + .table-scroll { margin-top: 1rem; }
 
 fieldset.field {
   border: 1px solid var(--border);
@@ -254,6 +284,14 @@ fieldset.field label {
   font-weight: 550;
   margin: 0.75rem 0 0.3rem;
 }
+
+/* The editable list of signals. Wide enough that a name and its input are not
+   fighting for the same inch, and it scrolls inside its wrapper below that
+   rather than pushing the card sideways. */
+table.signals { min-width: 30rem; }
+table.signals input[type="text"] { min-width: 12rem; }
+table.signals td, table.signals th { vertical-align: middle; }
+table.signals td:last-child, table.signals th:last-child { width: 1%; white-space: nowrap; }
 
 .narrow { max-width: 24rem; }
 

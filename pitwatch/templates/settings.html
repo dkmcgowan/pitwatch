@@ -33,7 +33,7 @@
   <h2>The Waveshare I/O module</h2>
   <form method="post" action="/settings/waveshare">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    {{ fields.waveshare_fields(waveshare, signals) }}
+    {{ fields.waveshare_fields(waveshare) }}
     <button type="submit" class="button">Save</button>
   </form>
 </section>

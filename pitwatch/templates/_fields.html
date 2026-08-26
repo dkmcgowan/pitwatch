@@ -88,7 +88,7 @@
 {% endmacro %}
 
 
-{% macro waveshare_fields(waveshare, signals) %}
+{% macro waveshare_fields(waveshare) %}
 <div class="field">
   <label>
     <input type="checkbox" name="waveshare_enabled" {% if waveshare.enabled %}checked{% endif %}>
@@ -117,6 +117,61 @@
       second is nothing on the wire and it is the difference between catching a
       short lag float call and missing it.</p>
   </div>
+</div>
+
+<h3>Signals on the panel</h3>
+<p class="hint">
+  The list every input's dropdown below offers. It starts as the eight a duplex
+  ejector panel usually brings out. Yours may bring out others, or fewer, and
+  this is where you say so.
+</p>
+<p class="hint">
+  Renaming one is safe. The name is only what you read; everything already
+  recorded under it stays attached to it. Removing one is refused while an input
+  is still using it, so set that input to <strong>Not connected</strong> first.
+</p>
+<p class="hint">
+  Four of these mean something to the rest of the application: the two run
+  contacts and the two overloads appear on the pump tiles, and the floats draw
+  the pit. Rename those as freely as any other. Remove one and that part of the
+  dashboard simply says nothing is wired, which is what it already says when
+  the input is spare.
+</p>
+
+<div class="table-scroll">
+<table class="signals">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Wired to</th>
+      <th class="center">Remove</th>
+    </tr>
+  </thead>
+  <tbody data-signal-rows>
+  {% set wired = waveshare.channel_of %}
+  {% for signal in waveshare.signals %}
+    <tr>
+      <td>
+        {# The key rides along hidden so that a rename is a rename and not a
+           delete followed by an add under a new name. #}
+        <input type="hidden" name="signal_key" value="{{ signal.key }}">
+        <input type="text" name="signal_label" value="{{ signal.label }}" maxlength="60"
+               aria-label="Name of signal {{ loop.index }}">
+      </td>
+      <td class="muted">{% if wired.get(signal.key) %}DI{{ wired[signal.key] }}{% else %}not wired{% endif %}</td>
+      <td class="center">
+        <button type="button" class="button secondary small" data-remove-signal>Remove</button>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<div class="field">
+  <button type="button" class="button secondary" data-add-signal>Add a signal</button>
+  <p class="hint">Nothing here is saved until you press Save at the bottom of
+    this section.</p>
 </div>
 
 <h3>What each input is wired to</h3>
@@ -152,7 +207,7 @@
       <th scope="row">DI{{ channel.channel }}</th>
       <td>
         <select name="channel_{{ channel.channel }}_signal" aria-label="Signal on input {{ channel.channel }}">
-          {% for value, label in signals %}
+          {% for value, label in waveshare.options %}
           <option value="{{ value }}" {% if channel.signal.value == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
@@ -234,6 +289,11 @@
 
 <h3>Timing</h3>
 
+<p class="hint">
+  Every box on this page that raises an alert can be left empty, and empty means
+  do not run that check at all. None of them treat an empty box as a zero.
+</p>
+
 <div class="field">
   <label for="inrush_ignore_ms">Ignore the first (ms) of a run</label>
   <input type="number" min="0" step="100" id="inrush_ignore_ms" name="inrush_ignore_ms"
@@ -250,24 +310,12 @@
 </div>
 
 <div class="field">
-  <label for="stop_hold_ms">A run has ended after (ms) below the running current</label>
-  <input type="number" min="100" step="100" id="stop_hold_ms" name="stop_hold_ms"
-         value="{{ pumps.stop_hold_ms }}">
-  <p class="hint">
-    How long the current has to stay down before the run is treated as over.
-    Long enough to bridge a momentary dip, which would otherwise split one run
-    into two; short enough that two real runs a few seconds apart are still
-    counted as two.
-  </p>
-</div>
-
-<div class="field">
   <label for="max_runtime_ms">Alert on a run longer than (ms)</label>
   <input type="number" min="1000" step="500" id="max_runtime_ms" name="max_runtime_ms"
-         value="{{ pumps.max_runtime_ms }}">
+         value="{{ pumps.max_runtime_ms if pumps.max_runtime_ms is not none else '' }}">
   <p class="hint">
     A stuck float, or pumping against a blockage. If a normal run is three or
-    four seconds, ten is already well outside it.
+    four seconds, ten is already well outside it. Leave empty to skip the check.
   </p>
 </div>
 
@@ -310,12 +358,12 @@
 <div class="field">
   <label for="quiet_minutes_before_flag">Flag no runs at all after (minutes)</label>
   <input type="number" min="5" id="quiet_minutes_before_flag" name="quiet_minutes_before_flag"
-         value="{{ pumps.quiet_minutes_before_flag }}">
+         value="{{ pumps.quiet_minutes_before_flag if pumps.quiet_minutes_before_flag is not none else '' }}">
   <p class="hint">
     The opposite problem. Silence can mean a genuinely dry spell, or it can mean
     the float is stuck down, the clamp has fallen off, or the panel is dead and
     nothing is watching the pit at all. Set it to a bit longer than the longest
-    gap you would expect to see normally.
+    gap you would expect to see normally. Leave empty to skip the check.
   </p>
 </div>
 {% endmacro %}
@@ -333,6 +381,8 @@
   <div class="field">
     <label for="site_timezone">Timezone</label>
     <input type="text" id="site_timezone" name="site_timezone" value="{{ site.timezone }}">
+    <p class="hint">Used for every time on screen and in every alert. Storage is
+      always UTC.</p>
   </div>
   <div class="field">
     <label for="site_base_url">Public address</label>
@@ -342,40 +392,53 @@
       reverse proxy PitWatch cannot work this out for itself, because it sees
       the proxy's request rather than the address somebody typed.</p>
   </div>
-  {# In a fieldset of their own, because there is a second email and a second
-     phone number on this page and they are for the opposite purpose. These two
-     are printed on a public web page. The other two are where your alerts go. #}
-  <fieldset class="field">
-    <legend>Published on the policy pages</legend>
-    <p class="hint">
-      Anyone can read these without signing in. <strong>This is not where your
-      alerts go</strong>; that is your own email and mobile, on your profile.
-    </p>
-    <p class="hint">
-      Both are optional and the policy reads properly without them, because
-      replying STOP is what actually stops the messages and that needs nobody's
-      address. Fill them in only if you want a way to be contacted about
-      something else, and prefer a role address such as
-      <code>pumps@example.com</code> over a personal mobile: this page is
-      public, and a phone number on it is public forever.
-    </p>
+</div>
+
+{# Kept apart from the three above, because there is a second email and a
+   second phone number in this application and they are for the opposite
+   purpose. These two are printed on a public web page. The other two are where
+   your alerts go. #}
+<h3>Published on the policy pages</h3>
+<p class="hint">
+  Anyone can read these without signing in. <strong>This is not where your
+  alerts go</strong>; that is your own email and mobile, on your profile.
+</p>
+<p class="hint">
+  Both are optional and the policy reads properly without them, because
+  replying STOP is what actually stops the messages and that needs nobody's
+  address. Fill them in only if you want a way to be contacted about something
+  else, and prefer a role address such as <code>pumps@example.com</code> over a
+  personal mobile: this page is public, and a phone number on it is public
+  forever.
+</p>
+
+<div class="grid">
+  <div class="field">
     <label for="site_contact_email">Public email</label>
     <input type="email" id="site_contact_email" name="site_contact_email"
            value="{{ site.contact_email }}">
-
+  </div>
+  <div class="field">
     <label for="site_contact_phone">Public phone</label>
     <input type="tel" id="site_contact_phone" name="site_contact_phone"
            value="{{ site.contact_phone }}">
-  </fieldset>
+  </div>
+</div>
+
+<h3>When alerts go out</h3>
+
+<div class="grid">
   <div class="field">
-    <label for="notify_delay_s">Wait (s) before sending an alert</label>
+    <label for="notify_delay_s">Wait (s) before sending</label>
     <input type="number" min="0" id="notify_delay_s" name="notify_delay_s" value="{{ site.notify_delay_s }}">
-    <p class="hint">Stops a float that bobs once from waking the building.
-      Critical alerts ignore it.</p>
+    <p class="hint">An alert has to stay true this long before anyone is told,
+      which stops a float that bobs once from waking the building. Critical
+      alerts ignore it.</p>
   </div>
   <div class="field">
     <label for="notify_cooldown_s">Do not repeat within (s)</label>
     <input type="number" min="0" id="notify_cooldown_s" name="notify_cooldown_s" value="{{ site.notify_cooldown_s }}">
+    <p class="hint">How long before the same alert is worth sending again.</p>
   </div>
 </div>
 {% endmacro %}

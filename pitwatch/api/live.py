@@ -19,12 +19,50 @@ from pitwatch.ingest import waveshare as waveshare_ingest
 from pitwatch.ingest.sink import LiveIo, LiveState
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
-from pitwatch.schemas import SIGNAL_LABELS, Signal
+from pitwatch.schemas import Signal, WaveshareSettings
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
+
+
+# Shown on the pump tiles rather than in the pit, because they are facts about
+# a motor and not about the water.
+ON_THE_PUMP_TILES = frozenset(
+    {Signal.PUMP1_RUN, Signal.PUMP2_RUN, Signal.PUMP1_OVERLOAD, Signal.PUMP2_OVERLOAD}
+)
+
+# The floats sit in the pit in this order, the high water alarm at the top, so
+# the card reads like the thing it is describing. Anything else follows in the
+# order it is listed in the settings, which is the only order there is for a
+# signal this application has never heard of.
+PIT_ORDER: tuple[str, ...] = (
+    Signal.HIGH_WATER,
+    Signal.LAG_FLOAT,
+    Signal.LEAD_FLOAT,
+    Signal.PANEL_ALARM,
+)
+
+# What the pill reads when a signal is on and when it is off. A float is wet or
+# dry and an alarm contact is in alarm or clear. A signal somebody added is one
+# or the other without this application knowing which way round means trouble,
+# so it says on and off and does not editorialize.
+SIGNAL_WORDS: dict[str, tuple[str, str, str]] = {
+    Signal.HIGH_WATER: ("WET", "Dry", "crit"),
+    Signal.LAG_FLOAT: ("WET", "Dry", "crit"),
+    Signal.LEAD_FLOAT: ("WET", "Dry", "crit"),
+    Signal.PANEL_ALARM: ("ALARM", "Clear", "crit"),
+}
+UNKNOWN_SIGNAL_WORDS = ("ON", "Off", "warn")
+
+
+def pit_signals(waveshare: WaveshareSettings) -> list[str]:
+    """Every signal the pit card shows, in the order it shows them."""
+    keys = [s.key for s in waveshare.signals if s.key not in ON_THE_PUMP_TILES]
+    ordered = [str(key) for key in PIT_ORDER if key in keys]
+    ordered += [key for key in keys if key not in ordered]
+    return ordered
 
 
 async def build_state(app) -> dict:
@@ -99,27 +137,28 @@ async def build_state(app) -> dict:
             "nameplate_amps": settings.nameplate_amps,
         }
 
-    def signal_state(signal: Signal) -> dict:
-        changed = live_io.changed_at(signal)
+    waveshare = store.waveshare
+
+    def signal_state(key: str) -> dict:
+        changed = live_io.changed_at(key)
+        on_word, off_word, tone = SIGNAL_WORDS.get(key, UNKNOWN_SIGNAL_WORDS)
         return {
-            "label": SIGNAL_LABELS[signal],
+            "key": key,
+            "label": waveshare.label_for(key),
             # None means nothing is wired to it, which is not the same as off.
-            "state": live_io.state_of(signal),
+            "state": live_io.state_of(key),
+            "on_word": on_word,
+            "off_word": off_word,
+            "tone": tone,
             "changed_at": changed.isoformat() if changed else None,
         }
 
     return {
         "site": store.site.model_dump(mode="json"),
         "pumps": {"1": pump_state(1), "2": pump_state(2)},
-        "floats": {
-            signal.value: signal_state(signal)
-            for signal in (
-                Signal.LEAD_FLOAT,
-                Signal.LAG_FLOAT,
-                Signal.HIGH_WATER,
-                Signal.PANEL_ALARM,
-            )
-        },
+        # A list rather than a map, because the order is part of the answer and
+        # a signal somebody added has to appear somewhere sensible.
+        "floats": [signal_state(key) for key in pit_signals(waveshare)],
         "devices": devices,
         "updated_at": live.updated_at.isoformat() if live.updated_at else None,
     }
@@ -179,7 +218,7 @@ async def test_waveshare(request: Request) -> JSONResponse:
 
     result = await waveshare_ingest.probe(settings)
     for channel in result.get("channels", []):
-        channel["label"] = SIGNAL_LABELS[Signal(channel["signal"])]
+        channel["label"] = settings.label_for(channel["signal"])
     return JSONResponse(result)
 
 

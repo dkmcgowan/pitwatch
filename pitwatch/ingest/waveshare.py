@@ -61,7 +61,7 @@ from datetime import UTC, datetime
 from pymodbus.client import AsyncModbusTcpClient
 from pymodbus.exceptions import ModbusException
 
-from pitwatch.schemas import Signal, WaveshareSettings
+from pitwatch.schemas import UNUSED, WaveshareSettings
 
 log = logging.getLogger(__name__)
 
@@ -76,7 +76,8 @@ class IoEvent:
 
     ts: datetime
     channel: int
-    signal: Signal
+    # A signal key from the settings catalog, or "unused".
+    signal: str
     state: bool
     raw: bool
 
@@ -252,10 +253,10 @@ class WaveshareReader:
                     raw=raw,
                 )
             )
-            if channel_settings.signal is not Signal.UNUSED:
+            if channel_settings.signal != UNUSED:
                 log.info(
                     "%s went %s (DI%d reads %s)",
-                    channel_settings.signal.value,
+                    self._settings.label_for(channel_settings.signal),
                     "on" if state else "off",
                     number,
                     "closed" if raw else "open",
@@ -294,7 +295,7 @@ async def probe(settings: WaveshareSettings) -> dict:
             channels.append(
                 {
                     "channel": channel_settings.channel,
-                    "signal": channel_settings.signal.value,
+                    "signal": channel_settings.signal,
                     "raw": raw,
                     "state": (not raw) if channel_settings.invert else raw,
                 }

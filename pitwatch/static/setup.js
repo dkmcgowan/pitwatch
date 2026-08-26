@@ -316,6 +316,164 @@ function csrfHeader(form) {
   });
 })();
 
+// Editing the list of signals the panel brings out.
+//
+// The eight this ships with are what a duplex ejector panel usually has, not a
+// limit. Panels differ, so the list is a setting like any other and this keeps
+// the channel dropdowns below in step with it as it is edited, rather than
+// making somebody save and reload to find out what they can now pick.
+//
+// The key is what the database holds and the label is what people read, which
+// is why a row that is already saved posts its key back untouched however it is
+// renamed. Only a row added here gets its key from what is typed, and it is
+// built the same way the server would build it, so the two agree without having
+// to be told about each other.
+//
+// With JavaScript off, all of this still works: the rows are ordinary inputs,
+// emptying a name removes that signal, and the server does the rest.
+
+(function () {
+  "use strict";
+
+  const rows = document.querySelector("[data-signal-rows]");
+  const add = document.querySelector("[data-add-signal]");
+  if (!rows || !add) {
+    return;
+  }
+
+  const UNUSED = "unused";
+
+  function selects() {
+    return Array.prototype.slice.call(
+      document.querySelectorAll('select[name^="channel_"][name$="_signal"]')
+    );
+  }
+
+  function announce() {
+    document.dispatchEvent(new CustomEvent("pitwatch:signals-changed"));
+  }
+
+  // The same rule as signal_key() in schemas.py. If these two ever disagree, a
+  // signal added and wired to an input in one visit is refused on save.
+  function slug(label) {
+    let cleaned = label
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    if (cleaned && !/^[a-z]/.test(cleaned)) {
+      cleaned = "s_" + cleaned;
+    }
+    return cleaned.slice(0, 40).replace(/_+$/, "") || "signal";
+  }
+
+  function keysInUse(except) {
+    const used = [];
+    Array.prototype.forEach.call(
+      rows.querySelectorAll('input[name="signal_key"]'),
+      function (input) {
+        if (input !== except && input.value) {
+          used.push(input.value);
+        }
+      }
+    );
+    return used;
+  }
+
+  function uniqueKey(base, except) {
+    const used = keysInUse(except);
+    if (base !== UNUSED && used.indexOf(base) === -1) {
+      return base;
+    }
+    const stem = base === UNUSED ? "signal" : base;
+    let n = 2;
+    while (used.indexOf(stem + "_" + n) !== -1) {
+      n += 1;
+    }
+    return stem + "_" + n;
+  }
+
+  function optionFor(select, key) {
+    return Array.prototype.filter.call(select.options, function (option) {
+      return option.value === key;
+    })[0];
+  }
+
+  function putOption(key, label) {
+    selects().forEach(function (select) {
+      let option = optionFor(select, key);
+      if (!option) {
+        option = document.createElement("option");
+        option.value = key;
+        select.appendChild(option);
+      }
+      option.textContent = label;
+    });
+  }
+
+  function dropOption(key) {
+    selects().forEach(function (select) {
+      const option = optionFor(select, key);
+      if (!option) {
+        return;
+      }
+      // Freeing the input first. Removing the option a select is sitting on
+      // leaves it showing a blank and posting whatever the browser decides.
+      if (select.value === key) {
+        select.value = UNUSED;
+      }
+      option.remove();
+    });
+  }
+
+  function wire(row) {
+    const keyInput = row.querySelector('input[name="signal_key"]');
+    const labelInput = row.querySelector('input[name="signal_label"]');
+    const remove = row.querySelector("[data-remove-signal]");
+    const fresh = !keyInput.value;
+
+    labelInput.addEventListener("input", function () {
+      const label = labelInput.value.trim();
+      if (fresh) {
+        const previous = keyInput.value;
+        const next = label ? uniqueKey(slug(label), keyInput) : "";
+        if (previous && previous !== next) {
+          dropOption(previous);
+        }
+        keyInput.value = next;
+      }
+      if (keyInput.value) {
+        putOption(keyInput.value, label || keyInput.value);
+      }
+      announce();
+    });
+
+    remove.addEventListener("click", function () {
+      if (keyInput.value) {
+        dropOption(keyInput.value);
+      }
+      row.remove();
+      announce();
+    });
+  }
+
+  Array.prototype.forEach.call(rows.querySelectorAll("tr"), wire);
+
+  add.addEventListener("click", function () {
+    const row = document.createElement("tr");
+    row.innerHTML =
+      '<td><input type="hidden" name="signal_key" value="">' +
+      '<input type="text" name="signal_label" value="" maxlength="60"' +
+      ' aria-label="Name of the new signal"></td>' +
+      '<td class="muted">not wired</td>' +
+      '<td class="center"><button type="button" class="button secondary small"' +
+      " data-remove-signal>Remove</button></td>";
+    rows.appendChild(row);
+    wire(row);
+    row.querySelector('input[name="signal_label"]').focus();
+  });
+})();
+
 // Taking used signals out of the other channels' dropdowns.
 //
 // A signal belongs to exactly one input. Offering "Lead float" on all eight
@@ -364,6 +522,10 @@ function csrfHeader(form) {
   selects.forEach(function (select) {
     select.addEventListener("change", refresh);
   });
+
+  // The list of signals is editable above, so the options can change under
+  // this without any select being touched.
+  document.addEventListener("pitwatch:signals-changed", refresh);
 
   refresh();
 })();

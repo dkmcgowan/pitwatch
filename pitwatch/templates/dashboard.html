@@ -50,29 +50,13 @@
 
 <section class="card">
   <h2>The pit</h2>
-  {# Ordered bottom to top, the way the floats sit in the pit, so the display
-     reads like the thing it is describing. #}
+  {# Empty on purpose. What the pit card shows is whatever signals are on the
+     list in settings, in the order the server sends them, so the rows are
+     built from the state rather than written out here. Ordered bottom to top,
+     the way the floats sit in the pit, so the display reads like the thing it
+     is describing. #}
   <div class="floats" data-floats>
-    <div class="float" data-float="high_water">
-      <span class="float-name">High water</span>
-      <span class="pill pill-idle" data-float-pill>No data</span>
-      <span class="float-since muted" data-float-since></span>
-    </div>
-    <div class="float" data-float="lag_float">
-      <span class="float-name">Lag float</span>
-      <span class="pill pill-idle" data-float-pill>No data</span>
-      <span class="float-since muted" data-float-since></span>
-    </div>
-    <div class="float" data-float="lead_float">
-      <span class="float-name">Lead float</span>
-      <span class="pill pill-idle" data-float-pill>No data</span>
-      <span class="float-since muted" data-float-since></span>
-    </div>
-    <div class="float" data-float="panel_alarm">
-      <span class="float-name">Panel alarm</span>
-      <span class="pill pill-idle" data-float-pill>No data</span>
-      <span class="float-since muted" data-float-since></span>
-    </div>
+    <p class="muted" data-floats-empty>Waiting for the first reading.</p>
   </div>
 </section>
 

@@ -38,26 +38,10 @@
     {% endif %}
 
     {% if user %}
-    {# A details element rather than a scripted dropdown: it opens on click and
-       on a keyboard without any JavaScript, and closing it when you click
-       elsewhere is the only part that needs any. #}
-    <details class="menu" data-menu>
-      <summary class="icon-link {% if active == 'account' %}active{% endif %}"
-               title="{{ user.display_name }}" aria-label="Your account">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-person"/></svg>
-      </summary>
-      <div class="menu-panel">
-        <p class="menu-who">
-          Signed in as <strong>{{ user.display_name }}</strong>
-          {% if user.is_admin %}<span class="muted">Administrator</span>{% endif %}
-        </p>
-        <a href="/change-password">Change password</a>
-        <form method="post" action="/logout">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit">Sign out</button>
-        </form>
-      </div>
-    </details>
+    <a href="/profile" class="icon-link {% if active == 'profile' %}active{% endif %}"
+       title="{{ user.display_name }}" aria-label="Your profile">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-person"/></svg>
+    </a>
     {% endif %}
   </nav>
 </header>

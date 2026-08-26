@@ -6,6 +6,8 @@ expensive when it is not.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from pitwatch import auth, csrf
@@ -290,13 +292,17 @@ def test_the_token_in_a_form_is_the_token_and_not_a_function(client):
     string that every form then carried and no request could match. The parens
     matter, and nothing else in the suite would have said so: the guard was
     working perfectly and rejecting every form for the right reason.
+
+    Checked by the shape a real token has rather than by hunting for pieces of
+    a repr. Looking for "0x" in the rendered value failed about one run in a
+    hundred all by itself, because a token is random and two of its characters
+    are eventually going to be those two. A test that fails on its own is worse
+    than no test: it teaches you to rerun the build instead of reading it.
     """
     page = client.get("/login").text
     token = token_from(client)
 
-    assert "function" not in token
-    assert "0x" not in token
-    assert len(token) >= 32
+    assert re.fullmatch(r"[A-Za-z0-9_-]{32,}", token), f"not a token: {token!r}"
     assert f'value="{token}"' in page
 
 

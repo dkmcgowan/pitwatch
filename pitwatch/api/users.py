@@ -150,6 +150,13 @@ async def change_password_submit(request: Request, user: auth.SignedIn):
     except auth.PasswordTooShort as error:
         return refuse(str(error))
 
+    # Sign in again on the new password. Every session for this account is now
+    # stale, which is the point, and that includes this one: the browser doing
+    # the changing should not be thrown out for it.
+    refreshed = await auth.get_user(pool, user.id)
+    if refreshed is not None:
+        auth.sign_in(request, refreshed)
+
     log.info("%s changed their password", user.username)
     return RedirectResponse("/", status_code=303)
 
@@ -201,6 +208,11 @@ async def set_password_submit(request: Request):
     # Spent only once it has actually been used, so a half finished attempt can
     # be retried from the same link.
     await auth.spend_password_token(pool, token)
+
+    # Read the person back, because the password that was just set changed the
+    # fingerprint the session is checked against. Signing in with the copy from
+    # before the change hands out a session that is stale the moment it is made.
+    invited = await auth.get_user(pool, invited.id) or invited
     auth.sign_in(request, invited)
     log.info("%s set a password from an invitation", invited.username)
     return RedirectResponse("/", status_code=303)

@@ -20,6 +20,8 @@ from pydantic import ValidationError
 
 from pitwatch import auth
 from pitwatch.api import forms
+from pitwatch.notify import email as email_sender
+from pitwatch.notify import sms as sms_sender
 from pitwatch.schemas import (
     SIGNAL_LABELS,
     Signal,
@@ -92,6 +94,11 @@ async def setup_submit(request: Request, admin: auth.IsAdmin):
 
     for value in (site, shelly, waveshare, pumps):
         await store.put(value)
+
+    # The person doing the setup is the first person alerts should reach, and
+    # asking again on a profile page afterwards is asking twice.
+    await _save_own_details(request, admin, form)
+
     await store.mark_setup_complete()
     log.info("Setup completed by %s", admin.username)
     return RedirectResponse("/", status_code=303)
@@ -159,6 +166,43 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
 
     log.info("%s saved the %s settings", admin.username, section)
     return RedirectResponse(f"/settings?saved={section}", status_code=303)
+
+
+async def _save_own_details(request: Request, admin: auth.User, form) -> None:
+    """Record the administrator's own contact details from the setup form.
+
+    Quietly skipped if what was typed does not make sense, because failing the
+    whole of setup over a mistyped phone number would be a poor trade. The
+    profile page says so properly.
+    """
+    email = forms.text(form, "admin_email") or None
+    phone = forms.text(form, "admin_phone") or None
+    if phone:
+        phone = sms_sender.normalize(phone)
+        if not sms_sender.looks_like_a_number(phone):
+            log.warning("Ignoring an unusable phone number from setup")
+            phone = None
+    if email and not email_sender.looks_like_an_address(email):
+        log.warning("Ignoring an unusable email address from setup")
+        email = None
+
+    await request.app.state.pool.execute(
+        """
+        UPDATE app_user
+        SET name = COALESCE(NULLIF($2, ''), name),
+            email = COALESCE($3, email),
+            phone = COALESCE($4, phone),
+            notify_email = $5,
+            notify_sms = $6
+        WHERE id = $1
+        """,
+        admin.id,
+        forms.text(form, "admin_name"),
+        email,
+        phone,
+        forms.checkbox(form, "admin_notify_email") and bool(email),
+        forms.checkbox(form, "admin_notify_sms") and bool(phone),
+    )
 
 
 def _readable(error: Exception) -> str:

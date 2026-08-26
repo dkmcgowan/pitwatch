@@ -14,8 +14,10 @@ CREATE TABLE pump_cycle (
     ended_at     timestamptz,
     first_pump   smallint CHECK (first_pump IN (1, 2)),
     both_ran     boolean NOT NULL DEFAULT false,
-    high_water   boolean NOT NULL DEFAULT false,
-    lag_called   boolean NOT NULL DEFAULT false
+    high_water   boolean NOT NULL DEFAULT false
+    -- No lag_called. Whether the lag pump was called is whether a second run
+    -- exists in this cycle, and a stored copy of something derivable is a
+    -- second answer that can disagree with the first.
 );
 
 CREATE INDEX pump_cycle_started_at ON pump_cycle (started_at DESC);

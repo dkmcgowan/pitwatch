@@ -11,6 +11,8 @@ looking fine and doing nothing.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from pitwatch import auth
@@ -628,10 +630,10 @@ def test_asking_for_alerts_with_nowhere_to_send_them_is_refused(client):
 
 
 def test_your_own_profile_cannot_make_you_an_administrator(client):
-    """The fields that are not yours to set are not reachable from this form.
+    """The fields that are not yours to set are not reachable from that form.
 
-    A property of the handler rather than of the template, so hand crafting the
-    post does not help.
+    Enforced by the handler rather than by the template, so posting them by
+    hand does not help either. This posts them by hand.
     """
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
@@ -639,10 +641,41 @@ def test_your_own_profile_cannot_make_you_an_administrator(client):
         "/users/add",
         data={"name": "Watcher", "username": "watcher", "email": "w@example.com"},
     )
+
+    # Give them a password through the invitation, then become them.
+    invite = client.post(f"/users/{_user_id(client, 'watcher')}/invite").text
+    token = re.search(r"/set-password\?token=([A-Za-z0-9_-]+)", invite).group(1)
     client.post("/logout")
+    client.post(
+        "/set-password",
+        data={
+            "token": token,
+            "new_password": "their-own-long-password",
+            "confirm_password": "their-own-long-password",
+        },
+    )
 
-    # Signed in as the admin again to read back what the other person is.
-    sign_in_as_admin(client)
-    before = client.get("/users").text
+    client.post(
+        "/profile",
+        data={
+            "name": "Watcher",
+            "email": "w@example.com",
+            "is_admin": "on",
+            "enabled": "",
+            "min_severity": "warning",
+        },
+    )
 
-    assert "Watcher" in before
+    # Still not an administrator, and still able to sign in.
+    assert client.get("/users", follow_redirects=False).status_code == 403
+    assert client.get("/settings", follow_redirects=False).status_code == 403
+    assert client.get("/").status_code == 200
+
+
+def _user_id(client, username: str) -> int:
+    page = client.get("/users").text
+    for chunk in page.split('<form method="post" action="/users/')[1:]:
+        identifier, _, rest = chunk.partition("/save")
+        if f"<code>{username}</code>" in rest:
+            return int(identifier)
+    raise AssertionError(f"{username} is not on the people page")

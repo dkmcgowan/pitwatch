@@ -101,8 +101,12 @@
        current from the same phase with the right angle between them, and there
        is no reason to think that angle is right here. So they are not shown.
 
-       Run history and the average that ignores inrush come from pump_run, which
-       the run detector does not fill in yet.
+       Typical when running is the median of every reading above the running
+       threshold over the last week, which ignores the starting surge without
+       needing a rule about what counts as one. Under it, how that compares
+       with the four weeks before, because one number is not information:
+       sixteen amps is fine or alarming entirely depending on what it was last
+       month.
 
        The run contact and the overload used to sit here too, and the
        disagreement between the contact and the clamp was the useful part: a
@@ -110,8 +114,13 @@
        them back needs a way to say which input carries pump 1's run contact,
        and inputs are free text labels now. See NOTES.md. #}
     <dl class="detail">
+      <div>
+        <dt>Typical when running</dt>
+        <dd data-typical>--</dd>
+      </div>
       <div><dt>Nameplate</dt><dd data-nameplate>--</dd></div>
     </dl>
+    <p class="drift" data-drift hidden></p>
   </article>
   {% endfor %}
 </section>

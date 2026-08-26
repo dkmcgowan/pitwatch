@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from pitwatch import __version__
@@ -373,8 +374,12 @@ def test_saving_the_settings_page_unchanged_changes_nothing():
 # wrong. Every case below is one a real panel reaches.
 
 
-def io_with(**events):
-    """A live state where inputs came on in the order given, a second apart."""
+def io(*steps):
+    """A live state built from contacts opening and closing, a second apart.
+
+    Each step is (channel, state). Order is the order things happened, which is
+    what the rotation depends on, so these read like a morning at the pit.
+    """
     from datetime import UTC, datetime, timedelta
 
     from pitwatch.ingest.sink import LiveIo
@@ -382,13 +387,12 @@ def io_with(**events):
 
     live = LiveIo()
     base = datetime(2026, 8, 26, 3, 0, tzinfo=UTC)
-    for order, (name, channel) in enumerate(events.items()):
-        state = not name.startswith("off")
+    for order, (channel, state) in enumerate(steps):
         live.update(
             IoEvent(
                 ts=base + timedelta(seconds=order),
                 channel=channel,
-                label=name,
+                label=f"DI{channel}",
                 state=state,
                 raw=state,
             )
@@ -402,61 +406,63 @@ WIRED = {
     "pump1_fault": 7,
     "pump2_fault": 8,
 }
+P1, P2, F1, F2 = 5, 6, 7, 8
+
+
+def words(live):
+    from pitwatch.api.live import lead_and_lag
+    from pitwatch.schemas import DashboardSettings
+
+    return lead_and_lag(DashboardSettings(**WIRED), live)
 
 
 def test_the_display_waits_rather_than_guessing_which_pump_is_lead():
     """A fresh install has no idea. The controller alternates and does not say
     so, and picking one would be wrong half the time."""
-    from pitwatch.api.live import lead_and_lag
-    from pitwatch.schemas import DashboardSettings
-
-    assert lead_and_lag(DashboardSettings(**WIRED), io_with()) == ("--", "--")
+    assert words(io()) == ("--", "--")
 
 
-def test_the_pump_that_ran_last_becomes_lag():
-    """The controller alternates, so whichever went last sits out the next
-    call. This is also right while that pump is still running: the question the
-    word answers is which pump goes next."""
-    from pitwatch.api.live import lead_and_lag
-    from pitwatch.schemas import DashboardSettings
+def test_a_running_pump_holds_lead_until_it_stops():
+    """Matching the controller on the wall, which is the whole point of this
+    display. The rotation flips when a pump drops out, not when it starts."""
+    assert words(io((P1, True))) == ("LEAD", "LAG")
+    assert words(io((P1, True), (P1, False))) == ("LAG", "LEAD")
 
-    settings = DashboardSettings(**WIRED)
 
-    assert lead_and_lag(settings, io_with(first=6, second=5)) == ("LAG", "LEAD")
-    assert lead_and_lag(settings, io_with(first=5, second=6)) == ("LEAD", "LAG")
+def test_the_rotation_alternates_across_calls():
+    """Pump 1 runs and hands over, then pump 2 runs and hands back."""
+    assert words(io((P1, True), (P1, False))) == ("LAG", "LEAD")
+    assert words(io((P1, True), (P1, False), (P2, True))) == ("LAG", "LEAD")
+    assert words(io((P1, True), (P1, False), (P2, True), (P2, False))) == ("LEAD", "LAG")
+
+
+def test_both_running_is_its_own_state():
+    """The high water case: the pit came up past the lag float and the
+    controller called both. Neither is leading anything at that point."""
+    assert words(io((P1, True), (P2, True))) == ("ON", "ON")
+
+    # And when the lag pump drops out first, the one still running is lead
+    # again rather than the display jumping straight to the rotation.
+    assert words(io((P1, True), (P2, True), (P2, False))) == ("LEAD", "LAG")
 
 
 def test_one_pump_having_never_run_still_answers():
-    from pitwatch.api.live import lead_and_lag
-    from pitwatch.schemas import DashboardSettings
-
-    settings = DashboardSettings(**WIRED)
-
-    assert lead_and_lag(settings, io_with(only=5)) == ("LAG", "LEAD")
-    assert lead_and_lag(settings, io_with(only=6)) == ("LEAD", "LAG")
+    assert words(io((P1, True), (P1, False))) == ("LAG", "LEAD")
+    assert words(io((P2, True), (P2, False))) == ("LEAD", "LAG")
 
 
-def test_an_overload_outranks_the_rotation():
+def test_an_overload_outranks_everything_else():
     """A tripped pump is not lag waiting its turn, it is out. The other one is
     lead because it is the only one left, whatever the rotation said."""
-    from pitwatch.api.live import lead_and_lag
-    from pitwatch.schemas import DashboardSettings
-
-    settings = DashboardSettings(**WIRED)
-
     # Pump 2 ran last, so pump 1 would be lead. Its overload says otherwise.
-    assert lead_and_lag(settings, io_with(ran=6, tripped=7)) == ("FAIL", "LEAD")
-    assert lead_and_lag(settings, io_with(ran=5, tripped=8)) == ("LEAD", "FAIL")
+    assert words(io((P2, True), (P2, False), (F1, True))) == ("FAIL", "LEAD")
+    assert words(io((P1, True), (P1, False), (F2, True))) == ("LEAD", "FAIL")
+    # Even mid run, which is exactly when an overload trips.
+    assert words(io((P1, True), (F1, True))) == ("FAIL", "LEAD")
 
 
 def test_both_overloads_tripped_is_its_own_display():
-    from pitwatch.api.live import lead_and_lag
-    from pitwatch.schemas import DashboardSettings
-
-    settings = DashboardSettings(**WIRED)
-    both = io_with(one=7, two=8)
-
-    assert lead_and_lag(settings, both) == ("FAIL", "FAIL")
+    assert words(io((F1, True), (F2, True))) == ("FAIL", "FAIL")
 
 
 def test_unassigned_run_inputs_answer_nothing():
@@ -465,7 +471,7 @@ def test_unassigned_run_inputs_answer_nothing():
     from pitwatch.api.live import lead_and_lag
     from pitwatch.schemas import DashboardSettings
 
-    assert lead_and_lag(DashboardSettings(), io_with(something=5)) == ("--", "--")
+    assert lead_and_lag(DashboardSettings(), io((P1, True))) == ("--", "--")
 
 
 def test_a_lamp_with_no_input_is_not_a_lamp_that_is_off():
@@ -478,7 +484,7 @@ def test_a_lamp_with_no_input_is_not_a_lamp_that_is_off():
     panel = panel_state(
         DashboardSettings(high_water=3, system_alert=4),
         waveshare,
-        io_with(high=3),
+        io((3, True)),
     )
 
     assert panel["high_water"]["state"] is True
@@ -524,3 +530,44 @@ def test_saving_the_dashboard_page_unchanged_changes_nothing():
     )
 
     assert forms.dashboard_from(FormData(submitted(html))) == dashboard
+
+
+# -- what a pump has been drawing --------------------------------------------
+
+
+def test_drift_needs_both_windows_to_mean_anything():
+    """One number is not information. Sixteen amps is fine or alarming entirely
+    depending on what it was last month, so with no baseline there is no
+    answer rather than a reassuring zero."""
+    from pitwatch.domain.history import Typical
+
+    assert Typical(median=16.2, earlier_median=None).drift is None
+    assert Typical(median=None, earlier_median=15.8).drift is None
+    assert Typical().drift is None
+    assert Typical(median=16.2, earlier_median=15.8).drift == pytest.approx(0.4)
+
+
+def test_a_median_from_three_readings_is_not_reported():
+    """Below the floor it describes two runs and a coincidence. Saying nothing
+    is better than saying something measured off a handful of samples, because
+    the number will be believed either way."""
+    from pitwatch.domain import history
+
+    assert history.MIN_SAMPLES >= 30
+
+
+def test_the_windows_do_not_overlap_and_the_recent_one_is_the_shorter():
+    """The query splits one scan at the boundary, so an overlap would count the
+    same readings on both sides and flatten every drift toward zero."""
+    from pitwatch.domain import history
+
+    assert history.RECENT < history.EARLIER
+
+
+def test_the_history_query_only_counts_readings_taken_while_running():
+    """Averaging in the hours a pump spends switched off produces a number near
+    zero that moves with the weather, which is a rain gauge."""
+    from pitwatch.domain.history import QUERY
+
+    assert "current >= $2" in QUERY
+    assert "percentile_cont(0.5)" in QUERY

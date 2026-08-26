@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>{% block title %}PitWatch{% endblock %}</title>
-<link rel="icon" href="{{ url_for('static', path='favicon.svg') }}?v={{ version }}" type="image/svg+xml">
-<link rel="stylesheet" href="{{ url_for('static', path='style.css') }}?v={{ version }}">
+<link rel="icon" href="/static/favicon.svg?v={{ version }}" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css?v={{ version }}">
 {% block head %}{% endblock %}
 </head>
 <body>

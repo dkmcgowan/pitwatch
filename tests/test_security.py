@@ -325,3 +325,30 @@ def test_changing_your_own_password_does_not_sign_you_out(client):
     assert response.status_code == 303
     assert response.headers["location"] == "/"
     assert client.get("/").status_code == 200, "signed out by their own change"
+
+
+@pytest.mark.parametrize("path", ["/login", "/messaging-policy", "/privacy"])
+def test_pages_reference_their_own_assets_by_path_not_by_url(client, path):
+    """Behind a proxy that terminates TLS, an absolute URL is a broken page.
+
+    The browser is on https. If the application builds `http://host/static/...`
+    because it cannot see the original scheme, that is a different origin as far
+    as the content security policy is concerned, and every stylesheet and script
+    on the page is blocked. Nothing renders and the console blames the CSP,
+    which is telling the truth about the wrong thing.
+
+    A root relative path has no scheme to get wrong.
+    """
+    page = client.get(path).text
+
+    assert "/static/style.css?v=" in page
+    assert "http://" not in page.split("</head>")[0], "an absolute URL in the head"
+
+
+def test_no_template_builds_an_absolute_url_for_a_static_file():
+    """The same rule, checked at the source so a new page cannot reintroduce it."""
+    from pathlib import Path
+
+    for template in (Path(__file__).parent.parent / "pitwatch" / "templates").glob("*.html"):
+        text = template.read_text(encoding="utf-8")
+        assert "url_for('static'" not in text, template.name

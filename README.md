@@ -196,13 +196,27 @@ For HAProxy:
 backend pitwatch
     option httpchk GET /health
     http-check expect string ok
+    option forwardfor
+    # HAProxy does not add this on its own, and PitWatch has no other way to
+    # know the browser is on https. Without it the sign in throttling counts
+    # every request as coming from the proxy, and anything that has to name its
+    # own address gets it wrong.
+    http-request set-header X-Forwarded-Proto https
     server pitwatch 10.0.0.5:8080 check inter 5s fall 3 rise 2
 ```
 
 `http-check expect string ok` rather than only a status code, so that something
 else answering on that port with a cheerful 200 does not read as PitWatch being
-up. Add `option forwardfor` if you want the real client address in the logs;
-the application already trusts forwarded headers.
+up.
+
+`option forwardfor` and the `X-Forwarded-Proto` line are both worth having.
+PitWatch honors them from the addresses named in `PITWATCH_TRUSTED_PROXIES` and
+ignores them from anywhere else.
+
+Nothing breaks without them, because the pages reference their own assets by
+path rather than by URL and the browser supplies the scheme. What suffers is
+anything that has to state an address in full: put the public address in
+settings so invitation emails carry a link that works.
 
 ### Changing the ports
 

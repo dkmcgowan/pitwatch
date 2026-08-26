@@ -168,3 +168,39 @@ def test_both_compose_files_share_a_project_and_volume_name():
         assert "\nname: pitwatch\n" in compose
         assert "\nvolumes:\n  pitwatch-db:\n" in compose
         assert "- pitwatch-db:/var/lib/postgresql/data" in compose
+
+
+def test_health_is_plain_ok_and_touches_nothing():
+    """The load balancer check.
+
+    Built without the lifespan, so there is no database at all here. It still
+    answers 200, which is the point: a proxy polling every couple of seconds
+    must not turn into a query per poll.
+    """
+    response = build().get("/health")
+
+    assert response.status_code == 200
+    assert response.text == "ok"
+    assert response.headers["content-type"].startswith("text/plain")
+
+
+def test_health_answers_head_as_well_as_get():
+    """Some checkers use HEAD. Starlette gives it to us with GET, and it would
+    be quietly lost if this ever became an explicitly method-limited route."""
+    response = build().head("/health")
+
+    assert response.status_code == 200
+
+
+def test_health_and_healthz_answer_different_questions():
+    """/health is liveness and /healthz is readiness.
+
+    Without a database, /health is still 200 because the process is serving,
+    and /healthz is 503 because it cannot do its job. Collapsing the two would
+    mean either hammering Postgres from the load balancer or never noticing it
+    was gone.
+    """
+    client = build()
+
+    assert client.get("/health").status_code == 200
+    assert client.get("/healthz").status_code == 503

@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -114,9 +114,33 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
     live_api.register(app)
     stream.register(app)
 
+    # GET and HEAD both, explicitly. FastAPI does not add HEAD alongside GET the
+    # way plain Starlette does, and `option httpchk HEAD /health` is a common
+    # enough HAProxy line that answering it with a 405 would be a mean surprise.
+    @app.api_route("/health", methods=["GET", "HEAD"], include_in_schema=False)
+    async def health() -> PlainTextResponse:
+        """Is this process up and serving. For a load balancer or an uptime check.
+
+        Plain text `ok` and a 200, and deliberately nothing else. It touches no
+        database, because a proxy polls this every couple of seconds and there
+        is no reason for that to become a query per poll, forever.
+
+        It is not weaker than it looks. Uvicorn binds its socket only after the
+        lifespan has finished starting, which includes connecting to Postgres
+        and applying migrations, so a 200 from here means the application
+        actually finished coming up. While it is still starting, or if it has
+        died, the connection is refused, which every checker already reads as
+        down.
+
+        For "is it able to do its job right now", which is a different question
+        and worth asking less often, use /healthz.
+        """
+        return PlainTextResponse("ok")
+
     @app.get("/healthz", include_in_schema=False)
     async def healthz(request: Request) -> JSONResponse:
-        """Liveness and readiness in one, for the container health check.
+        """Is this process able to serve requests, which means: can it reach
+        the database. This is what the container health check uses.
 
         It answers from the database rather than from memory, because an app
         process that is running but cannot reach Postgres is not healthy in any

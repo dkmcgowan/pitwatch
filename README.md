@@ -94,7 +94,7 @@ services:
       start_period: 30s
 
   app:
-    image: ghcr.io/dkmcgowan/pitwatch:0.2.0
+    image: ghcr.io/dkmcgowan/pitwatch:0.2.1
     restart: unless-stopped
     depends_on:
       db:
@@ -164,6 +164,43 @@ only, so nothing on your LAN can reach Postgres.
 In this setup it is not only for outside tools: it is the port the application
 itself dials, so the mapping and the connection string both read that one
 variable and cannot drift apart.
+
+### Monitoring it
+
+Two endpoints, answering two different questions.
+
+| Path | Answers | Returns |
+| --- | --- | --- |
+| `/health` | Is the process up and serving | `ok` as plain text, 200. Never touches the database. GET or HEAD. |
+| `/healthz` | Can it reach its database | JSON, 200 when it can, 503 when it cannot |
+
+Point a load balancer or an uptime check at **`/health`**. It is deliberately
+cheap: a proxy polling every couple of seconds should not turn into a database
+query every couple of seconds, forever.
+
+It is not as weak a check as it looks. Uvicorn binds its socket only after
+startup has finished, which includes connecting to Postgres and applying
+migrations, so a 200 from `/health` means the application genuinely came up.
+While it is starting, or once it has died, the connection is refused, which
+every checker already treats as down.
+
+Use `/healthz` when you want to know whether it can currently do its job, and
+poll it less often. The container's own `HEALTHCHECK` uses it, so
+`docker compose ps` already reflects it.
+
+For HAProxy:
+
+```haproxy
+backend pitwatch
+    option httpchk GET /health
+    http-check expect string ok
+    server pitwatch 10.0.0.5:8080 check inter 5s fall 3 rise 2
+```
+
+`http-check expect string ok` rather than only a status code, so that something
+else answering on that port with a cheerful 200 does not read as PitWatch being
+up. Add `option forwardfor` if you want the real client address in the logs;
+the application already trusts forwarded headers.
 
 ### Changing the ports
 

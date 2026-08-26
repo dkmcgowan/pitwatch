@@ -273,16 +273,25 @@
       reverse proxy PitWatch cannot work this out for itself, because it sees
       the proxy's request rather than the address somebody typed.</p>
   </div>
-  <div class="field">
-    <label for="site_contact_email">Contact email</label>
-    <input type="email" id="site_contact_email" name="site_contact_email" value="{{ site.contact_email }}">
-    <p class="hint">Shown on the public messaging policy, so a recipient can ask
-      to be removed and a carrier reviewing your number can reach somebody.</p>
-  </div>
-  <div class="field">
-    <label for="site_contact_phone">Contact phone</label>
-    <input type="tel" id="site_contact_phone" name="site_contact_phone" value="{{ site.contact_phone }}">
-  </div>
+  {# In a fieldset of their own, because there is a second email and a second
+     phone number on this page and they are for the opposite purpose. These two
+     are printed on a public web page. The other two are where your alerts go. #}
+  <fieldset class="field">
+    <legend>Published on the policy pages</legend>
+    <p class="hint">
+      Anyone can read these without signing in. They are how a recipient asks to
+      be taken off the list, and how a carrier reviewing a toll-free number
+      reaches somebody. <strong>This is not where your alerts go</strong>; that
+      is your own email and mobile, on your profile.
+    </p>
+    <label for="site_contact_email">Public email</label>
+    <input type="email" id="site_contact_email" name="site_contact_email"
+           value="{{ site.contact_email }}">
+
+    <label for="site_contact_phone">Public phone</label>
+    <input type="tel" id="site_contact_phone" name="site_contact_phone"
+           value="{{ site.contact_phone }}">
+  </fieldset>
   <div class="field">
     <label for="notify_delay_s">Wait (s) before sending an alert</label>
     <input type="number" min="0" id="notify_delay_s" name="notify_delay_s" value="{{ site.notify_delay_s }}">

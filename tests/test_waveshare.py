@@ -11,7 +11,7 @@ these run instantly instead of sleeping through every hold time.
 
 from __future__ import annotations
 
-from pitwatch.ingest.waveshare import Debouncer, WaveshareReader
+from pitwatch.ingest.waveshare import CONTACT_DEBOUNCE_MS, Debouncer, WaveshareReader
 from pitwatch.schemas import ChannelMap, WaveshareSettings
 
 
@@ -33,7 +33,7 @@ def all_off() -> dict[int, bool]:
 
 
 def test_a_change_has_to_hold_before_it_counts():
-    debouncer = Debouncer(settings_with(ChannelMap(channel=1, debounce_ms=500)))
+    debouncer = Debouncer(500)
     debouncer.prime(1, False)
 
     # The reading that starts a change cannot also settle it, however long the
@@ -45,7 +45,7 @@ def test_a_change_has_to_hold_before_it_counts():
 
 def test_a_bounce_that_falls_back_is_abandoned():
     """A float that bobs up and drops again is not a call for water."""
-    debouncer = Debouncer(settings_with(ChannelMap(channel=1, debounce_ms=500)))
+    debouncer = Debouncer(500)
     debouncer.prime(1, False)
 
     debouncer.feed(1, True, now=100.0)
@@ -57,7 +57,7 @@ def test_a_bounce_that_falls_back_is_abandoned():
 
 
 def test_a_settled_state_is_only_reported_once():
-    debouncer = Debouncer(settings_with(ChannelMap(channel=1, debounce_ms=100)))
+    debouncer = Debouncer(100)
     debouncer.prime(1, False)
 
     assert debouncer.feed(1, True, now=100.0) is None
@@ -67,30 +67,35 @@ def test_a_settled_state_is_only_reported_once():
 
 
 def test_zero_debounce_passes_a_change_straight_through():
-    """Right for a contactor auxiliary, which does not bounce like a float.
-
-    With no hold at all the first disagreeing reading settles immediately, so a
-    run signal is not delayed by even one poll.
-    """
-    debouncer = Debouncer(settings_with(ChannelMap(channel=1, debounce_ms=0)))
+    """What the tests below run with, so a frame is a transition."""
+    debouncer = Debouncer(0)
     debouncer.prime(1, False)
 
     assert debouncer.feed(1, True, now=100.0) is True
 
 
-def test_channels_debounce_independently():
-    debouncer = Debouncer(
-        settings_with(
-            ChannelMap(channel=1, debounce_ms=500),
-            ChannelMap(channel=2, debounce_ms=0),
-        )
-    )
+def test_channels_settle_independently():
+    """One hold for all eight, but each channel tracks its own candidate. A
+    float bouncing on DI1 must not delay a contact settling on DI2."""
+    debouncer = Debouncer(500)
     debouncer.prime(1, False)
     debouncer.prime(2, False)
 
-    assert debouncer.feed(2, True, now=100.0) is True
-    assert debouncer.feed(1, True, now=100.0) is None
+    debouncer.feed(1, True, now=100.0)
+    assert debouncer.feed(2, True, now=100.0) is None
+    assert debouncer.feed(2, True, now=100.6) is True
     assert debouncer.feed(1, True, now=100.6) is True
+
+
+def test_the_shipped_hold_is_long_enough_to_be_worth_having():
+    """It is not a setting any more, so this is the only place it can be wrong.
+
+    Long enough to outlast contact bounce and to bridge the zero crossing gaps
+    of an AC control circuit, which needs more than a couple of poll intervals.
+    Short enough to be invisible against a run of a few seconds.
+    """
+    assert 200 <= CONTACT_DEBOUNCE_MS <= 1000
+    assert 2 * WaveshareSettings().poll_ms < CONTACT_DEBOUNCE_MS
 
 
 # -- the first frame ---------------------------------------------------------
@@ -102,6 +107,7 @@ def test_the_first_frame_matching_what_was_stored_produces_no_events():
         settings_with(ChannelMap(channel=1, label="Lead float")),
         on_events=None,
         initial_state=all_off(),
+        debounce_ms=0,
     )
 
     assert reader._apply(bits(), first=True) == []
@@ -131,6 +137,7 @@ def test_the_first_frame_reports_what_changed_while_we_were_down():
         settings_with(ChannelMap(channel=3, label="High water")),
         on_events=None,
         initial_state=all_off(),
+        debounce_ms=0,
     )
 
     events = reader._apply(bits(di3=True), first=True)
@@ -162,6 +169,7 @@ def test_an_inverted_channel_reads_the_opposite_of_the_wire():
         ),
         on_events=None,
         initial_state=all_off(),
+        debounce_ms=0,
     )
 
     # Closed contact, nothing wrong. Inverted, that reads as off, which is what
@@ -177,9 +185,10 @@ def test_an_inverted_channel_reads_the_opposite_of_the_wire():
 
 def test_a_plain_channel_is_not_inverted():
     reader = WaveshareReader(
-        settings_with(ChannelMap(channel=1, label="Lead float", debounce_ms=0)),
+        settings_with(ChannelMap(channel=1, label="Lead float")),
         on_events=None,
         initial_state=all_off(),
+        debounce_ms=0,
     )
     reader._apply(bits(), first=True)
 
@@ -200,9 +209,10 @@ def test_an_unmapped_channel_still_produces_an_event():
     answerable after the fact rather than only while watching.
     """
     reader = WaveshareReader(
-        settings_with(ChannelMap(channel=5, debounce_ms=0)),
+        settings_with(ChannelMap(channel=5)),
         on_events=None,
         initial_state=all_off(),
+        debounce_ms=0,
     )
     reader._apply(bits(), first=True)
 
@@ -214,9 +224,10 @@ def test_an_unmapped_channel_still_produces_an_event():
 
 def test_a_channel_that_does_not_change_produces_nothing():
     reader = WaveshareReader(
-        settings_with(ChannelMap(channel=1, label="Lead float", debounce_ms=0)),
+        settings_with(ChannelMap(channel=1, label="Lead float")),
         on_events=None,
         initial_state=all_off(),
+        debounce_ms=0,
     )
     reader._apply(bits(di1=True), first=True)
 

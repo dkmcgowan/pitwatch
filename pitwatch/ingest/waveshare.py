@@ -69,6 +69,25 @@ log = logging.getLogger(__name__)
 FIRST_INPUT_ADDRESS = 0
 INPUT_COUNT = 8
 
+# How long a reading has to hold before it counts as a change.
+#
+# Not a setting. Contacts bounce, and float switches bounce for longer than
+# most because a float bobs; without this, one call for water writes a dozen
+# events and the run detector sees a dozen starts. How long a contact bounces
+# for is a fact about mechanical contacts, not about anybody's pit, and it was
+# a per input box that needed all of this explained before it could be answered.
+#
+# This also covers an AC control circuit. A bidirectional optocoupler fed from
+# AC drops out briefly at every zero crossing, 120 times a second on 60 Hz, so
+# a poll can land in a gap and read a live signal as off. Anything longer than
+# a couple of poll intervals discards that, because the next poll disagrees and
+# the candidate change is abandoned.
+#
+# The cost is that every transition is reported this much later than it
+# happened. Against a run of three or four seconds that is visible and
+# harmless: the start and the end move together, so the duration is unchanged.
+CONTACT_DEBOUNCE_MS = 500
+
 
 @dataclass(frozen=True, slots=True)
 class IoEvent:
@@ -90,13 +109,13 @@ class WaveshareError(Exception):
 class Debouncer:
     """Holds a channel's state until the wire has agreed with itself long enough.
 
-    One instance per reader, tracking all eight channels. A channel whose
-    debounce is zero passes changes straight through, which is what you want on
-    a run contact driven by a contactor auxiliary rather than by a float.
+    One instance per reader, tracking all eight channels, all with the same
+    hold. The hold is a constructor argument only so that the tests can set it
+    to zero and drive transitions directly.
     """
 
-    def __init__(self, settings: WaveshareSettings) -> None:
-        self._hold_ms = {channel.channel: channel.debounce_ms for channel in settings.channels}
+    def __init__(self, hold_ms: int = CONTACT_DEBOUNCE_MS) -> None:
+        self._hold_ms = hold_ms
         self._stable: dict[int, bool] = {}
         self._candidate: dict[int, tuple[bool, float]] = {}
 
@@ -121,7 +140,7 @@ class Debouncer:
             self._candidate.pop(channel, None)
             return None
 
-        hold = self._hold_ms.get(channel, 0) / 1000.0
+        hold = self._hold_ms / 1000.0
         started = self._candidate.get(channel)
         if started is None or started[0] != raw:
             self._candidate[channel] = (raw, now)
@@ -142,11 +161,14 @@ class WaveshareReader:
         on_events: Callable[[list[IoEvent]], Awaitable[None]],
         on_status: Callable[[bool, str | None], Awaitable[None]] | None = None,
         initial_state: dict[int, bool] | None = None,
+        debounce_ms: int = CONTACT_DEBOUNCE_MS,
     ) -> None:
         self._settings = settings
         self._on_events = on_events
         self._on_status = on_status
-        self._debouncer = Debouncer(settings)
+        # The hold is an argument only so the tests can set it to zero and
+        # drive transitions frame by frame. Nothing configures it.
+        self._debouncer = Debouncer(debounce_ms)
         # What the database already believes, so a restart does not replay every
         # contact as though it had just changed, and a contact that really did
         # change while the container was down is still noticed.

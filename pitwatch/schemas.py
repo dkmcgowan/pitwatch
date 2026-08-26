@@ -53,16 +53,11 @@ class ChannelMap(BaseModel):
     channel: int = Field(ge=1, le=8)
     label: str = Field(default="", max_length=60)
     invert: bool = False
-    # Contacts bounce, and float switches bounce for longer than most because a
-    # float bobs. A state has to hold for this long before it counts.
-    #
-    # This also covers an AC signal. A bidirectional optocoupler fed from an AC
-    # source drops out briefly at every zero crossing, 120 times a second on 60
-    # Hz, so a poll can land in a gap and read a live signal as off. Any
-    # debounce longer than a couple of poll intervals discards that, because the
-    # next poll disagrees and the candidate change is abandoned. Hence a default
-    # that is not zero.
-    debounce_ms: int = Field(default=500, ge=0, le=30_000)
+
+    # There is no debounce setting. Contacts bounce and floats bounce longest,
+    # so a reading has to hold before it counts, but how long is a fact about
+    # mechanical contacts rather than about this pit. See
+    # pitwatch.ingest.waveshare.CONTACT_DEBOUNCE_MS.
 
     @field_validator("label")
     @classmethod
@@ -344,7 +339,11 @@ class SiteSettings(BaseModel):
 
     # An alert has to stay open this long before anyone is told, which stops a
     # float that bobs once from waking the building. Critical alerts ignore it.
-    notify_delay_s: int = Field(default=30, ge=0, le=3600)
+    #
+    # Short on purpose. This is an ejector pit: the thing on the other end of a
+    # delay is water coming up through a floor, and half a minute of politeness
+    # is not worth it.
+    notify_delay_s: int = Field(default=5, ge=0, le=3600)
     # Do not send the same alert again within this window.
     notify_cooldown_s: int = Field(default=900, ge=0, le=86_400)
 

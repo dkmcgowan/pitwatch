@@ -14,16 +14,14 @@
   <h1>{{ user.display_name }}</h1>
   <p class="hint">
     Signs in as <code>{{ user.username }}</code>{% if user.is_admin %},
-    and is an administrator{% endif %}.
+    and is an administrator{% endif %}. The sign in name cannot be changed;
+    the name above is what alerts are addressed to and is yours to edit.
   </p>
 </section>
 
 <section class="card">
   <h2>How to reach you</h2>
-  <p class="hint">
-    Where your alerts go. Changing these changes where they are sent, for you
-    only.
-  </p>
+  <p class="hint">Where your alerts go, for you only.</p>
   <form method="post" action="/profile">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="grid">
@@ -44,11 +42,8 @@
 
     <fieldset class="field">
       <legend>Send my alerts by</legend>
-      <p class="hint">
-        Pick neither and you will not be sent anything. Your account keeps
-        working and you can still see the pumps here; you simply will not be
-        told when something happens.
-      </p>
+      <p class="hint">Pick neither and you get nothing sent. The account still
+        works and you can still see the pumps here.</p>
       <div class="checkboxes">
         <label>
           <input type="checkbox" name="notify_email" {% if user.notify_email %}checked{% endif %}>
@@ -100,10 +95,7 @@
       </div>
     </div>
     <button type="submit" class="button">Change password</button>
-    <p class="hint">
-      Changing it signs out every other browser you are signed in on. This one
-      stays.
-    </p>
+    <p class="hint">Signs out every other browser. This one stays.</p>
   </form>
 </section>
 

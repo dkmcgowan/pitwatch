@@ -267,8 +267,6 @@ class SiteSettings(BaseModel):
     # policy pages, and "Ejector pit uses PitWatch to monitor" reads exactly as
     # badly as it sounds.
     name: str = ""
-    # Where in the building. "Basement, rear" saves a phone call.
-    location: str = ""
     timezone: str = "America/New_York"
     # The address this is reachable at from outside, used to build invitation
     # links. Behind a reverse proxy the application cannot work this out for

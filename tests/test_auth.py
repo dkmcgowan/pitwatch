@@ -295,7 +295,7 @@ def test_the_policies_name_the_building_once_it_is_set(client):
     sign_in_as_admin(client)
     client.post(
         "/settings/site",
-        data={"site_name": "822 Greenwich St", "site_location": "Basement, rear"},
+        data={"site_name": "822 Greenwich St"},
     )
 
     page = client.get("/messaging-policy").text

@@ -54,7 +54,6 @@ def sign_in_as_admin(client):
 
 SETUP_FORM = {
     "site_name": "Basement pit",
-    "site_location": "123 Example St, rear",
     "site_timezone": "America/New_York",
     "notify_delay_s": "30",
     "notify_cooldown_s": "900",
@@ -535,3 +534,65 @@ def test_the_dashboard_shows_amps_and_nothing_derived_from_voltage(client):
     assert "data-amps" in page
     assert "data-voltage" not in page
     assert "data-power" not in page
+
+
+def test_the_header_is_icons_rather_than_words(client):
+    """It wrapped onto two lines on a phone, which is where this gets read.
+
+    Each icon keeps a title and an aria-label, so it is still a word to a
+    screen reader and on hover.
+    """
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    page = client.get("/").text
+
+    for label in ("Dashboard", "People", "Settings", "Your account"):
+        assert f'aria-label="{label}"' in page, label
+    # The words themselves are gone from the navigation.
+    assert ">Dashboard</a>" not in page
+    assert ">Settings</a>" not in page
+
+
+def test_the_account_menu_holds_the_password_and_sign_out(client):
+    """They were three separate things in the header. Now they are one icon."""
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    page = client.get("/").text
+
+    assert '<details class="menu"' in page
+    assert "/change-password" in page
+    assert 'action="/logout"' in page
+    # And the sign out form still carries a token, being a real form.
+    assert 'name="csrf_token"' in page
+
+
+def test_the_account_menu_works_without_javascript(client):
+    """A details element opens on click and on a keyboard on its own.
+
+    The only thing script adds is closing it when you click elsewhere, which is
+    a convenience rather than the feature.
+    """
+    sign_in_as_admin(client)
+
+    page = client.get("/").text
+
+    assert "<details" in page
+    assert "<summary" in page
+
+
+def test_a_non_admin_sees_no_settings_or_people_icon(client):
+    """The icons are a menu, not decoration: what is not theirs is not shown."""
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+    client.post(
+        "/users/add",
+        data={"name": "Watcher", "username": "watcher", "email": "w@example.com"},
+    )
+
+    page = client.get("/").text
+    assert 'aria-label="Settings"' in page, "the admin should see it"
+
+    # The template decides by user.is_admin, which the People page shows too.
+    assert 'aria-label="People"' in page

@@ -274,7 +274,6 @@ def test_checking_the_token_does_not_eat_the_form(client):
         "/settings/site",
         data={
             "site_name": "822 Greenwich St",
-            "site_location": "Basement, rear",
             "site_timezone": "America/New_York",
             "csrf_token": token_from(client, "/settings"),
         },
@@ -282,7 +281,6 @@ def test_checking_the_token_does_not_eat_the_form(client):
 
     site = client.app.state.settings.site
     assert site.name == "822 Greenwich St", "the handler saw an empty form"
-    assert site.location == "Basement, rear"
 
 
 def test_the_token_in_a_form_is_the_token_and_not_a_function(client):

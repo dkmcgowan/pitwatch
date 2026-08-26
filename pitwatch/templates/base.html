@@ -10,36 +10,54 @@
 {% block head %}{% endblock %}
 </head>
 <body>
+{% include "_icons.html" %}
 <header class="topbar">
   <a class="brand" href="/">
     <span class="brand-mark" aria-hidden="true"></span>
     PitWatch
   </a>
-  <nav>
-    <a href="/" {% if active == 'dashboard' %}class="active"{% endif %}>Dashboard</a>
+  {# Icons rather than words. Four text links plus a name, a password link and
+     a sign out button wrapped onto two lines on a phone, and this is a page
+     somebody reads on a phone in a basement. Each one keeps a title and an
+     aria-label, so it is still a word to a screen reader and on hover. #}
+  <nav aria-label="Main">
+    <a href="/" class="icon-link {% if active == 'dashboard' %}active{% endif %}"
+       title="Dashboard" aria-label="Dashboard">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-home"/></svg>
+    </a>
+
     {% if user and user.is_admin %}
-    <a href="/users" {% if active == 'users' %}class="active"{% endif %}>People</a>
-    {# An icon rather than a word. Four text links plus a name and a sign out
-       wraps onto two lines on a phone, and this is a page somebody reads on a
-       phone while standing in a basement. #}
+    <a href="/users" class="icon-link {% if active == 'users' %}active{% endif %}"
+       title="People" aria-label="People">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-people"/></svg>
+    </a>
     <a href="/settings" class="icon-link {% if active == 'settings' %}active{% endif %}"
        title="Settings" aria-label="Settings">
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
-           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="3"/>
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.36.44.63.8.76H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-      </svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-gear"/></svg>
     </a>
     {% endif %}
+
     {% if user %}
-    <span class="who">
-      {{ user.display_name }}
-      <a href="/change-password">Password</a>
-      <form method="post" action="/logout" class="inline">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="linkish">Sign out</button>
-      </form>
-    </span>
+    {# A details element rather than a scripted dropdown: it opens on click and
+       on a keyboard without any JavaScript, and closing it when you click
+       elsewhere is the only part that needs any. #}
+    <details class="menu" data-menu>
+      <summary class="icon-link {% if active == 'account' %}active{% endif %}"
+               title="{{ user.display_name }}" aria-label="Your account">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-person"/></svg>
+      </summary>
+      <div class="menu-panel">
+        <p class="menu-who">
+          Signed in as <strong>{{ user.display_name }}</strong>
+          {% if user.is_admin %}<span class="muted">Administrator</span>{% endif %}
+        </p>
+        <a href="/change-password">Change password</a>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit">Sign out</button>
+        </form>
+      </div>
+    </details>
     {% endif %}
   </nav>
 </header>
@@ -57,6 +75,7 @@
   </span>
 </footer>
 
+<script src="/static/setup.js?v={{ version }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

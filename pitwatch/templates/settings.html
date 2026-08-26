@@ -88,10 +88,9 @@
       <div class="field">
         <label for="smtp_username">User name</label>
         <input type="text" id="smtp_username" name="smtp_username" value="{{ smtp.username }}" autocomplete="off">
-        <p class="hint">On SES these are <strong>SMTP credentials</strong>, made
-          in the SES console. They are not an IAM access key and secret, though
-          they look similar, and using those instead is the usual reason
-          authentication fails here.</p>
+        <p class="hint">On SES these are <strong>SMTP credentials</strong> from
+          the SES console, not an IAM key and secret. Using the IAM pair is the
+          usual reason this fails.</p>
       </div>
       <div class="field">
         <label for="smtp_password">Password</label>
@@ -119,8 +118,7 @@
       <input type="email" id="email_test_to" name="test_to" placeholder="you@example.com"
              autocomplete="off">
       <button type="button" class="button secondary" data-test-email>Send test email</button>
-      <p class="hint">Uses what is in the boxes above, saved or not, so you can
-        check a change before committing to it.</p>
+      <p class="hint">Uses the boxes above, saved or not.</p>
       <div class="test-result" data-email-result hidden></div>
     </div>
 
@@ -147,14 +145,12 @@
       </select>
       <p class="hint">
         <strong>Amazon SNS</strong> is the real one. Texting a US number needs a
-        registered 10DLC or toll-free number on the account, which takes days to
-        set up and is a rule about US messaging rather than anything to do with
-        AWS. Every paid provider has the same requirement.
-        <strong>The carrier gateway</strong> emails an address like
-        <code>5551234567@vtext.com</code> and costs nothing, but it is
-        unauthenticated, delivered whenever the carrier feels like it, and being
-        withdrawn. Worth having as a second path to a phone. Not worth being the
-        only one.
+        registered 10DLC or toll-free number, which takes days and is a rule
+        about US messaging rather than about AWS.
+        <strong>The carrier gateway</strong> emails something like
+        <code>5551234567@vtext.com</code>. It costs nothing and arrives whenever
+        the carrier feels like it. Worth having as a second path to a phone, not
+        as the only one.
       </p>
     </div>
 
@@ -170,7 +166,7 @@
         <input type="text" id="sms_aws_access_key_id" name="sms_aws_access_key_id"
                value="{{ sms.aws_access_key_id }}" autocomplete="off">
         <p class="hint">An IAM user whose only permission is
-          <code>sns:Publish</code>. Do not reuse an administrator key.</p>
+          <code>sns:Publish</code>.</p>
       </div>
       <div class="field">
         <label for="sms_aws_secret_access_key">Secret access key</label>
@@ -187,15 +183,14 @@
         <label for="sms_origination_number">Origination number</label>
         <input type="tel" id="sms_origination_number" name="sms_origination_number"
                value="{{ sms.origination_number }}" placeholder="+18885550142">
-        <p class="hint">Your registered 10DLC or toll-free number. Required for
-          US destinations.</p>
+        <p class="hint">Required for US destinations.</p>
       </div>
       <div class="field">
         <label for="sms_sender_id">Sender ID</label>
         <input type="text" id="sms_sender_id" name="sms_sender_id" value="{{ sms.sender_id }}"
                placeholder="PITWATCH">
-        <p class="hint">Used outside North America. Ignored for US and Canadian
-          numbers, which require a number instead.</p>
+        <p class="hint">Used outside North America, ignored in the US and
+          Canada.</p>
       </div>
     </div>
 
@@ -205,9 +200,8 @@
         <input type="text" id="sms_gateway_domain" name="sms_gateway_domain"
                value="{{ sms.gateway_domain }}" placeholder="vtext.com">
         <p class="hint">Verizon is <code>vtext.com</code>, AT&amp;T is
-          <code>txt.att.net</code>, T-Mobile is <code>tmomail.net</code>. This
-          route sends through the email settings above, so those have to work
-          first.</p>
+          <code>txt.att.net</code>, T-Mobile <code>tmomail.net</code>. Sends
+          through the email settings above, so those have to work first.</p>
       </div>
     </div>
 
@@ -215,8 +209,8 @@
       <label for="sms_test_to">Send a test to</label>
       <input type="tel" id="sms_test_to" name="test_to" placeholder="+12125550142" autocomplete="off">
       <button type="button" class="button secondary" data-test-sms>Send test text</button>
-      <p class="hint">Uses what is in the boxes above, saved or not. A ten digit
-        US number is fine; it will be read as +1.</p>
+      <p class="hint">Uses the boxes above, saved or not. A ten digit US number
+        is read as +1.</p>
       <div class="test-result" data-sms-result hidden></div>
     </div>
 

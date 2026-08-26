@@ -210,11 +210,11 @@ clamps are identical and the device has no idea which motor it is measuring, so
 this is the one thing it cannot work out for itself. If you get it backwards,
 pump 1 will show pump 2's current; swap it in the settings page.
 
-**The Waveshare.** Its address, and what each of the eight inputs is wired to.
-Each channel has an **invert** switch next to it. Get this wrong and an alarm
-reads as permanently on, then goes quiet at the moment it matters, so it is
-worth checking against the panel rather than guessing. See
-[Wiring the I/O module](#wiring-the-io-module) below.
+**The Waveshare.** Its address, a name for each of the eight inputs, and
+whether each one is on when voltage is **present** or when it is **missing**.
+Get that second one backwards and an alarm reads as permanently on, then goes
+quiet at the moment it matters, so check it against the panel rather than
+guessing. See [Wiring the I/O module](#wiring-the-io-module) below.
 
 **You can skip the Waveshare entirely to start with.** Leave its box unticked
 and its address empty. The clamps go on in ten minutes; the I/O module needs the
@@ -374,23 +374,22 @@ The inputs accept **5 to 36 V**, and the wet contact modes are specified for
 **DC**. If your control circuit is AC, the bidirectional optocoupler still
 conducts, but it drops out briefly at every zero crossing, 120 times a second on
 60 Hz mains. A poll can land in one of those gaps and read a live signal as off.
-Leave every channel's debounce at a few hundred milliseconds and that
-disappears, because the next poll disagrees and the change is discarded. Do not
-set a channel to zero debounce on an AC circuit.
+The half second every input has to hold before a change counts discards that,
+because the next poll disagrees and the change is abandoned. It is not a setting
+and there is nothing to get wrong here.
 
 Each input draws a few milliamps from whatever supplies it, so eight of them is
 a few tens of milliamps on the panel's control transformer. That is usually
 nothing, but it is worth a thought if you are tapping a circuit that is already
 close to its limit or is current limited for a reason.
 
-**Which way round is each signal?** Use the live view on the settings page
+**Which way round is each input?** Use the live view on the settings page
 rather than reasoning about it. It reads the module twice a second and shows
-each input both raw and after the invert setting. Lift a float by hand, or run a
-pump, and watch which row changes and which way. In particular, check whether
-your alarm and overload signals are **fail safe**: many panels hold those
-asserted while everything is fine and drop them on the fault, so that a cut wire
-reads as a fault rather than as silence. Those are the channels that need
-**invert** ticked.
+each input both raw and as it will be recorded. Lift a float by hand, or run a
+pump, and watch which row changes and which way. Check the alarm and overload
+contacts in particular: many panels hold those energized while everything is
+fine and drop them on the fault, so that a cut wire reads as a fault rather than
+as silence. Those are the inputs to set to **on when voltage is missing**.
 
 **Alerts.** Where to send them. Both the email and the SMS sections have a
 **send a test** box that sends a real message using whatever is in the boxes at

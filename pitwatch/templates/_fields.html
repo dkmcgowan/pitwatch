@@ -18,17 +18,16 @@
     <label for="shelly_host">Address</label>
     <input type="text" id="shelly_host" name="shelly_host" value="{{ shelly.host }}"
            placeholder="192.168.1.50" autocomplete="off">
-    <p class="hint">The IP address or host name of the Shelly. Give it a static
-      address or a DHCP reservation; PitWatch does not go looking for a device
-      that has moved.</p>
+    <p class="hint">Give it a static address or a DHCP reservation. PitWatch
+      does not go looking for a device that has moved.</p>
   </div>
 
   <div class="field">
     <label for="shelly_password">Device password</label>
     <input type="password" id="shelly_password" name="shelly_password" autocomplete="new-password"
            placeholder="{% if shelly.password %}unchanged{% else %}none set{% endif %}">
-    <p class="hint">Only if you have turned on authentication in the Shelly's
-      own web interface. The user name is always <code>admin</code>.</p>
+    <p class="hint">Only if you set one on the Shelly itself. The user name
+      there is always <code>admin</code>.</p>
     {% if shelly.password %}
     <label class="hint">
       <input type="checkbox" name="shelly_clear_password"> Clear the stored password
@@ -39,10 +38,9 @@
 
 <div class="field">
   <label>Which clamp is on which pump</label>
-  <p class="hint">The clamps are identical and the device has no idea which
-    motor it is around, so this is the one thing it cannot work out for itself.
-    Press <strong>Test connection</strong>, start a pump by hand, and see which
-    reading moves.</p>
+  <p class="hint">The clamps are identical, so this is the one thing the device
+    cannot work out. Press <strong>Test connection</strong>, start a pump by
+    hand, and see which reading moves.</p>
 
   {# Both pumps are shown, both are pickable and both are submitted and stored.
      Changing one moves the other in the browser, because there are only two
@@ -75,10 +73,8 @@
     </tbody>
   </table>
   </div>
-  <p class="hint" id="clamp-note">There are only two clamps, so changing either
-    one moves the other. Setting both to the same clamp is refused when you
-    save; both pumps would read the same motor and the page would look right
-    while being wrong.</p>
+  <p class="hint" id="clamp-note">Changing either moves the other. Both on one
+    clamp is refused when you save.</p>
 </div>
 
 <div class="field">
@@ -113,34 +109,22 @@
   <div class="field">
     <label for="waveshare_poll_ms">Read every (ms)</label>
     <input type="number" id="waveshare_poll_ms" name="waveshare_poll_ms" value="{{ waveshare.poll_ms }}" min="50" max="10000">
-    <p class="hint">Modbus has to be asked, so this one is a poll. Five times a
-      second is nothing on the wire and it is the difference between catching a
-      short lag float call and missing it.</p>
+    <p class="hint">Modbus has to be asked, so this one polls. Five times a
+      second is nothing on the wire.</p>
   </div>
 </div>
 
 <h3>What each input is wired to</h3>
 <p class="hint">
-  Give an input a name and it is watched, recorded and shown. Leave the name
-  empty and nothing is wired there, so it is left alone. That is the whole of
-  it: the input number is what everything is keyed on, and the name is only
-  what you read.
+  Name an input and it is watched. Leave it blank and it is ignored. Name them
+  after what the panel calls them.
 </p>
 <p class="hint">
-  Name them after what is printed in the panel or on the wire, not after what
-  PitWatch might call them. Anything your panel brings out can go here, whether
-  that is the usual floats and run contacts or a seal failure, a phase monitor
-  or a hand-off-auto position.
-</p>
-<p class="hint">
-  <strong>Invert</strong> is the setting that is easiest to get wrong and worst
-  to get wrong. Tick it when the input reads the opposite of what is happening:
-  a dry contact wired normally closed, or a live line that holds voltage while
-  all is well and drops it on the fault. Alarm and overload contacts are often
-  built that way on purpose, so that a cut wire reads as a fault rather than as
-  silence. Set it backwards and the alarm reads as on forever, then goes quiet
-  at exactly the moment it matters. Use the live view below to check each one
-  against the panel rather than guessing.
+  <strong>On when</strong> is which way round the wire works. Most contacts
+  send voltage when the thing happens. Alarm and overload contacts are often the
+  other way, holding voltage while healthy so a cut wire reads as a fault. Set
+  backwards, an alarm reads as on forever and goes quiet when it matters, so
+  check each one with the live view below.
 </p>
 
 <div class="table-scroll">
@@ -149,8 +133,7 @@
     <tr>
       <th>Input</th>
       <th>Name</th>
-      <th class="center">Invert</th>
-      <th>Debounce (ms)</th>
+      <th>On when</th>
     </tr>
   </thead>
   <tbody>
@@ -162,15 +145,12 @@
                value="{{ channel.label }}" placeholder="not wired"
                aria-label="Name for input {{ channel.channel }}">
       </td>
-      <td class="center">
-        <input type="checkbox" name="channel_{{ channel.channel }}_invert"
-               aria-label="Invert input {{ channel.channel }}"
-               {% if channel.invert %}checked{% endif %}>
-      </td>
       <td>
-        <input type="number" name="channel_{{ channel.channel }}_debounce"
-               aria-label="Debounce on input {{ channel.channel }}"
-               value="{{ channel.debounce_ms }}" min="0" max="30000" step="50">
+        <select name="channel_{{ channel.channel }}_on_when"
+                aria-label="Input {{ channel.channel }} is on when">
+          <option value="present" {% if not channel.invert %}selected{% endif %}>Voltage present</option>
+          <option value="absent" {% if channel.invert %}selected{% endif %}>Voltage missing</option>
+        </select>
       </td>
     </tr>
   {% endfor %}
@@ -180,9 +160,8 @@
 
 <div class="field">
   <button type="button" class="button secondary" data-test-waveshare>Watch the inputs live</button>
-  <p class="hint">Reads the module twice a second and shows what each input is
-    doing. Lift a float or push a contactor in by hand and watch which row
-    changes; that is the channel it is on.</p>
+  <p class="hint">Lift a float or push a contactor in by hand and watch which
+    row changes. That is the input it is on.</p>
   <div class="test-result" data-waveshare-result hidden></div>
 </div>
 {% endmacro %}
@@ -190,9 +169,8 @@
 
 {% macro pump_fields(pumps) %}
 <p class="hint">
-  An ejector pump runs for a few seconds at a time, so the timings here are in
-  milliseconds. Seconds are too coarse a unit to describe anything that happens
-  inside a run that short.
+  Timings are in milliseconds, because these pumps run for a few seconds. Any
+  box that raises an alert can be left empty, which turns that check off.
 </p>
 
 <div class="grid">
@@ -206,75 +184,74 @@
     <label for="pump{{ number }}_running_amps">Counts as running above (A)</label>
     <input type="number" step="0.1" min="0" id="pump{{ number }}_running_amps"
            name="pump{{ number }}_running_amps" value="{{ pump.running_amps }}">
-    <p class="hint">Not zero. A clamp on a live conductor reads a little noise
-      with the motor off.</p>
+    <p class="hint">Not zero. A clamp reads a little noise with the motor off.</p>
 
     <label for="pump{{ number }}_nameplate_amps">Nameplate full load (A)</label>
     <input type="number" step="0.1" min="0" id="pump{{ number }}_nameplate_amps"
            name="pump{{ number }}_nameplate_amps"
            value="{{ pump.nameplate_amps if pump.nameplate_amps is not none else '' }}">
-    <p class="hint">The number printed on the motor itself, often as FLA: what it
-      draws doing the work it was built for. Nothing is calculated from it. It is
-      here so the threshold below can be judged against something real, and so a
-      pump drawing more than its own rating is obvious.</p>
+    <p class="hint">Off the motor, often marked FLA. Nothing is calculated from
+      it; it is here so the number below has something real to sit against.</p>
 
     <label for="pump{{ number }}_overcurrent_amps">Alert above (A)</label>
     <input type="number" step="0.1" min="0" id="pump{{ number }}_overcurrent_amps"
            name="pump{{ number }}_overcurrent_amps"
            value="{{ pump.overcurrent_amps if pump.overcurrent_amps is not none else '' }}">
-    <p class="hint">Set this just above what the pump normally draws once it is
-      turning. The starting surge is thrown away before this is checked, so a
-      motor that spikes to 60 A and settles at 16 A will not trip a threshold of
-      18 A. Leave empty to skip the check.</p>
+    <p class="hint">Just above what it draws once turning. The starting surge is
+      thrown away first, so 18 A will not trip on a motor that spikes to 60 and
+      settles at 16.</p>
 
     <label for="pump{{ number }}_overcurrent_hold_ms">Held for (ms)</label>
     <input type="number" min="100" step="100" id="pump{{ number }}_overcurrent_hold_ms"
            name="pump{{ number }}_overcurrent_hold_ms" value="{{ pump.overcurrent_hold_ms }}">
-    <p class="hint">How long it has to stay above that before it counts, measured
-      after the start has been discarded. This plus the ignore window below has
-      to fit inside a normal run or the alert can never fire.</p>
+    <p class="hint">This plus the ignore window below has to fit inside a normal
+      run, or the alert can never fire.</p>
   </fieldset>
   {% endfor %}
 </div>
 
 <h3>Timing</h3>
 
-<p class="hint">
-  Every box on this page that raises an alert can be left empty, and empty means
-  do not run that check at all. None of them treat an empty box as a zero.
-</p>
+<div class="grid">
+  <div class="field">
+    <label for="inrush_ignore_ms">Ignore the first (ms) of a run</label>
+    <input type="number" min="0" step="100" id="inrush_ignore_ms" name="inrush_ignore_ms"
+           value="{{ pumps.inrush_ignore_ms }}">
+    <p class="hint">
+      A motor pulls six to eight times its running current as it comes up to
+      speed. Readings in this window are left out of the averages and the
+      overcurrent check. The peak is still recorded.
+    </p>
+  </div>
 
-<div class="field">
-  <label for="inrush_ignore_ms">Ignore the first (ms) of a run</label>
-  <input type="number" min="0" step="100" id="inrush_ignore_ms" name="inrush_ignore_ms"
-         value="{{ pumps.inrush_ignore_ms }}">
-  <p class="hint">
-    A motor pulls six to eight times its running current for a fraction of a
-    second as it comes up to speed. Sixty or seventy amps settling to sixteen is
-    a healthy pump, not an overloaded one. Every reading inside this window is
-    left out of the run's averages and out of the overcurrent check above, which
-    is what lets that threshold sit just above the running current. The peak is
-    still recorded separately, because a starting surge that climbs month over
-    month is a bearing on its way out.
-  </p>
+  <div class="field">
+    <label for="max_runtime_ms">Alert on a run longer than (ms)</label>
+    <input type="number" min="1000" step="500" id="max_runtime_ms" name="max_runtime_ms"
+           value="{{ pumps.max_runtime_ms if pumps.max_runtime_ms is not none else '' }}">
+    <p class="hint">
+      A stuck float, or pumping against a blockage. If a normal run is three or
+      four seconds, ten is well outside it.
+    </p>
+  </div>
+
+  <div class="field">
+    <label for="quiet_minutes_before_flag">Flag no runs at all after (minutes)</label>
+    <input type="number" min="5" id="quiet_minutes_before_flag" name="quiet_minutes_before_flag"
+           value="{{ pumps.quiet_minutes_before_flag if pumps.quiet_minutes_before_flag is not none else '' }}">
+    <p class="hint">
+      Silence can be a dry spell, or a stuck float, a clamp that has fallen off,
+      or a dead panel. Set it a bit longer than the longest normal gap.
+    </p>
+  </div>
 </div>
 
-<div class="field">
-  <label for="max_runtime_ms">Alert on a run longer than (ms)</label>
-  <input type="number" min="1000" step="500" id="max_runtime_ms" name="max_runtime_ms"
-         value="{{ pumps.max_runtime_ms if pumps.max_runtime_ms is not none else '' }}">
-  <p class="hint">
-    A stuck float, or pumping against a blockage. If a normal run is three or
-    four seconds, ten is already well outside it. Leave empty to skip the check.
-  </p>
-</div>
+<h3>Short cycling</h3>
 
 <div class="grid">
   <div class="field">
-    <label for="restart_gap_ms">Short cycling: restarts within (ms)</label>
+    <label for="restart_gap_ms">Restarts within (ms)</label>
     <input type="number" min="100" step="100" id="restart_gap_ms" name="restart_gap_ms"
            value="{{ pumps.restart_gap_ms if pumps.restart_gap_ms is not none else '' }}">
-    <p class="hint">Empty turns the check off, which is the default.</p>
   </div>
   <div class="field">
     <label for="restart_streak">this many times in a row</label>
@@ -283,39 +260,14 @@
   </div>
 </div>
 <p class="hint">
-  <strong>What this is looking for.</strong> When a check valve stops sealing,
-  the column of water standing in the discharge pipe runs back down into the pit
-  the moment the pump stops, refills it, and calls the pump straight back out.
-  It wears the motors out and is invisible unless something is watching for it.
+  A check valve that stops sealing lets the discharge pipe run back into the
+  pit the moment a pump stops, which calls it straight back out. Measured
+  between runs of either pump, so alternating does not hide it.
 </p>
 <p class="hint">
-  <strong>Why it is not a count per hour.</strong> A pit that takes roof water
-  cycles continuously through a storm, which is the equipment working, and a
-  rule based on how often the pumps run would fire on every rainstorm. What
-  separates a failed valve from heavy inflow is not how often but how soon: the
-  same column of water takes about the same short time to fall back every time,
-  so the gaps are both very short and very alike. Inflow has to fill the volume
-  between the off level and the lead float, which takes longer and varies with
-  the weather.
+  Off unless you set a gap, and fine left off. Counted by how soon rather than
+  how often, because a pit taking roof water cycles all through a storm.
 </p>
-<p class="hint">
-  It is off until you set a gap, because what counts as suspiciously soon
-  depends on your pit. Leave it off, watch the run history for a while, see how
-  quickly the pumps normally come back on after stopping, and set it well below
-  that.
-</p>
-
-<div class="field">
-  <label for="quiet_minutes_before_flag">Flag no runs at all after (minutes)</label>
-  <input type="number" min="5" id="quiet_minutes_before_flag" name="quiet_minutes_before_flag"
-         value="{{ pumps.quiet_minutes_before_flag if pumps.quiet_minutes_before_flag is not none else '' }}">
-  <p class="hint">
-    The opposite problem. Silence can mean a genuinely dry spell, or it can mean
-    the float is stuck down, the clamp has fallen off, or the panel is dead and
-    nothing is watching the pit at all. Set it to a bit longer than the longest
-    gap you would expect to see normally. Leave empty to skip the check.
-  </p>
-</div>
 {% endmacro %}
 
 
@@ -324,43 +276,30 @@
   <div class="field">
     <label for="site_name">Building</label>
     <input type="text" id="site_name" name="site_name" value="{{ site.name }}">
-    <p class="hint">Which pumps these are. Shown on the dashboard and in every
-      alert, so something like the building or the address is more use than the
-      word PitWatch.</p>
+    <p class="hint">Which pumps these are. Goes in every alert, so an address
+      beats a nickname at two in the morning.</p>
   </div>
   <div class="field">
     <label for="site_timezone">Timezone</label>
     <input type="text" id="site_timezone" name="site_timezone" value="{{ site.timezone }}">
-    <p class="hint">Used for every time on screen and in every alert. Storage is
-      always UTC.</p>
+    <p class="hint">Used for every time shown. Storage is always UTC.</p>
   </div>
   <div class="field">
     <label for="site_base_url">Public address</label>
     <input type="text" id="site_base_url" name="site_base_url" value="{{ site.base_url }}"
            placeholder="https://pitwatch.example.com">
-    <p class="hint">Used to build the links in invitation emails. Behind a
-      reverse proxy PitWatch cannot work this out for itself, because it sees
-      the proxy's request rather than the address somebody typed.</p>
+    <p class="hint">Used to build invitation links. Behind a reverse proxy this
+      cannot be worked out from the request.</p>
   </div>
 </div>
 
 {# Kept apart from the three above, because there is a second email and a
    second phone number in this application and they are for the opposite
    purpose. These two are printed on a public web page. The other two are where
-   your alerts go. #}
+   your alerts go.
+
+   Fields first and explanation under them, like every other group here. #}
 <h3>Published on the policy pages</h3>
-<p class="hint">
-  Anyone can read these without signing in. <strong>This is not where your
-  alerts go</strong>; that is your own email and mobile, on your profile.
-</p>
-<p class="hint">
-  Both are optional and the policy reads properly without them, because
-  replying STOP is what actually stops the messages and that needs nobody's
-  address. Fill them in only if you want a way to be contacted about something
-  else, and prefer a role address such as <code>pumps@example.com</code> over a
-  personal mobile: this page is public, and a phone number on it is public
-  forever.
-</p>
 
 <div class="grid">
   <div class="field">
@@ -375,15 +314,23 @@
   </div>
 </div>
 
+<p class="hint">
+  Anyone can read these without signing in. <strong>Not where your alerts
+  go</strong>; that is your own email and mobile, on your profile.
+</p>
+<p class="hint">
+  Both optional; replying STOP is what actually stops messages. Prefer a role
+  address, because a number on a public page is public forever.
+</p>
+
 <h3>When alerts go out</h3>
 
 <div class="grid">
   <div class="field">
     <label for="notify_delay_s">Wait (s) before sending</label>
     <input type="number" min="0" id="notify_delay_s" name="notify_delay_s" value="{{ site.notify_delay_s }}">
-    <p class="hint">An alert has to stay true this long before anyone is told,
-      which stops a float that bobs once from waking the building. Critical
-      alerts ignore it.</p>
+    <p class="hint">Stops a float that bobs once from waking the building. Keep
+      it short: this is an ejector pit. Critical alerts ignore it.</p>
   </div>
   <div class="field">
     <label for="notify_cooldown_s">Do not repeat within (s)</label>

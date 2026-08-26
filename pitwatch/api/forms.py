@@ -76,7 +76,7 @@ def site_from(form: FormData) -> SiteSettings:
         base_url=text(form, "site_base_url").rstrip("/"),
         contact_email=text(form, "site_contact_email"),
         contact_phone=text(form, "site_contact_phone"),
-        notify_delay_s=integer(form, "notify_delay_s", 30),
+        notify_delay_s=integer(form, "notify_delay_s", 5),
         notify_cooldown_s=integer(form, "notify_cooldown_s", 900),
     )
 
@@ -113,8 +113,9 @@ def waveshare_from(form: FormData) -> WaveshareSettings:
         ChannelMap(
             channel=number_,
             label=text(form, f"channel_{number_}_label"),
-            invert=checkbox(form, f"channel_{number_}_invert"),
-            debounce_ms=integer(form, f"channel_{number_}_debounce", 500),
+            # A select rather than a checkbox, because "invert" asks you to
+            # think backwards and this asks you what the panel does.
+            invert=text(form, f"channel_{number_}_on_when") == "absent",
         )
         for number_ in range(1, 9)
     ]

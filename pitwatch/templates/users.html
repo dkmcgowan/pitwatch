@@ -33,7 +33,7 @@
 
   {% for person in users %}
   <form method="post" action="/users/{{ person.id }}/save" class="person">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="grid">
       <div class="field">
         <label for="name-{{ person.id }}">Name</label>
@@ -105,7 +105,7 @@
     describes, and it is what the carriers require.
   </p>
   <form method="post" action="/users/add">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="grid">
       <div class="field">
         <label for="new_name">Name</label>

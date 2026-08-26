@@ -36,7 +36,7 @@
       {{ user.display_name }}
       <a href="/change-password">Password</a>
       <form method="post" action="/logout" class="inline">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="linkish">Sign out</button>
       </form>
     </span>

@@ -5,7 +5,7 @@
 
 {% block content %}
 <form method="post" action="/setup" autocomplete="off">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
 <section class="card">
   <h1>Set up PitWatch</h1>

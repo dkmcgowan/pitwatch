@@ -136,6 +136,9 @@ def test_someone_added_can_be_reached_without_ever_signing_in(client):
 
     page = client.get("/users").text
 
+    # The Sign in column, which is how an administrator sees that an invitation
+    # is still outstanding. Most accounts never need one: they only ever
+    # receive messages.
     assert "once a password is set" in page, "should be shown as having no password"
 
 

@@ -155,9 +155,9 @@ What is **not** here: two factor authentication, and any audit log beyond what
 goes to the container log. Neither is hard to add and neither is pretending to
 be there.
 
-### People
+### Users
 
-Everyone who should be told about a pump is a person on the **People** page:
+Everyone who should be told about a pump is an account on the **Users** page:
 name, email address, mobile number, and whether they want email, texts, or both.
 Most of them will never sign in. That is the normal case, and it is why a
 password is optional here: the reason a building superintendent is in this list
@@ -170,7 +170,7 @@ shown on screen instead so you can send it yourself. Setting a password lets
 them sign in and see live status; it does not make them an administrator, and
 they cannot reach the settings.
 
-Only administrators can change settings or manage people. An administrator
+Only administrators can change settings or manage users. An administrator
 cannot remove their own rights, disable themselves, or delete their own account,
 because an install with nobody who can change anything needs the database
 editing by hand to recover.

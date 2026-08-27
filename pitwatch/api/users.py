@@ -10,6 +10,7 @@ link to set a password if they also want to watch the dashboard.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
@@ -305,7 +306,12 @@ async def set_password_submit(request: Request):
     return RedirectResponse("/", status_code=303)
 
 
-# -- managing people ---------------------------------------------------------
+# -- managing users ----------------------------------------------------------
+#
+# A list, and a form only when somebody asked for one. Every account used to be
+# an open form on the same page: several editable copies of one shape, no way
+# to see at a glance who gets what, and a Save button per row that looked like
+# it might save all of them.
 
 
 @router.get("/users", include_in_schema=False)
@@ -324,7 +330,7 @@ async def users_page(request: Request, admin: auth.IsAdmin, saved: str | None = 
     )
 
 
-async def _render_users(request: Request, error: str):
+async def _list_with_error(request: Request, error: str):
     pool = request.app.state.pool
     return _templates(request).TemplateResponse(
         request,
@@ -336,34 +342,89 @@ async def _render_users(request: Request, error: str):
     )
 
 
-@router.post("/users/add", include_in_schema=False)
-async def add_user(request: Request, admin: auth.IsAdmin):
-    pool = request.app.state.pool
-    form = await request.form()
+def _form_page(request: Request, person, error: str | None = None, status: int = 200):
+    """The add form, or the edit form for one account. Same template either way."""
+    return _templates(request).TemplateResponse(
+        request,
+        "user_form.html",
+        _context(
+            request,
+            person=person,
+            action=f"/users/{person.id}/edit" if person else "/users/new",
+            error=error,
+        ),
+        status_code=status,
+    )
 
+
+@dataclass(frozen=True, slots=True)
+class _Details:
+    """The fields that adding and editing both ask for, once checked."""
+
+    name: str
+    email: str | None
+    phone: str | None
+    notify_email: bool
+    notify_sms: bool
+    min_severity: str
+    is_admin: bool
+
+
+def _details_from(form) -> _Details | str:
+    """Read the shared fields, or return the sentence to show instead of them."""
     name = forms.text(form, "name")
-    username = forms.text(form, "username").lower()
     email = forms.text(form, "email") or None
     phone = forms.text(form, "phone") or None
     notify_email = forms.checkbox(form, "notify_email")
     notify_sms = forms.checkbox(form, "notify_sms")
 
     if not name:
-        return await _render_users(request, "A person needs a name")
-    if not username:
-        # Derived from the name only as a starting point, and only when the
-        # admin did not care to pick one.
-        username = "".join(character for character in name.lower() if character.isalnum()) or "user"
-    if notify_email and not email:
-        return await _render_users(request, f"{name} is set to get email but has no address")
-    if notify_sms and not phone:
-        return await _render_users(request, f"{name} is set to get texts but has no number")
+        return "A user needs a name"
     if phone:
         phone = sms_sender.normalize(phone)
         if not sms_sender.looks_like_a_number(phone):
-            return await _render_users(request, f"{phone!r} does not look like a phone number")
+            return f"{phone!r} does not look like a phone number"
     if email and not email_sender.looks_like_an_address(email):
-        return await _render_users(request, f"{email!r} does not look like an email address")
+        return f"{email!r} does not look like an email address"
+    # Checked here as well as in the browser, where the boxes are switched off
+    # and unavailable without an address to send to. A form is not a guarantee,
+    # and a notification setting that reads as on and delivers nothing is worse
+    # than one that is plainly off.
+    if notify_email and not email:
+        return f"{name} is set to get email but has no address"
+    if notify_sms and not phone:
+        return f"{name} is set to get texts but has no number"
+
+    return _Details(
+        name=name,
+        email=email,
+        phone=phone,
+        notify_email=notify_email,
+        notify_sms=notify_sms,
+        min_severity=forms.text(form, "min_severity", "warning") or "warning",
+        is_admin=forms.checkbox(form, "is_admin"),
+    )
+
+
+@router.get("/users/new", include_in_schema=False)
+async def new_user_page(request: Request, admin: auth.IsAdmin):
+    return _form_page(request, person=None)
+
+
+@router.post("/users/new", include_in_schema=False)
+async def add_user(request: Request, admin: auth.IsAdmin):
+    pool = request.app.state.pool
+    form = await request.form()
+
+    details = _details_from(form)
+    if isinstance(details, str):
+        return _form_page(request, person=None, error=details, status=400)
+
+    username = forms.text(form, "username").lower()
+    if not username:
+        # Derived from the name only as a starting point, and only when the
+        # administrator did not care to pick one.
+        username = "".join(c for c in details.name.lower() if c.isalnum()) or "user"
 
     try:
         user_id = await pool.fetchval(
@@ -375,30 +436,107 @@ async def add_user(request: Request, admin: auth.IsAdmin):
             RETURNING id
             """,
             username,
-            name,
-            email,
-            phone,
-            notify_email,
-            notify_sms,
-            forms.text(form, "min_severity", "warning") or "warning",
-            forms.checkbox(form, "is_admin"),
+            details.name,
+            details.email,
+            details.phone,
+            details.notify_email,
+            details.notify_sms,
+            details.min_severity,
+            details.is_admin,
         )
     except (ValidationError, ValueError) as error:
-        return await _render_users(request, str(error))
+        return _form_page(request, person=None, error=str(error), status=400)
     except Exception as error:  # noqa: BLE001 -- a duplicate is the usual one
         log.warning("Could not add %r: %s", username, error)
-        return await _render_users(
-            request, f"Could not add {name}. Is {username!r} or that email already used?"
+        return _form_page(
+            request,
+            person=None,
+            error=f"Could not add {details.name}. Is {username!r} or that email already used?",
+            status=400,
         )
 
     log.info("%s added %s", admin.username, username)
 
-    if forms.checkbox(form, "send_invite") and email:
-        message = await _send_invitation(request, user_id, name, email)
+    if forms.checkbox(form, "send_invite") and details.email:
+        message = await _send_invitation(request, user_id, details.name, details.email)
         if message:
             request.session["invite_link"] = message
 
     return RedirectResponse("/users?saved=added", status_code=303)
+
+
+@router.get("/users/{user_id}/edit", include_in_schema=False)
+async def edit_user_page(request: Request, user_id: int, admin: auth.IsAdmin):
+    person = await auth.get_user(request.app.state.pool, user_id)
+    if person is None:
+        return RedirectResponse("/users", status_code=303)
+    return _form_page(request, person=person)
+
+
+@router.post("/users/{user_id}/edit", include_in_schema=False)
+async def save_user(request: Request, user_id: int, admin: auth.IsAdmin):
+    pool = request.app.state.pool
+    person = await auth.get_user(pool, user_id)
+    if person is None:
+        return RedirectResponse("/users", status_code=303)
+
+    form = await request.form()
+    details = _details_from(form)
+    if isinstance(details, str):
+        return _form_page(request, person=person, error=details, status=400)
+
+    enabled = forms.checkbox(form, "enabled")
+
+    # An install with nobody who can change anything is an install that needs
+    # the database edited by hand to recover.
+    if admin.id == user_id and not details.is_admin:
+        return _form_page(
+            request,
+            person=person,
+            error="You cannot remove your own administrator rights",
+            status=400,
+        )
+    if admin.id == user_id and not enabled:
+        return _form_page(
+            request, person=person, error="You cannot disable your own account", status=400
+        )
+
+    await pool.execute(
+        """
+        UPDATE app_user
+        SET name = $2, email = $3, phone = $4, notify_email = $5, notify_sms = $6,
+            min_severity = $7, is_admin = $8, enabled = $9
+        WHERE id = $1
+        """,
+        user_id,
+        details.name,
+        details.email,
+        details.phone,
+        details.notify_email,
+        details.notify_sms,
+        details.min_severity,
+        details.is_admin,
+        enabled,
+    )
+    log.info("%s updated user %d", admin.username, user_id)
+    return RedirectResponse("/users?saved=updated", status_code=303)
+
+
+@router.post("/users/{user_id}/toggle", include_in_schema=False)
+async def toggle_user(request: Request, user_id: int, admin: auth.IsAdmin):
+    """Active or not, from the list, without opening the form."""
+    if admin.id == user_id:
+        return await _list_with_error(request, "You cannot disable your own account")
+    pool = request.app.state.pool
+    person = await auth.get_user(pool, user_id)
+    if person is None:
+        return RedirectResponse("/users", status_code=303)
+
+    await pool.execute("UPDATE app_user SET enabled = NOT enabled WHERE id = $1", user_id)
+    log.info(
+        "%s %s %s", admin.username, "disabled" if person.enabled else "enabled", person.username
+    )
+    return RedirectResponse("/users?saved=updated", status_code=303)
 
 
 async def _send_invitation(request: Request, user_id: int, name: str, email: str) -> str | None:
@@ -437,53 +575,12 @@ async def _send_invitation(request: Request, user_id: int, name: str, email: str
     return None
 
 
-@router.post("/users/{user_id}/save", include_in_schema=False)
-async def save_user(request: Request, user_id: int, admin: auth.IsAdmin):
-    pool = request.app.state.pool
-    form = await request.form()
-
-    email = forms.text(form, "email") or None
-    phone = forms.text(form, "phone") or None
-    if phone:
-        phone = sms_sender.normalize(phone)
-
-    is_admin = forms.checkbox(form, "is_admin")
-    enabled = forms.checkbox(form, "enabled")
-
-    # An install with nobody who can change anything is an install that needs
-    # the database edited by hand to recover.
-    if admin.id == user_id and not is_admin:
-        return await _render_users(request, "You cannot remove your own administrator rights")
-    if admin.id == user_id and not enabled:
-        return await _render_users(request, "You cannot disable your own account")
-
-    await pool.execute(
-        """
-        UPDATE app_user
-        SET name = $2, email = $3, phone = $4, notify_email = $5, notify_sms = $6,
-            min_severity = $7, is_admin = $8, enabled = $9
-        WHERE id = $1
-        """,
-        user_id,
-        forms.text(form, "name"),
-        email,
-        phone,
-        forms.checkbox(form, "notify_email"),
-        forms.checkbox(form, "notify_sms"),
-        forms.text(form, "min_severity", "warning") or "warning",
-        is_admin,
-        enabled,
-    )
-    log.info("%s updated user %d", admin.username, user_id)
-    return RedirectResponse("/users?saved=updated", status_code=303)
-
-
 @router.post("/users/{user_id}/invite", include_in_schema=False)
 async def invite_user(request: Request, user_id: int, admin: auth.IsAdmin):
     pool = request.app.state.pool
     user = await auth.get_user(pool, user_id)
     if user is None or not user.email:
-        return await _render_users(request, "That person has no email address to send a link to")
+        return await _list_with_error(request, "That user has no email address to send a link to")
 
     link = await _send_invitation(request, user.id, user.display_name, user.email)
     if link:
@@ -494,7 +591,7 @@ async def invite_user(request: Request, user_id: int, admin: auth.IsAdmin):
 @router.post("/users/{user_id}/delete", include_in_schema=False)
 async def delete_user(request: Request, user_id: int, admin: auth.IsAdmin):
     if admin.id == user_id:
-        return await _render_users(request, "You cannot delete your own account")
+        return await _list_with_error(request, "You cannot delete your own account")
     pool = request.app.state.pool
     await pool.execute("DELETE FROM app_user WHERE id = $1", user_id)
     log.info("%s deleted user %d", admin.username, user_id)

@@ -407,3 +407,48 @@ function csrfHeader(form) {
     refresh();
   }
 })();
+
+
+// A notification box is unavailable until there is somewhere to send it.
+//
+// An account with the email box ticked and no address is a setting that reads
+// as configured and delivers nothing, which is the worst state for anything on
+// an alerting page to be in. The field says which box depends on it and the box
+// follows what is typed, live, so it is never on without an address behind it.
+//
+// The server checks this again. This makes the mistake hard to make; it is not
+// what makes it impossible.
+
+(function () {
+  "use strict";
+
+  const fields = Array.prototype.slice.call(document.querySelectorAll("[data-requires]"));
+  if (!fields.length) {
+    return;
+  }
+
+  fields.forEach(function (field) {
+    const box = document.getElementById(field.getAttribute("data-requires"));
+    if (!box) {
+      return;
+    }
+    const label = box.closest("label");
+
+    function refresh() {
+      const ready = field.value.trim() !== "";
+      box.disabled = !ready;
+      if (!ready) {
+        // Cleared as well as disabled. A disabled checkbox posts nothing, so
+        // leaving it ticked would show a state the next save would drop.
+        box.checked = false;
+      }
+      if (label) {
+        label.classList.toggle("unavailable", !ready);
+        label.title = ready ? "" : "Add an address or number first";
+      }
+    }
+
+    field.addEventListener("input", refresh);
+    refresh();
+  });
+})();

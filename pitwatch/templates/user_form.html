@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% set active = 'users' %}
+{% block title %}{% if person %}Edit {{ person.name or person.username }}{% else %}Add a user{% endif %}{% endblock %}
+
+{% block content %}
+
+{% if error %}
+<p class="error" role="alert">{{ error }}</p>
+{% endif %}
+
+{# One form for both jobs. Adding and editing ask for the same things, and two
+   copies of that shape is two places for them to drift apart. #}
+<section class="card">
+  <h1>{% if person %}Edit {{ person.name or person.username }}{% else %}Add a user{% endif %}</h1>
+
+  <form method="post" action="{{ action }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <h3>Who they are</h3>
+    <div class="grid">
+      <div class="field">
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" required
+               value="{{ person.name if person else '' }}">
+      </div>
+      <div class="field">
+        <label for="username">User name</label>
+        {% if person %}
+        <input type="text" id="username" value="{{ person.username }}" disabled>
+        <p class="hint">The sign in name cannot be changed.</p>
+        {% else %}
+        <input type="text" id="username" name="username" autocomplete="off">
+        <p class="hint">Only needed if they will sign in. Made from their name
+          if left empty.</p>
+        {% endif %}
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" data-requires="notify_email"
+               value="{{ person.email or '' if person else '' }}">
+      </div>
+      <div class="field">
+        <label for="phone">Mobile</label>
+        <input type="tel" id="phone" name="phone" data-requires="notify_sms"
+               placeholder="+12125550142"
+               value="{{ person.phone or '' if person else '' }}">
+        <p class="hint">Only for somebody who has agreed to be texted. That
+          agreement is what the <a href="/messaging-policy">messaging
+          policy</a> describes and what the carriers require.</p>
+      </div>
+    </div>
+
+    <h3>Alerts</h3>
+    <div class="field checkboxes">
+      {# Each one is switched off and unavailable until there is somewhere to
+         send it. A box ticked for email on an account with no address is a
+         setting that reads as configured and delivers nothing. #}
+      <label>
+        <input type="checkbox" name="notify_email" id="notify_email"
+               {% if person and person.notify_email or not person %}checked{% endif %}>
+        Email
+      </label>
+      <label>
+        <input type="checkbox" name="notify_sms" id="notify_sms"
+               {% if person and person.notify_sms %}checked{% endif %}>
+        Text
+      </label>
+    </div>
+
+    <div class="field narrow">
+      <label for="min_severity">Send them</label>
+      <select id="min_severity" name="min_severity">
+        {% for value, label in [('info', 'Everything'), ('warning', 'Warnings and worse'), ('critical', 'Critical only')] %}
+        <option value="{{ value }}"
+                {% if person and person.min_severity == value or not person and value == 'warning' %}selected{% endif %}>
+          {{ label }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <h3>Role and access</h3>
+    <div class="field checkboxes">
+      <label>
+        <input type="checkbox" name="is_admin" {% if person and person.is_admin %}checked{% endif %}>
+        Administrator
+      </label>
+      {% if person %}
+      <label>
+        <input type="checkbox" name="enabled" {% if person.enabled %}checked{% endif %}>
+        Active
+      </label>
+      {% endif %}
+    </div>
+    <p class="hint">
+      An administrator can see and change everything, including these accounts.
+      A user who is not active keeps their settings and is sent nothing.
+    </p>
+
+    {% if not person %}
+    <div class="field checkboxes">
+      <label>
+        <input type="checkbox" name="send_invite" checked>
+        Email them a link to set a password
+      </label>
+    </div>
+    {% endif %}
+
+    <div class="row-actions">
+      <button type="submit" class="button">Save</button>
+      <a class="button secondary" href="/users">Cancel</a>
+    </div>
+  </form>
+</section>
+
+{% if person and person.email %}
+<section class="card">
+  <h2>Password</h2>
+  <p class="hint">
+    Sends a link that works once and expires in three days. If email is not
+    working yet the link is shown here instead.
+  </p>
+  <form method="post" action="/users/{{ person.id }}/invite">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="button secondary">
+      {% if person.has_password %}Send a reset link{% else %}Send an invitation{% endif %}
+    </button>
+  </form>
+</section>
+{% endif %}
+
+{% endblock %}

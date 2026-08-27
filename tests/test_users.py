@@ -81,11 +81,17 @@ def user_id_of(client, username: str) -> int:
     the wrong person turned out to be the admin.
     """
     page = client.get("/users").text
-    for chunk in page.split('<form method="post" action="/users/')[1:]:
-        identifier, _, rest = chunk.partition("/save")
-        if f"<code>{username}</code>" in rest.split('<form method="post"')[0]:
-            return int(identifier)
-    raise AssertionError(f"{username} is not on the people page")
+    # Row by row. Scanning the whole page for a username and then reaching
+    # backwards for an id happily starts in one row and finishes in the next,
+    # which returns the wrong id and then edits the wrong account. That is
+    # exactly what an earlier version of this did, and the test that noticed
+    # was the one where the wrong account turned out to be the admin.
+    for row in page.split("<tr>")[1:]:
+        if f'class="mono">{username}<' not in row:
+            continue
+        at = row.index("/users/") + len("/users/")
+        return int(row[at : row.index("/edit", at)])
+    raise AssertionError(f"{username} is not on the users page")
 
 
 def invitation_link(client, user_id: int) -> str:
@@ -114,7 +120,7 @@ def token_from(link: str) -> str:
 def test_adding_someone_records_how_to_reach_them(client):
     sign_in_as_admin(client)
 
-    client.post("/users/add", data=SUPER | {"send_invite": ""})
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
 
     page = client.get("/users").text
     assert "Building Super" in page
@@ -126,7 +132,7 @@ def test_adding_someone_records_how_to_reach_them(client):
 def test_someone_added_can_be_reached_without_ever_signing_in(client):
     """Most people here never sign in. They are here to be texted."""
     sign_in_as_admin(client)
-    client.post("/users/add", data=SUPER | {"send_invite": ""})
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
 
     page = client.get("/users").text
 
@@ -137,7 +143,7 @@ def test_a_person_set_to_be_texted_needs_a_number(client):
     sign_in_as_admin(client)
 
     response = client.post(
-        "/users/add", data={"name": "No Phone", "notify_sms": "on", "min_severity": "warning"}
+        "/users/new", data={"name": "No Phone", "notify_sms": "on", "min_severity": "warning"}
     )
 
     assert response.status_code == 400
@@ -148,7 +154,7 @@ def test_a_person_set_to_be_emailed_needs_an_address(client):
     sign_in_as_admin(client)
 
     response = client.post(
-        "/users/add", data={"name": "No Mail", "notify_email": "on", "min_severity": "warning"}
+        "/users/new", data={"name": "No Mail", "notify_email": "on", "min_severity": "warning"}
     )
 
     assert response.status_code == 400
@@ -159,7 +165,7 @@ def test_a_phone_number_that_is_not_one_is_refused(client):
     sign_in_as_admin(client)
 
     response = client.post(
-        "/users/add", data={"name": "Wrong", "phone": "nonsense", "notify_sms": "on"}
+        "/users/new", data={"name": "Wrong", "phone": "nonsense", "notify_sms": "on"}
     )
 
     assert response.status_code == 400
@@ -168,11 +174,11 @@ def test_a_phone_number_that_is_not_one_is_refused(client):
 
 def test_editing_someone_keeps_the_change(client):
     sign_in_as_admin(client)
-    client.post("/users/add", data=SUPER | {"send_invite": ""})
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
     user_id = user_id_of(client, "super")
 
     client.post(
-        f"/users/{user_id}/save",
+        f"/users/{user_id}/edit",
         data={
             "name": "The Super",
             "email": "super@example.com",
@@ -197,13 +203,13 @@ def test_an_admin_cannot_lock_themselves_out(client):
     admin_id = user_id_of(client, auth.DEFAULT_USERNAME)
 
     response = client.post(
-        f"/users/{admin_id}/save", data={"name": "Administrator", "enabled": "on"}
+        f"/users/{admin_id}/edit", data={"name": "Administrator", "enabled": "on"}
     )
     assert response.status_code == 400
     assert "administrator rights" in response.text
 
     response = client.post(
-        f"/users/{admin_id}/save", data={"name": "Administrator", "is_admin": "on"}
+        f"/users/{admin_id}/edit", data={"name": "Administrator", "is_admin": "on"}
     )
     assert response.status_code == 400
     assert "disable your own account" in response.text
@@ -215,7 +221,7 @@ def test_an_admin_cannot_lock_themselves_out(client):
 
 def test_only_an_admin_can_manage_people_or_settings(client):
     sign_in_as_admin(client)
-    client.post("/users/add", data=SUPER | {"send_invite": ""})
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
     user_id = user_id_of(client, "super")
 
     link = invitation_link(client, user_id)
@@ -241,7 +247,7 @@ def test_only_an_admin_can_manage_people_or_settings(client):
 
 def test_an_invitation_sets_a_password_and_signs_them_in(client):
     sign_in_as_admin(client)
-    client.post("/users/add", data=SUPER | {"send_invite": ""})
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
     link = invitation_link(client, user_id_of(client, "super"))
     client.post("/logout")
 
@@ -263,7 +269,7 @@ def test_an_invitation_sets_a_password_and_signs_them_in(client):
 
 def test_an_invitation_link_only_works_once(client):
     sign_in_as_admin(client)
-    client.post("/users/add", data=SUPER | {"send_invite": ""})
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
     link = invitation_link(client, user_id_of(client, "super"))
     client.post("/logout")
 
@@ -286,7 +292,7 @@ def test_an_invitation_link_only_works_once(client):
 def test_issuing_a_new_invitation_kills_the_old_one(client):
     """A resent invitation must not leave the first link live."""
     sign_in_as_admin(client)
-    client.post("/users/add", data=SUPER | {"send_invite": ""})
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
     user_id = user_id_of(client, "super")
 
     first = invitation_link(client, user_id)
@@ -306,7 +312,7 @@ def test_a_made_up_token_is_refused(client):
 def test_a_mismatched_password_does_not_spend_the_link(client):
     """A typo should not cost somebody their invitation."""
     sign_in_as_admin(client)
-    client.post("/users/add", data=SUPER | {"send_invite": ""})
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
     link = invitation_link(client, user_id_of(client, "super"))
     client.post("/logout")
 
@@ -325,7 +331,7 @@ def test_a_mismatched_password_does_not_spend_the_link(client):
 
 def test_a_disabled_person_cannot_sign_in(client):
     sign_in_as_admin(client)
-    client.post("/users/add", data=SUPER | {"send_invite": ""})
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
     user_id = user_id_of(client, "super")
     link = invitation_link(client, user_id)
     client.post("/logout")
@@ -342,7 +348,7 @@ def test_a_disabled_person_cannot_sign_in(client):
     sign_in_as_admin(client)
     # Saving without the enabled box ticked turns them off.
     client.post(
-        f"/users/{user_id}/save", data={"name": "Building Super", "email": "super@example.com"}
+        f"/users/{user_id}/edit", data={"name": "Building Super", "email": "super@example.com"}
     )
     client.post("/logout")
 
@@ -361,7 +367,7 @@ def test_the_invitation_link_is_shown_once_and_then_cleared(client):
     itself.
     """
     sign_in_as_admin(client)
-    client.post("/users/add", data=SUPER | {"send_invite": ""})
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
     user_id = user_id_of(client, "super")
 
     shown = client.post(f"/users/{user_id}/invite").text
@@ -378,7 +384,7 @@ def test_a_signed_in_non_admin_cannot_reach_the_dashboard_lamps(client):
     let through.
     """
     sign_in_as_admin(client)
-    client.post("/users/add", data=SUPER | {"send_invite": ""})
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
     link = invitation_link(client, user_id_of(client, "super"))
     client.post("/logout")
 
@@ -399,3 +405,143 @@ def test_a_signed_in_non_admin_cannot_reach_the_dashboard_lamps(client):
     save = client.post("/settings/dashboard", data={"role_high_water": "3"}, follow_redirects=False)
     assert save.status_code in (303, 403)
     assert client.app.state.settings.dashboard.high_water is None
+
+
+# -- the list, and the forms that are not on it ------------------------------
+
+
+def test_the_users_page_is_a_list_and_not_a_pile_of_forms(client):
+    """It used to render every account as an open form on one page. Several
+    editable copies of one shape, no way to see at a glance who gets what, and
+    a Save button per row that looked like it might save all of them."""
+    sign_in_as_admin(client)
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
+
+    page = client.get("/users").text
+
+    assert "<table" in page
+    for column in ("Name", "User name", "Email", "Mobile", "Alerts", "Role", "Status"):
+        assert f">{column}</th>" in page, column
+    # One editable form per account is exactly what this replaced.
+    assert page.count('action="/users/') == page.count("/toggle") + page.count("/delete")
+    assert 'href="/users/new"' in page
+
+
+def test_the_list_shows_what_each_account_gets(client):
+    sign_in_as_admin(client)
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
+
+    row = ""
+    for chunk in client.get("/users").text.split("<tr>"):
+        if 'class="mono">super<' in chunk:
+            row = chunk
+    assert row, "the account is not in the table"
+
+    assert "super@example.com" in row
+    assert "Email, Text" in row, "both channels are on for this one"
+    assert ">User<" in row, "not an administrator"
+    assert "Active" in row
+
+
+def test_adding_happens_on_its_own_page_and_comes_back_to_the_list(client):
+    sign_in_as_admin(client)
+
+    assert client.get("/users/new").status_code == 200
+
+    response = client.post("/users/new", data=SUPER | {"send_invite": ""}, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/users?saved=added"
+    assert "super" in client.get("/users").text
+
+
+def test_a_rejected_add_comes_back_to_the_form_and_not_the_list(client):
+    """With what was typed still in it. Bouncing to a list and making somebody
+    start again is how a typo costs five fields."""
+    sign_in_as_admin(client)
+
+    page = client.post(
+        "/users/new",
+        data={"name": "No Mail", "notify_email": "on", "min_severity": "warning"},
+    )
+
+    assert page.status_code == 400
+    assert "has no address" in page.text
+    assert 'action="/users/new"' in page.text, "still the form"
+    assert "<table" not in page.text, "not the list"
+
+
+def test_editing_happens_on_its_own_page_with_a_way_out(client):
+    sign_in_as_admin(client)
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
+    user_id = user_id_of(client, "super")
+
+    page = client.get(f"/users/{user_id}/edit")
+
+    assert page.status_code == 200
+    assert "Building Super" in page.text
+    assert f'action="/users/{user_id}/edit"' in page.text
+    assert 'href="/users">Cancel<' in page.text, "a way out that changes nothing"
+    # The sign in name is the one thing that cannot be changed here.
+    assert 'name="username"' not in page.text
+
+
+def test_saving_an_edit_returns_to_the_list(client):
+    sign_in_as_admin(client)
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
+    user_id = user_id_of(client, "super")
+
+    response = client.post(
+        f"/users/{user_id}/edit",
+        data={"name": "Renamed", "email": "super@example.com", "min_severity": "warning"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/users?saved=updated"
+    assert "Renamed" in client.get("/users").text
+
+
+def test_active_can_be_flipped_from_the_list(client):
+    """Without opening the form, which is the common case: somebody is on
+    holiday and should stop being texted at three in the morning."""
+    sign_in_as_admin(client)
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
+    user_id = user_id_of(client, "super")
+
+    client.post(f"/users/{user_id}/toggle", follow_redirects=False)
+    assert "Disabled" in client.get("/users").text
+
+    client.post(f"/users/{user_id}/toggle", follow_redirects=False)
+    assert "Disabled" not in client.get("/users").text
+
+
+def test_you_cannot_disable_yourself_from_the_list_either(client):
+    """The button is not offered, and the server refuses it anyway. An install
+    with nobody who can change anything needs the database edited by hand."""
+    sign_in_as_admin(client)
+    admin_id = user_id_of(client, auth.DEFAULT_USERNAME)
+
+    page = client.get("/users").text
+    assert f'action="/users/{admin_id}/toggle"' not in page
+    assert f'action="/users/{admin_id}/delete"' not in page
+
+    refused = client.post(f"/users/{admin_id}/toggle")
+    assert refused.status_code == 400
+    assert "cannot disable your own account" in refused.text
+
+
+def test_a_notification_box_needs_somewhere_to_send(client):
+    """Checked in the browser and again here. A box ticked for email on an
+    account with no address reads as configured and delivers nothing."""
+    sign_in_as_admin(client)
+
+    page = client.get("/users/new").text
+    assert 'data-requires="notify_email"' in page
+    assert 'data-requires="notify_sms"' in page
+
+    refused = client.post(
+        "/users/new", data={"name": "No Phone", "notify_sms": "on", "min_severity": "warning"}
+    )
+    assert refused.status_code == 400
+    assert "has no number" in refused.text

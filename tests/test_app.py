@@ -632,12 +632,13 @@ def test_every_lamp_row_uses_the_same_two_columns():
 
     row = rule(".lamp-row")
     assert "display: grid;" in row
-    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in row
-    # Every row and the screen share one width, which is what makes the columns
-    # line up with each other rather than each being centered on its own.
-    assert "max-width: var(--door-width);" in row
+    # Identical width lamps, so a bulb is in the same place in every row...
+    assert "grid-template-columns: repeat(2, var(--lamp-width));" in row
+    # ...and the pair centered, so they sit symmetrically about the middle of a
+    # centered screen instead of one hanging off the left edge.
+    assert "justify-content: center;" in row
+    assert "--lamp-width:" in rule(".door")
     assert "max-width: var(--door-width);" in rule(".lcd")
-    assert "--door-width:" in rule(".door")
     assert "text-align: center;" in rule(".lcd")
 
 
@@ -650,6 +651,24 @@ def test_the_alarms_sit_side_by_side_like_every_other_row():
     assert alarms < page.index('data-lamp="system_alert"'), "high water on the left"
     # One row element holding both, rather than a block of its own.
     assert "door-alarms" not in page
+
+
+def test_the_run_lamps_carry_the_live_facts():
+    """Amps, when it last started, how many times today. Under the lamp that
+    says whether it is running, because that is where somebody is looking.
+
+    Deliberately no run duration. The clamps report about every fifteen seconds
+    while nothing changes, so a run's start and end are caught and its middle is
+    not; timing one from these readings would be inventing a number. See
+    pitwatch/domain/history.py.
+    """
+    page = render_dashboard()
+
+    assert 'data-facts="1"' in page
+    assert 'data-facts="2"' in page
+    for marker in ("data-fact-amps", "data-fact-last", "data-fact-runs"):
+        assert page.count(marker) == 2, marker
+    assert "duration" not in page.lower().replace("data-fact", "")
 
 
 def test_the_run_lamps_are_labelled_the_short_way():

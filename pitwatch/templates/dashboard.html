@@ -64,15 +64,31 @@
     </div>
 
     <div class="lamp-row">
-      <div class="lamp lamp-green" data-lamp="pump1_run">
+      <div class="lamp lamp-green lamp-with-facts" data-lamp="pump1_run">
         <span class="bulb" aria-hidden="true"></span>
         <span class="lamp-title">P1 Running</span>
         <span class="lamp-state" data-lamp-state>No data</span>
+        {# What is happening now, under the lamp that says whether it is.
+           Amps live, then when it last started and how many times it has
+           today. No duration: see pitwatch/domain/history.py. #}
+        <dl class="facts" data-facts="1">
+          <div><dt>Amps</dt><dd data-fact-amps>--</dd></div>
+          <div><dt>Last run</dt><dd data-fact-last>--</dd></div>
+          <div><dt>Runs today</dt><dd data-fact-runs>--</dd></div>
+        </dl>
       </div>
-      <div class="lamp lamp-green" data-lamp="pump2_run">
+      <div class="lamp lamp-green lamp-with-facts" data-lamp="pump2_run">
         <span class="bulb" aria-hidden="true"></span>
         <span class="lamp-title">P2 Running</span>
         <span class="lamp-state" data-lamp-state>No data</span>
+        {# What is happening now, under the lamp that says whether it is.
+           Amps live, then when it last started and how many times it has
+           today. No duration: see pitwatch/domain/history.py. #}
+        <dl class="facts" data-facts="2">
+          <div><dt>Amps</dt><dd data-fact-amps>--</dd></div>
+          <div><dt>Last run</dt><dd data-fact-last>--</dd></div>
+          <div><dt>Runs today</dt><dd data-fact-runs>--</dd></div>
+        </dl>
       </div>
     </div>
   </div>
@@ -92,9 +108,6 @@
     <div class="readout">
       <span class="amps" data-amps>--</span>
       <span class="unit">A</span>
-    </div>
-
-    <div class="state" data-state>
       <span class="pill pill-idle" data-run-pill>No data</span>
     </div>
 
@@ -108,12 +121,16 @@
        current from the same phase with the right angle between them, and there
        is no reason to think that angle is right here. So they are not shown.
 
-       Typical when running is the median of every reading above the running
-       threshold over the last week, which ignores the starting surge without
-       needing a rule about what counts as one. Under it, how that compares
-       with the four weeks before, because one number is not information:
-       sixteen amps is fine or alarming entirely depending on what it was last
-       month.
+       Two sections, and the split is what each answers. The panel above is what
+       is happening now: lamps, the screen, live amps, when a pump last
+       started. These cards are how it has been running, which moves over weeks
+       and is where a failing pump shows up first.
+
+       Typical load is the median of every reading above the running threshold
+       over the last week, which ignores the starting surge without needing a
+       rule about what counts as one. Under it, how that compares with the four
+       weeks before, because one number is not information: sixteen amps is
+       fine or alarming entirely depending on what it was last month.
 
        The run contact and the overload used to sit here too, and the
        disagreement between the contact and the clamp was the useful part: a
@@ -121,11 +138,8 @@
        them back needs a way to say which input carries pump 1's run contact,
        and inputs are free text labels now. See NOTES.md. #}
     <dl class="detail">
-      <div>
-        <dt>Typical when running</dt>
-        <dd data-typical>--</dd>
-      </div>
-      <div><dt>Nameplate</dt><dd data-nameplate>--</dd></div>
+      <div><dt>Typical load</dt><dd data-typical>--</dd></div>
+      <div><dt>FLA</dt><dd data-nameplate>--</dd></div>
     </dl>
     <p class="drift" data-drift hidden></p>
   </article>

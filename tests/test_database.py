@@ -329,3 +329,47 @@ async def test_the_history_says_nothing_when_there_is_nothing_to_say(pool):
 
     assert typical.median is None
     assert typical.drift is None
+
+
+async def test_counting_runs_from_the_clamp_readings(pool):
+    """Counting starts works even though timing a run does not.
+
+    Every run's transition is caught, because a jump from nothing to sixteen
+    amps is exactly what makes the meter report. What is not caught is the
+    middle of a steady run, which is why there is no duration anywhere near
+    this.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.history import RecentRuns
+
+    now = datetime.now(UTC)
+    rows = []
+    # Three runs, shaped the way the real readings are: a high first sample, a
+    # steady one some unpredictable time later, then nothing.
+    for minutes, gap in ((90, 2), (45, 200), (5, 60)):
+        start = now - timedelta(minutes=minutes)
+        rows.append((start - timedelta(seconds=15), 0, 0.0))
+        rows.append((start, 0, 16.4))
+        rows.append((start + timedelta(seconds=gap), 0, 15.2))
+        rows.append((start + timedelta(seconds=gap + 3), 0, 0.0))
+    # And a day of sitting still, which must not count as anything.
+    for index in range(40):
+        rows.append((now - timedelta(hours=20, seconds=index * 15), 0, 0.0))
+
+    await pool.executemany("INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)", rows)
+
+    recent = await RecentRuns().recent(pool, channel=0, running_amps=1.0)
+
+    assert recent.runs == 3
+    assert recent.last_start is not None
+    assert (now - recent.last_start).total_seconds() < 6 * 60
+
+
+async def test_a_clamp_that_has_never_seen_a_run_says_so(pool):
+    from pitwatch.domain.history import RecentRuns
+
+    recent = await RecentRuns().recent(pool, channel=1, running_amps=1.0)
+
+    assert recent.runs == 0
+    assert recent.last_start is None

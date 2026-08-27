@@ -14,7 +14,7 @@ from pydantic import ValidationError
 
 from pitwatch import auth
 from pitwatch.api import forms
-from pitwatch.domain.history import CurrentHistory, Typical
+from pitwatch.domain.history import CurrentHistory, Recent, RecentRuns, Typical
 from pitwatch.ingest import shelly as shelly_ingest
 from pitwatch.ingest import waveshare as waveshare_ingest
 from pitwatch.ingest.sink import LiveIo, LiveState
@@ -168,12 +168,20 @@ async def build_state(app) -> dict:
     # says something on a pit that is dry most of the time. Cached and slow
     # moving; see pitwatch.domain.history.
     history: CurrentHistory | None = getattr(app.state, "history", None)
+    counter: RecentRuns | None = getattr(app.state, "recent_runs", None)
     typical: dict[int, Typical] = {}
+    recent: dict[int, Recent] = {}
     for number, settings in pump_settings.items():
-        if history is None:
-            typical[number] = Typical()
-            continue
-        typical[number] = await history.typical(pool, clamp[number], settings.running_amps)
+        typical[number] = (
+            Typical()
+            if history is None
+            else await history.typical(pool, clamp[number], settings.running_amps)
+        )
+        recent[number] = (
+            Recent()
+            if counter is None
+            else await counter.recent(pool, clamp[number], settings.running_amps)
+        )
 
     def pump_state(number: int) -> dict:
         channel = clamp[number]
@@ -203,6 +211,7 @@ async def build_state(app) -> dict:
             "running": drawing,
             "nameplate_amps": settings.nameplate_amps,
             "typical": typical[number].as_json(),
+            "recent": recent[number].as_json(),
         }
 
     waveshare = store.waveshare

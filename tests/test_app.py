@@ -634,19 +634,63 @@ def test_the_run_contacts_have_no_lamp_on_the_panel():
     assert "pump2_run" in dict(DASHBOARD_ROLES)
 
 
-def test_the_screen_is_square_and_flanked_by_rules():
+def test_the_screen_is_a_wide_panel_flanked_by_rules():
+    """A panel, not a tile. It was square, which made the two side lists as
+    tall as it and forced the whole thing into a column on a phone."""
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
 
     def rule(selector: str) -> str:
         return css.split(selector + " {", 1)[1].split("}", 1)[0]
 
-    assert "aspect-ratio: 1;" in rule(".lcd")
+    lcd = rule(".lcd")
+    assert "aspect-ratio" not in lcd
+    assert "max-width: 28rem;" in lcd
+    assert "min-height:" in lcd
+    # The middle column gets the larger share, which is what leaves room to be
+    # wide without squeezing the words either side of it.
+    assert "minmax(0, 2fr)" in rule(".door-grid")
+
     middle = rule(".door-middle")
     assert "border-left:" in middle and "border-right:" in middle
-    # Each side is sized to its own widest lamp and centered in its column, so
-    # the two bulbs in a stack line up under each other.
+    # Each side is sized to its own widest lamp, so the bulbs in a stack line
+    # up under each other.
     assert "width: max-content;" in rule(".door-side")
-    assert "margin: 0 auto;" in rule(".door-side")
+
+
+def test_a_phone_puts_the_two_lists_side_by_side():
+    """Not stacked. Stacking all three made a column three screens tall with a
+    green square in the middle of it. The wide screen goes underneath them,
+    which is the same shape as the desktop view rather than a different one.
+    """
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+    # Everything after the phone breakpoint opens. The placements below appear
+    # nowhere else in the file, so there is no need to find where it closes.
+    phone = css.split("@media (max-width: 700px) {", 1)[1]
+
+    assert "grid-template-columns: 1fr 1fr;" in phone
+    assert "grid-area: 1 / 1;" in phone, "alerts on the left of the first row"
+    assert "grid-area: 1 / 2;" in phone, "floats on the right of the first row"
+    assert "grid-area: 2 / 1 / 3 / -1;" in phone, "the screen spans the row below"
+
+
+def test_a_section_label_is_not_a_caption_on_the_first_lamp():
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+
+    assert ".door-side .door-heading { margin-bottom:" in css
+
+
+def test_the_pump_facts_are_two_by_two():
+    """Left to itself the grid fitted as many columns as would go, which put
+    four facts in a row on a wide card and three plus a lonely fourth on a
+    medium one."""
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+    detail = css.split(".detail {", 1)[1].split("}", 1)[0]
+
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in detail
+
+    page = render_dashboard()
+    card = page.split('data-pump="1"', 1)[1].split("</article>", 1)[0]
+    assert card.count("<dt>") == 4
 
 
 def test_a_pump_card_carries_everything_about_that_pump():

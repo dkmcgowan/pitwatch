@@ -49,12 +49,18 @@ def build(settings: SmtpSettings, to: str, subject: str, body: str) -> EmailMess
     return message
 
 
-async def send(settings: SmtpSettings, to: str, subject: str, body: str) -> None:
-    """Send one message, raising EmailError with something readable.
+async def send(settings: SmtpSettings, to: str, subject: str, body: str) -> str:
+    """Send one message. Returns what the server said, raising on failure.
 
     aiosmtplib's own exceptions name SMTP status codes, which are precise and
     mean nothing to somebody who has just pasted the wrong kind of credential
     into a box.
+
+    **The server's reply is worth keeping.** A message the server accepted and
+    then never delivered is the hardest kind to chase, and on Amazon SES the
+    acceptance carries the message id: "250 Ok 010f0198...". That id is what
+    turns "it never arrived" into something searchable, so it is logged and
+    handed back to the test button rather than thrown away.
     """
     if not settings.host:
         raise EmailError("No SMTP server is configured")
@@ -66,7 +72,7 @@ async def send(settings: SmtpSettings, to: str, subject: str, body: str) -> None
     message = build(settings, to, subject, body)
 
     try:
-        await aiosmtplib.send(
+        errors, reply = await aiosmtplib.send(
             message,
             hostname=settings.host,
             port=settings.port,
@@ -105,4 +111,12 @@ async def send(settings: SmtpSettings, to: str, subject: str, body: str) -> None
     except (aiosmtplib.SMTPException, OSError, TimeoutError) as error:
         raise EmailError(f"Sending failed: {error}") from error
 
-    log.info("Sent mail to %s via %s", to, settings.host)
+    if errors:
+        # Some recipients accepted and some refused. With one recipient this
+        # cannot happen, but saying "sent" when the server disagreed is the
+        # kind of lie that costs an afternoon.
+        refused = ", ".join(f"{address} ({problem.code})" for address, problem in errors.items())
+        raise EmailError(f"The server refused {refused}")
+
+    log.info("Sent mail to %s via %s. The server said: %s", to, settings.host, reply)
+    return reply.strip()

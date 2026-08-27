@@ -158,3 +158,51 @@ def test_addresses_are_checked_loosely_rather_than_cleverly():
     assert not email_sender.looks_like_an_address("someone")
     assert not email_sender.looks_like_an_address("someone@localhost")
     assert not email_sender.looks_like_an_address("two @example.com")
+
+
+async def test_the_servers_reply_comes_back(monkeypatch):
+    """A message the server accepted and then never delivered is the hardest
+    kind to chase. On Amazon SES the acceptance carries the message id, and
+    that id is the only thing that makes it searchable afterwards.
+    """
+    import aiosmtplib
+
+    from pitwatch.notify import email as email_sender
+
+    async def accepted(message, **kwargs):
+        return {}, "250 Ok 010f0198c2d1e4f5-abc"
+
+    monkeypatch.setattr(aiosmtplib, "send", accepted)
+
+    reply = await email_sender.send(
+        SmtpSettings(host="smtp.example.com", from_address="alerts@example.com"),
+        "you@example.com",
+        "subject",
+        "body",
+    )
+
+    assert reply == "250 Ok 010f0198c2d1e4f5-abc"
+
+
+async def test_a_partly_refused_send_is_not_reported_as_sent(monkeypatch):
+    """Saying sent when the server disagreed is the kind of lie that costs an
+    afternoon."""
+    import aiosmtplib
+
+    from pitwatch.notify import email as email_sender
+
+    class Refusal:
+        code = 550
+
+    async def partly(message, **kwargs):
+        return {"you@example.com": Refusal()}, "250 Ok"
+
+    monkeypatch.setattr(aiosmtplib, "send", partly)
+
+    with pytest.raises(email_sender.EmailError, match="refused"):
+        await email_sender.send(
+            SmtpSettings(host="smtp.example.com", from_address="alerts@example.com"),
+            "you@example.com",
+            "subject",
+            "body",
+        )

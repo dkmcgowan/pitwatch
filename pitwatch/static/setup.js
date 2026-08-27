@@ -377,7 +377,15 @@ function csrfHeader(form) {
           return;
         }
         if (result.ok) {
+          // The note carries the difference between accepted and delivered,
+          // which is the whole of what a test button can honestly promise.
           show(result.detail || "Sent.", "good");
+          if (result.note) {
+            const aside = document.createElement("p");
+            aside.className = "muted";
+            aside.textContent = result.note;
+            output.appendChild(aside);
+          }
         } else {
           show(result.error || "It did not send.", "bad");
         }

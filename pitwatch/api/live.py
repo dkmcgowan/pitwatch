@@ -359,7 +359,7 @@ async def test_email(request: Request, user: auth.SignedIn) -> JSONResponse:
     site = store.site
     where = site.pumps_at
     try:
-        await email_sender.send(
+        reply = await email_sender.send(
             settings,
             to,
             f"PitWatch test{f' from {site.where}' if site.where else ''}",
@@ -369,7 +369,19 @@ async def test_email(request: Request, user: auth.SignedIn) -> JSONResponse:
         )
     except email_sender.EmailError as error:
         return JSONResponse({"ok": False, "error": str(error)})
-    return JSONResponse({"ok": True, "detail": f"Sent to {to}. Check the inbox, and spam."})
+    # The server's reply, verbatim. On SES it carries the message id, which is
+    # the only thing that makes a message the server accepted and never
+    # delivered searchable afterwards.
+    return JSONResponse(
+        {
+            "ok": True,
+            "detail": f"Accepted for {to}. The server said: {reply}",
+            "note": (
+                "Accepted is not delivered. If it does not arrive, that id is "
+                "what to search for at the other end."
+            ),
+        }
+    )
 
 
 @router.post("/test/sms", include_in_schema=False)

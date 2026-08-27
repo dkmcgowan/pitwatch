@@ -20,6 +20,7 @@ from pydantic import ValidationError
 
 from pitwatch import auth
 from pitwatch.api import forms
+from pitwatch.domain import alerts as alert_specs
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
 from pitwatch.schemas import DASHBOARD_ROLES
@@ -168,6 +169,55 @@ async def dashboard_settings_save(request: Request, admin: auth.IsAdmin):
         )
     log.info("%s updated the dashboard lamps", admin.username)
     return RedirectResponse("/settings/dashboard?saved=1", status_code=303)
+
+
+# -- alerts ------------------------------------------------------------------
+#
+# Its own page, because there are a dozen rules each carrying a level, an
+# audience, a message and sometimes a threshold, and the settings page is
+# already the longest thing here. It also owns every threshold that raises an
+# alert: a number on the pumps page tells you nothing about what happens when
+# it is crossed, and the same number beside its own message tells you
+# everything.
+
+
+@router.get("/settings/alerts", include_in_schema=False)
+async def alerts_page(request: Request, admin: auth.IsAdmin, saved: str | None = None):
+    store: SettingsStore = request.app.state.settings
+    return _templates(request).TemplateResponse(
+        request,
+        "alerts.html",
+        _context(
+            request,
+            specs=alert_specs.SPECS,
+            rules=store.alerts.by_key,
+            saved=saved is not None,
+            error=None,
+        ),
+    )
+
+
+@router.post("/settings/alerts", include_in_schema=False)
+async def alerts_save(request: Request, admin: auth.IsAdmin):
+    store: SettingsStore = request.app.state.settings
+    form = await request.form()
+    try:
+        await store.put(forms.alerts_from(form, store.alerts))
+    except (ValueError, ValidationError) as error:
+        return _templates(request).TemplateResponse(
+            request,
+            "alerts.html",
+            _context(
+                request,
+                specs=alert_specs.SPECS,
+                rules=store.alerts.by_key,
+                saved=False,
+                error=_readable(error),
+            ),
+            status_code=400,
+        )
+    log.info("%s updated the alert rules", admin.username)
+    return RedirectResponse("/settings/alerts?saved=1", status_code=303)
 
 
 @router.post("/settings/{section}", include_in_schema=False)

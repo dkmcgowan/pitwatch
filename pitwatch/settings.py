@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from pitwatch.config import Config
 from pitwatch.schemas import (
+    AlertsSettings,
     ChannelMap,
     DashboardSettings,
     PumpsSettings,
@@ -144,6 +145,10 @@ class SettingsStore:
     @property
     def pumps(self) -> PumpsSettings:
         return self.get(PumpsSettings)
+
+    @property
+    def alerts(self) -> AlertsSettings:
+        return self.get(AlertsSettings)
 
     @property
     def dashboard(self) -> DashboardSettings:

@@ -340,18 +340,8 @@ def test_saving_the_settings_page_unchanged_changes_nothing():
         ],
     )
     pumps = PumpsSettings(
-        pump1=PumpSettings(
-            name="North",
-            running_amps=1.5,
-            nameplate_amps=9.6,
-            overcurrent_amps=18.0,
-            overcurrent_readings=3,
-        ),
+        pump1=PumpSettings(name="North", running_amps=1.5, nameplate_amps=9.6),
         pump2=PumpSettings(name="South", running_amps=1.6),
-        max_runtime_ms=12_000,
-        restart_gap_ms=4000,
-        restart_streak=6,
-        quiet_minutes_before_flag=300,
     )
 
     form = FormData(
@@ -1019,3 +1009,81 @@ def test_the_overload_note_names_all_four_selector_positions():
     for position in (">H<", ">A<", ">O<", ">HO<", ">AO<"):
         assert position in page, position
     assert "red button" in page
+
+
+# -- the alerts page and the parser have to agree ---------------------------
+
+
+def render_alerts(rules) -> str:
+    from jinja2 import Environment, FileSystemLoader
+
+    from pitwatch.domain import alerts as specs
+
+    env = Environment(loader=FileSystemLoader("pitwatch/templates"), autoescape=True)
+    env.globals["csrf_token"] = lambda: "token"
+    env.globals["version"] = "test"
+    return env.get_template("alerts.html").render(
+        specs=specs.SPECS, rules=rules, site=None, user=None, saved=False, error=None
+    )
+
+
+def test_saving_the_alerts_page_unchanged_changes_nothing():
+    """Twelve rules, each with a level, an audience, a message and sometimes a
+    threshold. That is a lot of fields for one of them to be rendered and never
+    read back, which shows as a setting that accepts what you type, says Saved,
+    and keeps the old value.
+    """
+    from starlette.datastructures import FormData
+
+    from pitwatch.api import forms
+    from pitwatch.schemas import ALERT_ORDER, AlertsSettings
+
+    before = AlertsSettings()
+    before.high_water.severity = "warning"
+    before.high_water.message = "Water is up at {site}, {pumps_state}."
+    before.panel_alert.hold_s = 9
+    before.over_current.pump1_amps = 18.5
+    before.over_current.pump2_amps = 17.0
+    before.over_current.readings = 3
+    before.short_cycling.restart_within_ms = 30_000
+    before.short_cycling.times_in_a_row = 6
+    before.nothing_has_run.quiet_minutes = 90
+    before.load_drift.climb_amps = 0.6
+    before.run_too_long.longer_than_ms = 12_000
+    before.device_offline.admins_only = True
+    before.float_activity.enabled = True
+
+    posted = submitted(render_alerts(before.by_key))
+    # A checkbox that is off posts nothing, and a textarea is not an input, so
+    # the message boxes have to be collected separately.
+    page = render_alerts(before.by_key)
+    for area in re.finditer(r'<textarea\b[^>]*name="([^"]+)"[^>]*>(.*?)</textarea>', page, re.S):
+        posted.append((area.group(1), area.group(2).strip()))
+
+    after = forms.alerts_from(FormData(posted), AlertsSettings())
+
+    for key in ALERT_ORDER:
+        assert getattr(after, key) == getattr(before, key), key
+
+
+def test_a_message_with_an_unknown_placeholder_still_sends():
+    """A typo in a message should produce a slightly odd alert, not a silent
+    one. str.format would raise on the first unknown name and the alert would
+    never arrive."""
+    from pitwatch.domain.alerts import fill
+
+    assert fill("{pump} at {site}", {"pump": "Pump 1", "site": "A pit"}) == "Pump 1 at A pit"
+    assert fill("{nonsense} at {site}", {"site": "A pit"}) == "{nonsense} at A pit"
+
+
+def test_every_placeholder_a_rule_offers_is_one_it_can_fill():
+    """The page lists what each rule fills in. A name on that list that the
+    rule never provides is a promise the message keeps in braces."""
+    from pitwatch.domain import alerts as specs
+
+    for spec in specs.SPECS:
+        for name in spec.placeholders:
+            assert name.startswith("{") and name.endswith("}"), name
+        # Everything says where it came from, because an alert that does not
+        # name the building is one somebody has to go and work out.
+        assert "{site}" in spec.placeholders, spec.key

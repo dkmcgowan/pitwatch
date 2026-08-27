@@ -14,7 +14,9 @@ from __future__ import annotations
 from starlette.datastructures import FormData
 
 from pitwatch.schemas import (
+    ALERT_ORDER,
     DASHBOARD_ROLES,
+    AlertsSettings,
     ChannelMap,
     DashboardSettings,
     PumpSettings,
@@ -145,8 +147,6 @@ def _pump_from(form: FormData, prefix: str, fallback_name: str) -> PumpSettings:
         name=text(form, f"{prefix}_name", fallback_name) or fallback_name,
         running_amps=number(form, f"{prefix}_running_amps", 1.0),
         nameplate_amps=optional_number(form, f"{prefix}_nameplate_amps"),
-        overcurrent_amps=optional_number(form, f"{prefix}_overcurrent_amps"),
-        overcurrent_readings=integer(form, f"{prefix}_overcurrent_readings", 2),
     )
 
 
@@ -154,13 +154,39 @@ def pumps_from(form: FormData) -> PumpsSettings:
     return PumpsSettings(
         pump1=_pump_from(form, "pump1", "Pump 1"),
         pump2=_pump_from(form, "pump2", "Pump 2"),
-        # Every threshold that raises an alert is optional, and empty means do
-        # not run that check. Nothing here treats an empty box as a zero.
-        max_runtime_ms=optional_integer(form, "max_runtime_ms"),
-        restart_gap_ms=optional_integer(form, "restart_gap_ms"),
-        restart_streak=integer(form, "restart_streak", 4),
-        quiet_minutes_before_flag=optional_integer(form, "quiet_minutes_before_flag"),
     )
+
+
+def alerts_from(form: FormData, existing: AlertsSettings) -> AlertsSettings:
+    """Every rule, read back off the one page that owns them.
+
+    Each rule posts its fields under its own key, so nothing here has to know
+    which rule is which beyond the extra numbers a few of them carry.
+    """
+    rules: dict[str, object] = {}
+    for key in ALERT_ORDER:
+        current = getattr(existing, key)
+        values: dict[str, object] = {
+            "enabled": checkbox(form, f"{key}_enabled"),
+            "severity": text(form, f"{key}_severity", "warning") or "warning",
+            "admins_only": checkbox(form, f"{key}_admins_only"),
+            "message": text(form, f"{key}_message") or current.message,
+            "tell_when_it_clears": checkbox(form, f"{key}_tell_when_it_clears"),
+        }
+        # The handful of rules that carry a threshold. Read by name off the
+        # model rather than from a list here, so adding a field to a rule does
+        # not mean remembering to add it in a second place.
+        for name in type(current).model_fields:
+            if name in values:
+                continue
+            field = f"{key}_{name}"
+            annotation = type(current).model_fields[name].annotation
+            if annotation in (int, float):
+                values[name] = number(form, field, getattr(current, name))
+            else:
+                values[name] = optional_number(form, field)
+        rules[key] = type(current)(**values)
+    return AlertsSettings(**rules)
 
 
 def smtp_from(form: FormData, existing: SmtpSettings) -> SmtpSettings:

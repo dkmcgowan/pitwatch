@@ -468,36 +468,46 @@ appears.
 
 ## Alerts
 
-**Not built yet.** This is the design, and the settings pages already collect
-what it needs.
+**Configured, not yet firing.** The rules, their wording and every threshold
+they use live on the **Alerts** page under Settings. Nothing raises them yet;
+the engine that watches for them is the next piece.
 
-| Alert | Fires when |
-| --- | --- |
-| Overload tripped | The panel's overload contact opened for that pump. |
-| Running over current | A pump has been above its threshold for several readings in a row, so this is not the starting surge. |
-| Running under current | A pump is running but barely drawing anything: an impeller spinning in air, a lost coupling, a lost phase. |
-| High water | The high water float is wet. |
-| Both pumps running | Normal during a lag call, worth knowing about the rest of the time. |
-| Run too long | One run past the limit you set. Stuck float, or pumping against something. |
-| Short cycling | The pumps restarting unusually soon after stopping, several times running. Usually a check valve letting the discharge run back into the pit. Counted by how soon rather than how often, because a pit taking roof water cycles continuously through a storm and that is the equipment working. |
-| Contactor without current | The run contact closed and no current followed. |
-| Current without contactor | Current with no run contact. Either a miswired channel or a contactor that is welded shut. |
-| Device offline | The Shelly or the Waveshare stopped answering. |
-| Nothing has run | No pump run at all for as long as you set. Either a very dry week or a sensor that has quietly died. |
+Each rule has four things you can set: whether it runs, how loudly (info,
+warning or critical), whether it goes to administrators only, and what it
+says. Everybody whose own level on the Users page is at or below the rule's
+level hears it.
 
-Each one is raised once and stays open until the condition goes away, so a float
-that chatters twenty times sends one message rather than twenty, and you get an
-all clear when it drains.
+**One message, two lengths.** The line you write is what a text message says,
+so it wants to be short enough to read on a lock screen. An email sends the
+same line and then the readings behind it, and adds a link to the dashboard
+for anybody who has a password. You never write it twice.
 
-**Half of that table needs something that does not exist yet.** The rows about
-current are about the clamps and are ready to build. The rows that name a
-particular contact are not: an input is a name somebody typed, so nothing can
-ask which one is the high water float. Two ways out, and this is not settled.
-Either every input gets its own alert settings, which is severity and wording
-per input and needs no roles at all, or the few places that genuinely need a
-role get a "which input is this" picker next to the thing that uses it. The
-first generalizes to any panel; the second keeps the cross checks between the
-contacts and the clamps. Probably both, in that order.
+Placeholders in braces are filled in when it sends. Anything unrecognized is
+left alone, because a typo in a message should produce a slightly odd alert
+rather than no alert at all.
+
+| Alert | Reads | What it means |
+| --- | --- | --- |
+| High water | contacts | The float above the lag float is wet. The message says whether both pumps are running, because coping and not coping are different nights. |
+| Panel alert, unexplained | contacts | The controller's own alarm, which carries no detail. Waits a few seconds to see whether something that does carry detail explains it, and stays quiet if one does. |
+| Overload tripped | contacts | A pump is off and stays off. The default wording assumes hand reset, which is what the red button is for. |
+| Switched on, drawing nothing | both | The run contact is closed and the clamp reads zero. The motor is not turning. Neither sensor can see this alone. |
+| Drawing too much | clamps | Above the threshold for several readings, so this is not the starting surge. Set per motor. |
+| Ran too long | contacts | A stuck float or a blockage. Off until there is a number behind it. |
+| Short cycling | clamps | Restarting unusually soon after stopping, several times running. Usually a check valve letting the discharge run back into the pit. |
+| Nothing has run | clamps | Either a dry spell or a blind monitor. |
+| Drawing more than it used to | clamps | The steady draw climbing week over week, which is the reason typical load exists. Nothing is ever wrong on the day. |
+| A device stopped answering | PitWatch | Administrators only by default: worth waking somebody who can fix it, noise to everybody else. |
+| Float activity | contacts | Every float, every time. Off by default; on a working pit this fires several times an hour. |
+| A pump started | contacts | Every run. Off by default, for the same reason and useful for the same reason. |
+
+Each one is raised once and stays open until the condition goes away, so a
+float that chatters twenty times sends one message rather than twenty, and you
+get an all clear when it drains.
+
+**Several of these cannot fire until the I/O module is wired**, and the page
+says which. A rule that silently never runs looks exactly like a rule that
+never found anything.
 
 ## Where the data lives
 

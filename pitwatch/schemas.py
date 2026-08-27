@@ -14,6 +14,7 @@ wrong". Add them when the shape settles, not before.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import ClassVar
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -167,48 +168,30 @@ class ShellySettings(BaseModel):
 
 
 class PumpSettings(BaseModel):
-    """What one motor is expected to draw.
+    """What one motor is.
 
-    Every number here was checked against eleven hours of readings from a real
-    duplex ejector panel before it was given a default. Where the readings said
-    a setting could not be measured, the setting is gone rather than sitting on
-    the page looking configurable.
+    Deliberately not what to complain about. Every threshold that raises an
+    alert lives with its alert, on the alerts page, because a number on this
+    page tells you nothing about what happens when it is crossed and a number
+    beside its own message tells you everything.
     """
 
     name: str = "Pump"
 
     # The line between off and running.
     #
-    # Not zero, but not for the reason this used to say. It claimed a clamp on a
-    # live conductor reads noise; on a real one it reads 0.000 exactly, for
-    # hours at a time. This is margin against a control transformer sharing the
+    # Not zero, but not for the reason this used to say. It claimed a clamp on
+    # a live conductor reads noise; on a real one it reads 0.000 exactly, for
+    # hours. This is margin against a control transformer sharing the
     # conductor, and nothing finer matters: on the readings from the reference
     # panel every threshold from 0.2 A to 10 A found the same 73 runs.
     running_amps: float = Field(default=1.0, ge=0)
 
     # Full load amps off the motor's own plate. Nothing is computed from it. It
-    # is here so the threshold below can be judged against something real, and
-    # so a pump drawing more than its own rating is visible for what it is,
-    # which on the reference panel it turned out to be.
+    # is here so the typical load on the dashboard can be judged against
+    # something real, and so a pump drawing more than its own rating is visible
+    # for what it is, which on the reference panel it turned out to be.
     nameplate_amps: float | None = Field(default=None, gt=0)
-
-    # Above this, for the number of readings below, is an overload the panel has
-    # not tripped on yet. Off by default: what counts as too much depends on the
-    # motor, and a guess here alerts on every run or on none.
-    overcurrent_amps: float | None = Field(default=None, gt=0)
-
-    # How many readings in a row have to be above it.
-    #
-    # Readings, not milliseconds. It was milliseconds, and that could never
-    # work: the meter reports on its own schedule, roughly every fifteen
-    # seconds while a current is steady, so "held for 1500 ms" asked for two
-    # readings 1.5 s apart that essentially never exist. A count degrades
-    # properly instead. It means about thirty seconds at the meter's own
-    # cadence and would mean two seconds if anything ever sampled faster.
-    #
-    # Two is also what discards the starting surge, because the surge only ever
-    # lands in the first reading of a run.
-    overcurrent_readings: int = Field(default=2, ge=1, le=100)
 
 
 class PumpsSettings(BaseModel):
@@ -216,51 +199,6 @@ class PumpsSettings(BaseModel):
 
     pump1: PumpSettings = Field(default_factory=lambda: PumpSettings(name="Pump 1"))
     pump2: PumpSettings = Field(default_factory=lambda: PumpSettings(name="Pump 2"))
-
-    # There is no inrush window any more.
-    #
-    # It was a number of milliseconds at the start of a run to throw away, which
-    # assumed readings arrive fast enough for a fraction of a second to contain
-    # any. They do not. What the readings actually show is that the surge lands
-    # in the first reading of a run and nowhere else: across 73 runs the first
-    # reading ran about 1.3 A above every later one, and only 16 runs caught a
-    # surge at all. So the detector discards the first reading of a run, which
-    # is the same idea expressed in something that exists. See
-    # pitwatch.domain.DISCARD_FIRST_READING.
-
-    # A run longer than this is a stuck float or pumping against a blockage.
-    #
-    # Off by default, and it has to be. Run length cannot be measured from the
-    # clamps: the meter reports the start and the end of a run and nothing in
-    # between, so two readings four minutes apart and two readings four seconds
-    # apart look identical. This becomes real when the panel's run contact is
-    # wired, which is polled five times a second, and a number guessed at
-    # before then would fire on a sampling gap rather than on a stuck float.
-    max_runtime_ms: int | None = Field(default=None, ge=1_000, le=86_400_000)
-
-    # Short cycling, by the gap between runs rather than by a rate.
-    #
-    # A failed check valve lets the column of water in the discharge pipe run
-    # back into the pit the moment a pump stops, which calls it straight out
-    # again. Counting starts per hour cannot see that at a site taking roof
-    # water, because a storm produces the same count for the right reasons.
-    # What separates them is how soon, not how often.
-    #
-    # On now, at 45 seconds, because there is finally a measurement behind it.
-    # The shortest rest between runs across a night on the reference panel was
-    # 82 seconds. 45 leaves room for the fact that the end of a run is only
-    # known to within a reading, and the streak below covers the rest.
-    restart_gap_ms: int | None = Field(default=45_000, ge=100, le=600_000)
-    restart_streak: int = Field(default=4, ge=2, le=50)
-
-    # Nothing running at all for this long is either a very dry spell or a
-    # sensor that has quietly died.
-    #
-    # Two hours, down from four. The reference pit never went more than 21
-    # minutes between runs across a night, so four hours of silence would be
-    # most of a working day before anybody heard that the clamp had fallen off.
-    # Two still allows a genuinely quiet spell.
-    quiet_minutes_before_flag: int | None = Field(default=120, ge=5, le=525_600)
 
     @property
     def by_number(self) -> dict[int, PumpSettings]:
@@ -371,6 +309,250 @@ DASHBOARD_ROLES: tuple[tuple[str, str], ...] = (
 )
 
 
+class Severity(StrEnum):
+    """How loud an alert is, which decides who it reaches.
+
+    Every account picks a floor: everything, warnings and worse, or critical
+    only. These are the three steps on that dial and there are deliberately no
+    more, because a scale nobody can hold in their head gets set to the middle
+    and left there.
+    """
+
+    INFO = "info"
+    WARNING = "warning"
+    CRITICAL = "critical"
+
+
+class AlertRule(BaseModel):
+    """One thing worth telling somebody about.
+
+    The rules are a fixed list. A builder for arbitrary conditions is a query
+    language nobody asked to learn, and the eight inputs a duplex panel brings
+    out only support so many questions. What is configurable is whether a rule
+    runs, how loudly, who hears it, and what it says.
+    """
+
+    enabled: bool = True
+
+    severity: Severity = Severity.WARNING
+
+    # Who hears it. A separate question from how urgent it is: "the Shelly
+    # stopped answering" is worth waking an administrator for and is noise to
+    # somebody whose only job is to know the basement is flooding. Severity
+    # says how loud, this says who can do anything about it.
+    admins_only: bool = False
+
+    # The one line that goes out. A text message gets this and nothing else,
+    # an email gets this and then the readings behind it, so it is written
+    # once and never twice. Placeholders in braces are filled in; anything
+    # unrecognized is left alone rather than raising.
+    message: str = ""
+
+    # Whether to say so when it stops. Being told the pit flooded and never
+    # told it drained is its own kind of bad, and for the rules where the end
+    # is the good news it matters more than the start.
+    tell_when_it_clears: bool = True
+
+
+class PanelAlertRule(AlertRule):
+    """The controller's own alarm, which is a last resort by design.
+
+    It carries no detail: a power failure, an open panel door and half a dozen
+    faults all raise the same contact. So it waits, briefly, to see whether
+    something that does carry detail explains it, and stays quiet if one does.
+    Otherwise two alerts arrive for one event and the vaguer one is the one
+    that gets read first.
+    """
+
+    # How long to wait for a better explanation. Short, because the controller
+    # raises everything at once rather than in sequence; this only has to
+    # cover the poll interval and the debounce, not a human's reaction.
+    hold_s: int = Field(default=5, ge=0, le=300)
+
+
+class OverCurrentRule(AlertRule):
+    """A motor pulling more than it should, per motor.
+
+    Per motor because the two can be different sizes, and because a threshold
+    that is right for one and wrong for the other is worse than no threshold:
+    it fires constantly on one pump and never on the other, and both get
+    ignored together.
+    """
+
+    pump1_amps: float | None = Field(default=None, gt=0)
+    pump2_amps: float | None = Field(default=None, gt=0)
+
+    # Readings, not milliseconds. The meter reports on its own schedule, so a
+    # hold measured in time asks for readings that may not exist. Two is also
+    # what discards the starting surge, which only ever lands in the first
+    # reading of a run.
+    readings: int = Field(default=2, ge=1, le=100)
+
+
+class RunTooLongRule(AlertRule):
+    """A stuck float, or pumping against something.
+
+    Needs the panel's run contact. Run length cannot be measured from the
+    clamps: the meter reports the start and the end of a run and nothing in
+    between.
+    """
+
+    longer_than_ms: int | None = Field(default=None, ge=1_000, le=86_400_000)
+
+
+class ShortCyclingRule(AlertRule):
+    """A check valve that has stopped sealing.
+
+    The column of water in the discharge pipe runs back into the pit the
+    moment a pump stops and calls it straight out again. Counted by how soon
+    rather than how often, because a pit taking roof water cycles all through
+    a storm and that is the equipment working.
+    """
+
+    restart_within_ms: int | None = Field(default=45_000, ge=100, le=600_000)
+    times_in_a_row: int = Field(default=4, ge=2, le=50)
+
+
+class NothingHasRunRule(AlertRule):
+    """Silence, which is a dry spell or a blind monitor."""
+
+    quiet_minutes: int | None = Field(default=120, ge=5, le=525_600)
+
+
+class LoadDriftRule(AlertRule):
+    """The steady draw climbing week over week.
+
+    The reason typical load exists. A pump gaining an amp a month is a pump on
+    its way to a problem, and it is invisible in any single reading: nothing is
+    ever wrong on the day, only over the weeks.
+    """
+
+    climb_amps: float | None = Field(default=1.0, gt=0, le=100)
+
+
+class AlertsSettings(BaseModel):
+    KEY: ClassVar[str] = "alerts"
+
+    high_water: AlertRule = Field(
+        default_factory=lambda: AlertRule(
+            severity=Severity.CRITICAL,
+            message=("High water at {site}. The top float is wet, {pumps_state}. Time {time}."),
+        )
+    )
+    panel_alert: PanelAlertRule = Field(
+        default_factory=lambda: PanelAlertRule(
+            severity=Severity.CRITICAL,
+            message=(
+                "Panel alert at {site} and nothing here explains it. Often a "
+                "power failure or the panel door left open. Somebody has to "
+                "look. Time {time}."
+            ),
+        )
+    )
+    overload: AlertRule = Field(
+        default_factory=lambda: AlertRule(
+            severity=Severity.CRITICAL,
+            message=(
+                "{pump} overload tripped at {site}. That pump is off and will "
+                "not run until somebody opens the panel and presses the red "
+                "button on {overload}. Time {time}."
+            ),
+        )
+    )
+    contactor_no_current: AlertRule = Field(
+        default_factory=lambda: AlertRule(
+            severity=Severity.CRITICAL,
+            message=(
+                "{pump} at {site} is switched on and drawing nothing. The "
+                "contactor is closed and the motor is not turning. Time {time}."
+            ),
+        )
+    )
+    over_current: OverCurrentRule = Field(
+        default_factory=lambda: OverCurrentRule(
+            message=("{pump} at {site} drew {amps} A, over its {threshold} A limit. Time {time}."),
+        )
+    )
+    run_too_long: RunTooLongRule = Field(
+        default_factory=lambda: RunTooLongRule(
+            message="{pump} at {site} ran for {duration} without stopping. Time {time}.",
+        )
+    )
+    short_cycling: ShortCyclingRule = Field(
+        default_factory=lambda: ShortCyclingRule(
+            message=(
+                "The pumps at {site} are restarting within {gap} of stopping, "
+                "{times} times running. Usually a check valve letting the "
+                "discharge run back into the pit."
+            ),
+        )
+    )
+    nothing_has_run: NothingHasRunRule = Field(
+        default_factory=lambda: NothingHasRunRule(
+            message=(
+                "No pump has run at {site} for {quiet}. Either a very dry spell "
+                "or something has stopped watching the pit."
+            ),
+        )
+    )
+    load_drift: LoadDriftRule = Field(
+        default_factory=lambda: LoadDriftRule(
+            severity=Severity.INFO,
+            message=(
+                "{pump} at {site} is drawing {amps} A when it runs, up from {was} A a month ago."
+            ),
+        )
+    )
+    device_offline: AlertRule = Field(
+        default_factory=lambda: AlertRule(
+            admins_only=True,
+            message=(
+                "PitWatch has lost the {device} at {site} and is not watching "
+                "the pumps. Time {time}."
+            ),
+        )
+    )
+    float_activity: AlertRule = Field(
+        default_factory=lambda: AlertRule(
+            enabled=False,
+            severity=Severity.INFO,
+            tell_when_it_clears=False,
+            message="{float} at {site} went wet. Time {time}.",
+        )
+    )
+    pump_running: AlertRule = Field(
+        default_factory=lambda: AlertRule(
+            enabled=False,
+            severity=Severity.INFO,
+            tell_when_it_clears=False,
+            message="{pump} at {site} started. Time {time}.",
+        )
+    )
+
+    @property
+    def by_key(self) -> dict[str, AlertRule]:
+        return {name: getattr(self, name) for name in ALERT_ORDER}
+
+
+# The order the settings page lists them, and the only place the set of rules
+# is written down. Grouped by what somebody is being told: something has gone
+# wrong, something is wearing out, or something is happening.
+ALERT_ORDER: tuple[str, ...] = (
+    "high_water",
+    "panel_alert",
+    "overload",
+    "contactor_no_current",
+    "over_current",
+    "run_too_long",
+    "short_cycling",
+    "nothing_has_run",
+    "load_drift",
+    "device_offline",
+    "float_activity",
+    "pump_running",
+)
+
+
 class SiteSettings(BaseModel):
     KEY: ClassVar[str] = "site"
 
@@ -424,6 +606,7 @@ class SiteSettings(BaseModel):
 
 SETTING_MODELS: tuple[type[BaseModel], ...] = (
     SiteSettings,
+    AlertsSettings,
     ShellySettings,
     WaveshareSettings,
     PumpsSettings,

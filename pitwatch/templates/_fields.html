@@ -177,7 +177,9 @@
 
 {% macro pump_fields(pumps) %}
 <p class="hint">
-  Any box that raises an alert can be left empty, which turns that check off.
+  What each motor is. When to complain about it lives with the complaint, on
+  the <a href="/settings/alerts">alerts</a> page: a threshold here would tell
+  you nothing about what happens when it is crossed.
 </p>
 
 <div class="grid">
@@ -201,74 +203,9 @@
     <p class="hint">Full load amps off the motor plate. Nothing is calculated
       from it; it is what the typical load on the dashboard gets judged
       against.</p>
-
-    <label for="pump{{ number }}_overcurrent_amps">Alert above (A)</label>
-    <input type="number" step="0.1" min="0" id="pump{{ number }}_overcurrent_amps"
-           name="pump{{ number }}_overcurrent_amps"
-           value="{{ pump.overcurrent_amps if pump.overcurrent_amps is not none else '' }}">
-    <p class="hint">Set it against the typical load on the dashboard once there
-      is a week of it, not against the plate.</p>
-
-    <label for="pump{{ number }}_overcurrent_readings">for this many readings in a row</label>
-    <input type="number" min="1" max="100" id="pump{{ number }}_overcurrent_readings"
-           name="pump{{ number }}_overcurrent_readings" value="{{ pump.overcurrent_readings }}">
-    <p class="hint">Readings, not seconds: the meter reports on its own
-      schedule. Two is about half a minute of sustained draw, and it is also
-      what ignores the starting surge, which only ever lands in the first
-      reading of a run.</p>
   </fieldset>
   {% endfor %}
 </div>
-
-<h3>Timing</h3>
-
-<div class="grid">
-  <div class="field">
-    <label for="max_runtime_ms">Alert on a run longer than (ms)</label>
-    <input type="number" min="1000" step="500" id="max_runtime_ms" name="max_runtime_ms"
-           value="{{ pumps.max_runtime_ms if pumps.max_runtime_ms is not none else '' }}">
-    <p class="hint">
-      A stuck float, or pumping against a blockage. Off until the panel's run
-      contact is wired: the clamps report the start and the end of a run and
-      nothing in between, so they cannot time one.
-    </p>
-  </div>
-
-  <div class="field">
-    <label for="quiet_minutes_before_flag">Flag no runs at all after (minutes)</label>
-    <input type="number" min="5" id="quiet_minutes_before_flag" name="quiet_minutes_before_flag"
-           value="{{ pumps.quiet_minutes_before_flag if pumps.quiet_minutes_before_flag is not none else '' }}">
-    <p class="hint">
-      Silence can be a dry spell, or a stuck float, a clamp that has fallen off,
-      or a dead panel. Set it longer than the longest gap you see on a dry week.
-    </p>
-  </div>
-</div>
-
-<h3>Short cycling</h3>
-
-<div class="grid">
-  <div class="field">
-    <label for="restart_gap_ms">Restarts within (ms)</label>
-    <input type="number" min="100" step="100" id="restart_gap_ms" name="restart_gap_ms"
-           value="{{ pumps.restart_gap_ms if pumps.restart_gap_ms is not none else '' }}">
-  </div>
-  <div class="field">
-    <label for="restart_streak">this many times in a row</label>
-    <input type="number" min="2" id="restart_streak" name="restart_streak"
-           value="{{ pumps.restart_streak }}">
-  </div>
-</div>
-<p class="hint">
-  A check valve that stops sealing lets the discharge pipe run back into the pit
-  the moment a pump stops, which calls it straight out again. Measured between
-  runs of either pump, so alternating does not hide it.
-</p>
-<p class="hint">
-  Counted by how soon rather than how often, because a pit taking roof water
-  cycles all through a storm and that is the equipment working. Compare the
-  default against your own rest between runs once you have a week of them.
-</p>
 {% endmacro %}
 
 

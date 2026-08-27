@@ -408,17 +408,18 @@ this application knows. Undecided; see the note under [Alerts](#alerts).
 **How often the clamps actually report, and what it costs.** The meter is not
 sampled on a timer. It pushes when a reading changes and otherwise reports on
 its own schedule, which on the reference panel worked out at about every
-fifteen seconds. A jump from nothing to sixteen amps is exactly the kind of
-change that makes it push, so the **start and the end of every run are caught**.
-The middle is not: across eleven hours, 48 of 73 runs produced exactly two
-readings, and the time between them ranged from one second to nearly four
-minutes for runs drawing the same steady current.
+fifteen seconds. A run that lasts a few seconds produces two readings.
 
-So the clamps can count runs, say when one last started, and say what a pump
-draws while running. They **cannot time a run**, and nothing here pretends
-otherwise. Run length, and anything that needs a duration, comes from the
-panel's run contact through the I/O module, which is polled five times a
-second.
+So the clamps say what a pump draws while running, and roughly how often it
+runs. They **cannot time a run**, and the **run count is a floor rather than a
+tally**: two runs close together can arrive looking like one, because a zero
+that was never reported is not a zero that never happened. Reading the absence
+of a report as the absence of an event is a mistake this made once, and the
+operator standing in front of the panel is the reason it did not survive.
+
+Run length, an exact count, and anything else that needs to see every
+transition comes from the panel's run contact through the I/O module, which is
+polled five times a second.
 
 **Inrush is discarded, not smoothed** (designed, not yet built). A motor pulls
 several times its running current as it comes up to speed. At the rate readings

@@ -963,3 +963,30 @@ def test_the_live_state_records_a_rise_and_not_a_level():
     reading(30, 0.0)
     reading(40, 16.1)
     assert live.rose_at(0) == base + timedelta(seconds=40)
+
+
+def test_the_run_count_is_described_as_a_floor():
+    """It was described as a tally, on the strength of an inference that does
+    not hold: two readings above the running threshold with no zero between
+    them do not prove the pump never stopped, because a zero that was never
+    reported is not a zero that never happened.
+
+    The operator who has stood in front of the panel says the pumps run in
+    short bursts and nothing longer, so runs close together are arriving here
+    looking like one.
+    """
+    # Compared against what the page says, not against how the template wraps.
+    prose = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", render_dashboard()))
+
+    assert "floor rather than a tally" in prose
+    assert "at least this many rather than exactly this many" in prose
+
+
+def test_the_overload_note_names_all_four_selector_positions():
+    """H, A, HO and AO. Somebody standing at the panel is looking at a selector
+    with four positions on it, not two."""
+    page = render_dashboard()
+
+    for position in (">H<", ">A<", ">O<", ">HO<", ">AO<"):
+        assert position in page, position
+    assert "red button" in page

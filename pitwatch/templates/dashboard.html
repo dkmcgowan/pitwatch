@@ -151,6 +151,11 @@
           the current rising off nothing. Once there are three days of history,
           an ordinary day appears beside today's count, so today has something
           to be read against.</p>
+        <p>Read the count as a floor rather than a tally. The meter reports on
+          its own schedule, so two runs close together can arrive looking like
+          one, and the count is at least this many rather than exactly this
+          many. Wiring the panel's run contact makes it exact, because that is
+          polled five times a second.</p>
         <p><strong>Typical load</strong> is the middle reading of every one
           taken while the pump was running this week, leaving out the first
           reading of each run, which is where the starting surge lands. It is
@@ -275,14 +280,16 @@
       <p>A motor overload has tripped, so that pump is off and will not run.
         The panel cut it because it was drawing more than the overload is set
         to allow.</p>
-      <p>What happens next depends on the reset selector on the overload
-        itself. On <strong>H</strong>, hand reset, the pump stays off until
-        somebody goes to the panel and presses the button back in. On
-        <strong>A</strong>, automatic, it resets itself once it has cooled and
-        the pump can start again on its own, which sounds better and is often
-        worse: a motor that trips and restarts all night is a motor nobody
-        hears about. Some relays offer an <strong>O</strong> variant of either,
-        which adds a stop function.</p>
+      <p>What happens next is set by the selector on the overload itself.
+        <strong>H</strong> is hand reset: the pump stays off until somebody
+        goes to the panel and presses the red button back in.
+        <strong>A</strong> is auto reset: it resets itself once it has cooled
+        and the pump can start again on its own, which sounds better and is
+        often worse, because a motor that trips and restarts all night is a
+        motor nobody hears about. Adding the <strong>O</strong> makes the red
+        button work as a stop button as well, so <strong>HO</strong> is hand
+        reset with a stop and <strong>AO</strong> is auto reset with a
+        stop.</p>
       <p>Either way it tripped for a reason. A pump that has been drawing more
         than it used to will show that in its typical load.</p>
     </div>

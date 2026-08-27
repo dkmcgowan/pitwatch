@@ -14,13 +14,17 @@
 
 {# The panel door, near enough.
 
-   Three blocks across: what has gone wrong on the left, the controller's
-   own screen in the middle, where the water is on the right. Rules between
-   them, because they answer different questions.
+   Four blocks across: alerts, overloads, the controller's own screen, and
+   the floats. Rules either side of the screen, because it is the one thing
+   here that is a sentence rather than a lamp.
 
-   A lamp says one thing: on or not. What it has been doing lately is a
-   different question and it is answered downstairs, in the history cards,
-   where there is room for a number and a time.
+   Overloads have their own heading rather than sitting under Alerts. They
+   are a different kind of bad news: an alert means read the panel, an
+   overload means a pump is off and staying off.
+
+   The run contacts have no lamp. A pump that is running says so on its own
+   card below, in amps, and a lamp repeating that is one more thing to read
+   for nothing.
 
    Which input drives which lamp is a setting, under /settings/dashboard.
    The markup is here rather than built in JavaScript so the page has a
@@ -30,22 +34,28 @@
     <div class="door-side door-alerts">
       <h2 class="door-heading">Alerts</h2>
       <div class="lamp-pair">
-        <div class="lamp lamp-red" data-lamp="system_alert">
-          <span class="bulb" aria-hidden="true"></span>
-          <span class="lamp-title">Alert</span>
-        </div>
-        <div class="lamp lamp-red" data-lamp="high_water">
-          <span class="bulb" aria-hidden="true"></span>
-          <span class="lamp-title">High</span>
-        </div>
-        <div class="lamp lamp-red" data-lamp="pump1_fault">
-          <span class="bulb" aria-hidden="true"></span>
-          <span class="lamp-title">OL1</span>
-        </div>
-        <div class="lamp lamp-red" data-lamp="pump2_fault">
-          <span class="bulb" aria-hidden="true"></span>
-          <span class="lamp-title">OL2</span>
-        </div>
+      <div class="lamp lamp-red" data-lamp="system_alert">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">Alert</span>
+      </div>
+      <div class="lamp lamp-red" data-lamp="high_water">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">High</span>
+      </div>
+      </div>
+    </div>
+
+    <div class="door-side door-overloads">
+      <h2 class="door-heading">Overloads</h2>
+      <div class="lamp-pair">
+      <div class="lamp lamp-red" data-lamp="pump1_fault">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">OL1</span>
+      </div>
+      <div class="lamp lamp-red" data-lamp="pump2_fault">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">OL2</span>
+      </div>
       </div>
     </div>
 
@@ -57,21 +67,21 @@
 
     <div class="door-side door-floats">
       <h2 class="door-heading">Floats</h2>
-      <div class="lamp-pair lamp-pair-one">
-        <div class="lamp lamp-amber" data-lamp="lead_float">
-          <span class="bulb" aria-hidden="true"></span>
-          <span class="lamp-title">Lead</span>
-        </div>
-        <div class="lamp lamp-amber" data-lamp="lag_float">
-          <span class="bulb" aria-hidden="true"></span>
-          <span class="lamp-title">Lag</span>
-        </div>
+      <div class="lamp-pair">
+      <div class="lamp lamp-amber" data-lamp="lead_float">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">Lead</span>
+      </div>
+      <div class="lamp lamp-amber" data-lamp="lag_float">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">Lag</span>
+      </div>
       </div>
     </div>
   </div>
 
-  {# An overload has a lamp now, but it still turns a pump's word on the
-     screen into FAIL, and this says which pump in words. #}
+  {# An overload turns a pump's word on the screen into FAIL. This says
+     which pump, in words. #}
   <p class="door-note" data-door-note hidden></p>
 </section>
 
@@ -185,36 +195,8 @@
    teach somebody to stop looking. #}
 <div class="history-row" data-history-cards>
 <section class="card history">
-  <h2>Floats
-    <button type="button" class="info-mark" data-info="floats" aria-label="What this shows means">i</button></h2>
-  <div class="table-scroll">
-  <table class="history-table" data-window="today">
-    <thead>
-      <tr><th scope="col"></th><th scope="col">Last on</th><th scope="col">Today</th></tr>
-    </thead>
-    <tbody>
-        <tr data-history="lead_float">
-          <th scope="row">Lead</th>
-          <td data-history-last>--</td>
-          <td data-history-count>--</td>
-        </tr>
-        <tr data-history="lag_float">
-          <th scope="row">Lag</th>
-          <td data-history-last>--</td>
-          <td data-history-count>--</td>
-        </tr>
-    </tbody>
-  </table>
-  </div>
-  <dialog class="note" id="note-floats">
-    <h3 class="note-title">Floats</h3>
-    <p class="hint">How often the pit has filled far enough to call a pump, and when it last did.</p>
-    <p class="note-close">Click anywhere to close</p>
-  </dialog>
-</section>
-<section class="card history">
   <h2>Alerts
-    <button type="button" class="info-mark" data-info="alerts" aria-label="What this shows means">i</button></h2>
+    <button type="button" class="info-mark" data-info="alerts" aria-label="What this shows">i</button></h2>
   <div class="table-scroll">
   <table class="history-table" data-window="month">
     <thead>
@@ -254,7 +236,7 @@
 </section>
 <section class="card history">
   <h2>Overloads
-    <button type="button" class="info-mark" data-info="overloads" aria-label="What this shows means">i</button></h2>
+    <button type="button" class="info-mark" data-info="overloads" aria-label="What this shows">i</button></h2>
   <div class="table-scroll">
   <table class="history-table" data-window="month">
     <thead>
@@ -293,6 +275,34 @@
       <p>Either way it tripped for a reason. A pump that has been drawing more
         than it used to will show that in its typical load.</p>
     </div>
+    <p class="note-close">Click anywhere to close</p>
+  </dialog>
+</section>
+<section class="card history">
+  <h2>Floats
+    <button type="button" class="info-mark" data-info="floats" aria-label="What this shows">i</button></h2>
+  <div class="table-scroll">
+  <table class="history-table" data-window="today">
+    <thead>
+      <tr><th scope="col"></th><th scope="col">Last on</th><th scope="col">Today</th></tr>
+    </thead>
+    <tbody>
+        <tr data-history="lead_float">
+          <th scope="row">Lead</th>
+          <td data-history-last>--</td>
+          <td data-history-count>--</td>
+        </tr>
+        <tr data-history="lag_float">
+          <th scope="row">Lag</th>
+          <td data-history-last>--</td>
+          <td data-history-count>--</td>
+        </tr>
+    </tbody>
+  </table>
+  </div>
+  <dialog class="note" id="note-floats">
+    <h3 class="note-title">Floats</h3>
+    <p class="hint">How often the pit has filled far enough to call a pump, and when it last did.</p>
     <p class="note-close">Click anywhere to close</p>
   </dialog>
 </section>

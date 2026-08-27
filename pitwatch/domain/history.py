@@ -158,17 +158,26 @@ class CurrentHistory:
 
 # -- how often, and how recently -------------------------------------------
 #
-# **Why there is no run duration here.** A night of real readings from the
-# clamps settled it: the meter reports about every fifteen seconds while
-# nothing is changing, and pushes immediately when something does. So the start
-# and the end of a run are both caught, and the middle is not. Of 73 runs, 48
-# produced exactly two readings, and the time between them ranged from one
-# second to nearly four minutes for runs that drew the same steady current.
+# **Why there is no run duration here, and why the count is a floor.**
 #
-# That is enough to count runs and to say when the last one was, because both
-# only need the transition. It is nowhere near enough to time one. Duration has
-# to come from the panel's run contact, which is polled five times a second.
-# Showing a duration derived from these readings would be inventing a number.
+# A night of real readings from the clamps settled the first part: the meter
+# reports on its own schedule, roughly every fifteen seconds, and a run that
+# lasts a few seconds produces two readings. Timing one from that would be
+# inventing a number. Duration comes from the panel's run contact, which is
+# polled five times a second.
+#
+# The second part was learned the harder way. Those readings looked like they
+# proved some runs lasted minutes: two readings above the running threshold
+# with no zero between them. They prove nothing of the sort. A zero that was
+# never reported is not a zero that never happened, and the operator who has
+# stood in front of this panel says the pumps run in short bursts and nothing
+# longer. So two runs close together can arrive here looking like one.
+#
+# Which means the count is at least this many rather than exactly this many,
+# and the dashboard says so. Counting an edge is still sound: a jump from
+# nothing to sixteen amps is what makes the meter report in the first place.
+# What is not sound is reading the absence of a report as the absence of an
+# event.
 
 RUN_WINDOW = timedelta(hours=24)
 

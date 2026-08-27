@@ -602,41 +602,64 @@ table.probe td, table.probe th { border-bottom: none; padding: 0.2rem 0.6rem 0.2
   margin-bottom: 0.5rem;
 }
 
-/* Worth reading once and then never again, which is what a disclosure is for.
-   At the foot of the card and out of the way, because the numbers are what
-   somebody came for. */
-.card-note { margin-top: 1rem; }
+/* The i beside a heading, and the note it opens.
 
-.info-handle {
-  display: flex;
-  justify-content: flex-end;
-  cursor: pointer;
-  list-style: none;
-  /* A 21 pixel circle is not a tap target. The padding around it is. */
-  padding: 0.35rem 0;
-  margin: -0.35rem 0;
-}
-
-.info-handle::-webkit-details-marker { display: none; }
+   A native dialog, shown as a modal. It renders in the top layer, so it cannot
+   push a card around or end up behind one whatever the stacking looks like,
+   and it comes with a backdrop and an Escape key for nothing. */
 .info-mark {
   flex: none;
-  width: 1.35rem;
-  height: 1.35rem;
+  display: inline-grid;
+  place-items: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  margin-left: 0.45rem;
+  padding: 0;
   border-radius: 50%;
   border: 1px solid var(--border);
-  display: grid;
-  place-items: center;
-  font-size: 0.75rem;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.72rem;
   font-weight: 700;
   font-style: italic;
-  color: var(--text-muted);
+  line-height: 1;
+  vertical-align: 0.1em;
+  cursor: pointer;
 }
 
-.info-handle:hover .info-mark { color: var(--text); border-color: var(--text-muted); }
-.card-note[open] .info-mark { background: var(--surface-2); color: var(--text); }
-.card-note > .hint { margin: 0.75rem 0 0; }
-.card-note > .hint p { margin: 0 0 0.6rem; }
-.card-note > .hint p:last-child { margin-bottom: 0; }
+.info-mark:hover { color: var(--text); border-color: var(--text-muted); }
+
+.info-mark:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+dialog.note {
+  width: min(34rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 4rem);
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+  overflow-y: auto;
+}
+
+dialog.note::backdrop { background: rgba(0, 0, 0, 0.6); }
+
+dialog.note .hint { margin: 0; }
+dialog.note .hint p { margin: 0 0 0.7rem; }
+dialog.note .hint p:last-child { margin-bottom: 0; }
+
+.note-title { margin: 0 0 0.75rem; font-size: 1.05rem; }
+
+.note-close {
+  margin: 1rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
 
 .visually-hidden {
   position: absolute;

@@ -813,44 +813,57 @@ def test_a_running_pump_is_shown_by_the_card_and_not_by_a_pill():
     assert ".pump.running" in css
 
 
-def test_the_long_notes_are_behind_a_disclosure():
-    """Worth reading once and then never again, which is what a disclosure is
-    for. Native details and summary, so it works with a keyboard without being
-    told to and needs no script."""
+def test_every_long_note_is_a_dialog_opened_from_beside_its_heading():
+    """A native dialog shown as a modal renders in the top layer, so it cannot
+    push a card around or end up behind one whatever the stacking looks like,
+    and Escape closes it without being told to."""
     page = render_dashboard()
 
-    # Every card that had a paragraph printed under it now has a handle.
-    assert page.count('class="card-note"') == 5, "three history cards and two pumps"
-    assert page.count("info-mark") == 5
-    assert page.count("<details") == page.count("<summary")
+    # Five buttons and five notes on the page: three history cards and two
+    # pumps, the pump card being written once in a loop.
+    assert page.count("data-info=") == 5
+    assert page.count("<dialog") == 5
+    assert page.count("</dialog>") == 5
 
-    # And the words are still there, just folded away.
+    # Each button names a note that exists.
+    import re
+
+    for key in re.findall(r'data-info="([^"]+)"', page):
+        assert 'id="note-' + key + '"' in page, key
+
+    # And the words are still there, just not on the card.
     assert "full load amps printed on the motor" in page
     assert "How often the pit has filled" in page
 
+
+def test_a_note_can_always_be_closed():
+    """A note that needs a target found before it will go away is a note that
+    gets left open. Clicking anywhere closes it, including inside: there is
+    nothing in there to interact with."""
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+    notes = js.split("function wireNotes", 1)[1].split("wireNotes();", 1)[0]
+
+    assert "showModal()" in notes, "modal, so only one at a time and Escape works"
+    assert "note.close()" in notes
+    # The listener is on the dialog itself, so a click anywhere inside bubbles
+    # to it. A backdrop-only check would leave the note open on a phone, where
+    # there is barely any backdrop to hit.
+    assert 'note.addEventListener("click"' in notes
+    # And a browser without dialog support hides the button rather than
+    # offering something that cannot be closed.
+    assert "button.hidden = true;" in notes
+
+
+def test_the_note_does_not_sit_in_the_flow_of_the_card():
+    """It used to, first at the top and then at the foot. Both pushed the
+    numbers around when it opened, which is what a card is for."""
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
-    handle = css.split(".info-handle {", 1)[1].split("}", 1)[0]
-    assert "justify-content: flex-end;" in handle, "bottom right of the card"
-    assert "cursor: pointer;" in handle
-    # A 21 pixel circle is not a tap target. The padding around it is.
-    assert "padding:" in handle
-
-
-def test_the_note_is_at_the_foot_of_the_card_not_the_head():
-    """The numbers are what somebody came for. The explanation is what they read
-    once, so it goes last and folded."""
     page = render_dashboard()
 
-    pump = page.split('data-pump="1"', 1)[1].split("</article>", 1)[0]
-    assert pump.index("data-nameplate") < pump.index("card-note")
-
-    # Every history card, not just the first. The last one lost its note
-    # entirely once, because the search for the end of the section ran past it
-    # and dropped it into the card below.
-    for block in page.split('<section class="card history">')[1:]:
-        card = block.split("</section>", 1)[0]
-        assert "card-note" in card, card[:80]
-        assert card.index("history-table") < card.index("card-note")
+    assert "card-note" not in css and "card-note" not in page
+    assert "dialog.note::backdrop" in css
+    # The handle sits beside the heading it belongs to.
+    assert page.count('class="info-mark"') == 5
 
 
 def test_the_current_reading_is_labelled_and_not_the_biggest_thing_on_the_page():

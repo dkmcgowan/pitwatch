@@ -555,7 +555,7 @@ def test_the_header_is_icons_rather_than_words(client):
 
     page = client.get("/").text
 
-    for label in ("Dashboard", "People", "Settings", "Your profile"):
+    for label in ("Dashboard", "Users", "Settings", "Your profile"):
         assert f'aria-label="{label}"' in page, label
     # The words themselves are gone from the navigation.
     assert ">Dashboard</a>" not in page
@@ -574,7 +574,7 @@ def test_a_non_admin_sees_no_settings_or_users_icon(client):
     page = client.get("/").text
     assert 'aria-label="Settings"' in page, "the admin should see it"
 
-    # The template decides by user.is_admin, which the People page shows too.
+    # The template decides by user.is_admin, which the Users page shows too.
     assert 'aria-label="Users"' in page
 
 

@@ -615,24 +615,41 @@ def test_the_panel_reads_down_the_page_in_the_order_the_water_moves():
     )
 
 
-def test_the_screen_and_the_lamps_around_it_are_centered():
-    """Checked in the stylesheet rather than in a browser, which is as far as
-    this can honestly go without one. It catches the rule being deleted, which
-    is what actually happens."""
-    page = render_dashboard()
+def test_every_lamp_row_uses_the_same_two_columns():
+    """So a bulb in the left column is in the same place whether the words next
+    to it are "High water", "Lead float" or "P1 Running".
+
+    It was a centered flex row, which puts each lamp where its own text says
+    and leaves the column of bulbs wandering as the labels change. Checked in
+    the stylesheet rather than in a browser, which is as far as this goes
+    honestly without one, but it catches the rule being deleted and that is
+    what actually happens.
+    """
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
 
     def rule(selector: str) -> str:
         return css.split(selector + " {", 1)[1].split("}", 1)[0]
 
-    assert 'class="door-alarms"' in page
-    assert 'class="door-display"' in page
-    # The alarm block is held to the width of the wider lamp and centered as a
-    # unit, so the two bulbs line up under each other.
-    assert "margin: 0 auto;" in rule(".door-alarms")
-    assert "width: max-content;" in rule(".door-alarms")
-    assert "justify-content: center;" in rule(".lamp-row")
+    row = rule(".lamp-row")
+    assert "display: grid;" in row
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in row
+    # Every row and the screen share one width, which is what makes the columns
+    # line up with each other rather than each being centered on its own.
+    assert "max-width: var(--door-width);" in row
+    assert "max-width: var(--door-width);" in rule(".lcd")
+    assert "--door-width:" in rule(".door")
     assert "text-align: center;" in rule(".lcd")
+
+
+def test_the_alarms_sit_side_by_side_like_every_other_row():
+    page = render_dashboard()
+    alarms = page.index('data-lamp="high_water"')
+    divider = page.index("door-divider")
+
+    assert page.index('data-lamp="system_alert"') < divider, "both above the divider"
+    assert alarms < page.index('data-lamp="system_alert"'), "high water on the left"
+    # One row element holding both, rather than a block of its own.
+    assert "door-alarms" not in page
 
 
 def test_the_run_lamps_are_labelled_the_short_way():

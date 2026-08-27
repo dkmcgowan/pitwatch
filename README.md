@@ -268,10 +268,14 @@ SES speaks ordinary SMTP, so there is nothing AWS shaped about the settings.
 
 1. In the SES console, **verify an identity**: either a domain, or just the one
    address you want mail to come from. That address goes in **From address**.
-2. **Create SMTP credentials** under SES, Account dashboard, SMTP settings. This
-   is the step people get wrong: SES SMTP credentials are generated separately
-   and are **not** an IAM access key and secret, though they look almost
-   identical. Pasting an IAM key in is the usual reason authentication fails.
+2. **Get SMTP credentials** under SES, Account dashboard, SMTP settings. The
+   user name is an IAM access key id and the password is **derived** from the
+   matching secret access key, not the secret key itself, so a secret key
+   pasted straight in is refused. The console does that derivation when it
+   offers to create credentials; deriving it yourself from an IAM key you
+   already have is perfectly ordinary and works the same. The derivation
+   includes the region, so a password made for one region will not send
+   through another.
 3. Fill in the settings:
 
    | Field | Value |
@@ -279,7 +283,7 @@ SES speaks ordinary SMTP, so there is nothing AWS shaped about the settings.
    | Server | `email-smtp.<region>.amazonaws.com` |
    | Port | 587 |
    | Security | STARTTLS |
-   | User name and password | The SES SMTP credentials from step 2 |
+   | User name and password | The SMTP credentials from step 2 |
    | From address | The identity verified in step 1 |
 
 4. Press **Send test email**.

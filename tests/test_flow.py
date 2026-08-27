@@ -689,8 +689,10 @@ def _user_id(client, username: str) -> int:
     for row in page.split("<tr")[1:]:
         if f'data-username="{username}"' not in row:
             continue
-        at = row.index("/users/") + len("/users/")
-        return int(row[at : row.index("/edit", at)])
+        # The edit link specifically. Taking the first "/users/" in the row and
+        # reading to "/edit" worked until a second form appeared above it, and
+        # then quietly read across both of them.
+        return int(re.search(r"/users/(\d+)/edit", row).group(1))
     raise AssertionError(f"{username} is not on the users page")
 
 

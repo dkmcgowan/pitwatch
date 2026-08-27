@@ -146,7 +146,7 @@ def _pump_from(form: FormData, prefix: str, fallback_name: str) -> PumpSettings:
         running_amps=number(form, f"{prefix}_running_amps", 1.0),
         nameplate_amps=optional_number(form, f"{prefix}_nameplate_amps"),
         overcurrent_amps=optional_number(form, f"{prefix}_overcurrent_amps"),
-        overcurrent_hold_ms=integer(form, f"{prefix}_overcurrent_hold_ms", 1500),
+        overcurrent_readings=integer(form, f"{prefix}_overcurrent_readings", 2),
     )
 
 
@@ -154,7 +154,6 @@ def pumps_from(form: FormData) -> PumpsSettings:
     return PumpsSettings(
         pump1=_pump_from(form, "pump1", "Pump 1"),
         pump2=_pump_from(form, "pump2", "Pump 2"),
-        inrush_ignore_ms=integer(form, "inrush_ignore_ms", 800),
         # Every threshold that raises an alert is optional, and empty means do
         # not run that check. Nothing here treats an empty box as a zero.
         max_runtime_ms=optional_integer(form, "max_runtime_ms"),

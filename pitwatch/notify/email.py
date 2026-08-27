@@ -3,10 +3,16 @@
 Any SMTP server works. Amazon SES is the one this was built against, and SES
 speaks ordinary SMTP, so there is nothing AWS specific here: its endpoint goes
 in the host box and its SMTP credentials go in the user name and password
-boxes. Note that SES SMTP credentials are **not** an IAM access key and secret;
-they are generated separately in the SES console and only look similar. Pasting
-an IAM key in is the single most common way to get an authentication failure
-here, so the error text says so.
+boxes.
+
+**On the SES credentials, precisely.** The SMTP user name is an IAM access key
+id. The SMTP password is derived from the matching secret access key by an
+HMAC that includes the region, so it is not the secret key itself and a secret
+key pasted straight in will be refused. The SES console does that derivation
+when it offers to create SMTP credentials, which is why they look like a
+separate thing, but deriving it yourself from an existing IAM key is perfectly
+ordinary and works the same. What matters is that the password is the derived
+one and that it was derived for the region you are sending through.
 """
 
 from __future__ import annotations
@@ -87,9 +93,10 @@ async def send(settings: SmtpSettings, to: str, subject: str, body: str) -> str:
     except aiosmtplib.SMTPAuthenticationError as error:
         raise EmailError(
             f"The server rejected the user name and password ({error.code}). "
-            "If this is Amazon SES, check you are using SES SMTP credentials "
-            "rather than an IAM access key and secret; they are different "
-            "things that look alike."
+            "On Amazon SES the password is derived from an IAM secret access "
+            "key rather than being the secret key itself, and the derivation "
+            "includes the region, so a password made for one region will not "
+            "work through another."
         ) from error
     except aiosmtplib.SMTPRecipientsRefused as error:
         raise EmailError(

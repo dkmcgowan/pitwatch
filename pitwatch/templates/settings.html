@@ -102,9 +102,11 @@
       <div class="field">
         <label for="smtp_username">User name</label>
         <input type="text" id="smtp_username" name="smtp_username" value="{{ smtp.username }}" autocomplete="off">
-        <p class="hint">On SES these are <strong>SMTP credentials</strong> from
-          the SES console, not an IAM key and secret. Using the IAM pair is the
-          usual reason this fails.</p>
+        <p class="hint">On SES the user name is an IAM access key id and the
+          password is <strong>derived</strong> from the matching secret access
+          key, not the secret key itself. The console does that for you when it
+          creates SMTP credentials; deriving it from an IAM key you already
+          have works just as well. The derivation includes the region.</p>
       </div>
       <div class="field">
         <label for="smtp_password">Password</label>

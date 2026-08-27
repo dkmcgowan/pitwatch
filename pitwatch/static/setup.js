@@ -452,3 +452,71 @@ function csrfHeader(form) {
     refresh();
   });
 })();
+
+
+// Asking before something cannot be undone.
+//
+// A real dialog rather than the browser's confirm box, which is styled by the
+// browser, cannot say which account it means in the page's own voice, and
+// blocks the whole tab while it is up. This one names the account and offers
+// two buttons that say what they do rather than OK and Cancel.
+//
+// Without a dialog element the form keeps its normal behavior and submits, so
+// the action still works; it just does not ask first.
+
+(function () {
+  "use strict";
+
+  const dialog = document.getElementById("confirm");
+  const forms = Array.prototype.slice.call(document.querySelectorAll("[data-confirm]"));
+  if (!dialog || !forms.length || typeof dialog.showModal !== "function") {
+    return;
+  }
+
+  const body = dialog.querySelector("[data-confirm-body]");
+  const yes = dialog.querySelector("[data-confirm-yes]");
+  const no = dialog.querySelector("[data-confirm-no]");
+  let asking = null;
+
+  forms.forEach(function (form) {
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      asking = form;
+      if (body) {
+        body.textContent = form.getAttribute("data-confirm");
+      }
+      dialog.showModal();
+    });
+  });
+
+  function dismiss() {
+    asking = null;
+    dialog.close();
+  }
+
+  if (yes) {
+    yes.addEventListener("click", function () {
+      const form = asking;
+      dismiss();
+      if (form) {
+        // submit() does not raise the submit event, so this does not come back
+        // round to the handler above and ask again.
+        form.submit();
+      }
+    });
+  }
+  if (no) {
+    no.addEventListener("click", dismiss);
+  }
+
+  // The backdrop, and Escape, both mean no. Clicking inside does not, because
+  // there are two buttons in there and one of them deletes something.
+  dialog.addEventListener("click", function (event) {
+    if (event.target === dialog) {
+      dismiss();
+    }
+  });
+  dialog.addEventListener("close", function () {
+    asking = null;
+  });
+})();

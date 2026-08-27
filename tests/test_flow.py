@@ -680,13 +680,14 @@ def test_your_own_profile_cannot_make_you_an_administrator(client):
 
 def _user_id(client, username: str) -> int:
     page = client.get("/users").text
-    # Row by row. Scanning the whole page for a username and then reaching
-    # backwards for an id happily starts in one row and finishes in the next,
-    # which returns the wrong id and then edits the wrong account. That is
-    # exactly what an earlier version of this did, and the test that noticed
-    # was the one where the wrong account turned out to be the admin.
-    for row in page.split("<tr>")[1:]:
-        if f'class="mono">{username}<' not in row:
+    # By the account the row is about, not by reading the words in it. Scanning
+    # the whole page for a name and then reaching backwards for an id happily
+    # starts in one row and finishes in the next, which returns the wrong id
+    # and then edits the wrong account. That is exactly what an earlier version
+    # of this did, and the test that noticed was the one where the wrong
+    # account turned out to be the admin.
+    for row in page.split("<tr")[1:]:
+        if f'data-username="{username}"' not in row:
             continue
         at = row.index("/users/") + len("/users/")
         return int(row[at : row.index("/edit", at)])

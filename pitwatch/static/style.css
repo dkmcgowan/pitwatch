@@ -766,11 +766,54 @@ dialog.note .hint p:last-child { margin-bottom: 0; }
 
 /* Users ------------------------------------------------------------------ */
 
-table.users { min-width: 46rem; }
+/* Four columns and a set of icons. It was eight columns of words, which was
+   wider than the page and put a horizontal scrollbar under a list of four
+   people. */
+table.users { min-width: 30rem; }
 
 table.users th[scope="row"] { font-weight: 600; white-space: nowrap; padding-left: 0; }
 table.users td { white-space: nowrap; }
-table.users .row-actions { display: flex; gap: 0.4rem; flex-wrap: nowrap; }
+
+/* A disabled account, dimmed. The row still reads; it just stops competing
+   with the accounts that are actually being sent things. */
+table.users tr.off th[scope="row"],
+table.users tr.off td { color: var(--text-muted); }
+
+table.users .row-actions {
+  display: flex;
+  gap: 0.15rem;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
+/* An icon on its own, with a target around it big enough for a thumb. */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.icon-button svg { width: 19px; height: 19px; }
+.icon-button:hover { background: var(--surface-2); color: var(--text); }
+.icon-button.danger:hover { color: var(--crit); }
+
+.icon-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* The confirmation. Same panel as an information note, with buttons that say
+   what they do instead of OK and Cancel. */
+dialog.confirm { width: min(26rem, calc(100vw - 2rem)); }
+dialog.confirm .row-actions { margin-top: 1.25rem; }
 
 /* The heading and the one button that starts something new. */
 .card-head {

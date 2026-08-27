@@ -1,6 +1,6 @@
 [project]
 name = "pitwatch"
-version = "0.16.1"
+version = "0.16.2"
 description = "Monitoring and alerting for a duplex ejector pump panel"
 readme = "README.md"
 requires-python = ">=3.12"

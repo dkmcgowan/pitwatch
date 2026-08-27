@@ -14,87 +14,57 @@
 
 {# The panel door, near enough.
 
-   Everything is stacked on the controller's screen, because that screen is the
-   one thing on the real door that says what is going on. The floats that call
-   the pumps sit above it and the contactors it closes sit below it, so the
-   column reads in the order the water moves. The floats are the part the real
-   panel does not show at all, which is most of why this exists.
+   Three blocks across: what has gone wrong on the left, the controller's
+   own screen in the middle, and where the water is on the right. Rules
+   between them, because they answer different questions and the eye should
+   not have to work that out.
 
-   Which input drives which lamp is a setting, under /settings/dashboard. The
-   markup is here rather than built in JavaScript so the page has a shape
-   before the first reply arrives. #}
+   The run contacts have no lamp here. A pump that is running says so on its
+   own card below, in amps, and a lamp repeating that is one more thing to
+   read for nothing.
+
+   Which input drives which lamp is a setting, under /settings/dashboard.
+   The markup is here rather than built in JavaScript so the page has a
+   shape before the first reply arrives. #}
 <section class="door" aria-label="Panel">
-  {# The two that mean somebody has to do something, on their own above the
-     divider: they are not a reading, they are a phone call. #}
-  <div class="lamp-row">
-    <div class="lamp lamp-red" data-lamp="high_water">
-      <span class="bulb" aria-hidden="true"></span>
-      <span class="lamp-title">High water</span>
-      <span class="lamp-state" data-lamp-state>No data</span>
+  <div class="door-grid">
+    <div class="door-side">
+      <h2 class="door-heading">Alerts</h2>
+      <div class="lamp lamp-red" data-lamp="system_alert">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">Alert</span>
+        <span class="lamp-state" data-lamp-state>No data</span>
+      </div>
+      <div class="lamp lamp-red" data-lamp="high_water">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">High</span>
+        <span class="lamp-state" data-lamp-state>No data</span>
+      </div>
     </div>
-    <div class="lamp lamp-red" data-lamp="system_alert">
-      <span class="bulb" aria-hidden="true"></span>
-      <span class="lamp-title">System alert</span>
-      <span class="lamp-state" data-lamp-state>No data</span>
+
+    <div class="door-middle">
+      <div class="lcd" role="status" aria-live="polite">
+        <span class="lcd-text" data-lcd>P1:--  P2:--</span>
+      </div>
     </div>
-  </div>
 
-  <hr class="door-divider">
-
-  {# The controller's own screen, with the floats that call the pumps above
-     it and the contactors it closes below, all centered on it. That is the
-     order the water moves in: the pit comes up, the controller decides, a
-     pump runs. #}
-  <div class="door-display">
-    <div class="lamp-row">
+    <div class="door-side">
+      <h2 class="door-heading">Floats</h2>
       <div class="lamp lamp-amber" data-lamp="lead_float">
         <span class="bulb" aria-hidden="true"></span>
-        <span class="lamp-title">Lead float</span>
+        <span class="lamp-title">Lead</span>
         <span class="lamp-state" data-lamp-state>No data</span>
       </div>
       <div class="lamp lamp-amber" data-lamp="lag_float">
         <span class="bulb" aria-hidden="true"></span>
-        <span class="lamp-title">Lag float</span>
+        <span class="lamp-title">Lag</span>
         <span class="lamp-state" data-lamp-state>No data</span>
-      </div>
-    </div>
-
-    <div class="lcd" role="status" aria-live="polite">
-      <span class="lcd-text" data-lcd>P1:--  P2:--</span>
-    </div>
-
-    <div class="lamp-row">
-      <div class="lamp lamp-green lamp-with-facts" data-lamp="pump1_run">
-        <span class="bulb" aria-hidden="true"></span>
-        <span class="lamp-title">P1 Running</span>
-        <span class="lamp-state" data-lamp-state>No data</span>
-        {# What is happening now, under the lamp that says whether it is.
-           Amps live, then when it last started and how many times it has
-           today. No duration: see pitwatch/domain/history.py. #}
-        <dl class="facts" data-facts="1">
-          <div><dt>Amps</dt><dd data-fact-amps>--</dd></div>
-          <div><dt>Last run</dt><dd data-fact-last>--</dd></div>
-          <div><dt>Runs today</dt><dd data-fact-runs>--</dd></div>
-        </dl>
-      </div>
-      <div class="lamp lamp-green lamp-with-facts" data-lamp="pump2_run">
-        <span class="bulb" aria-hidden="true"></span>
-        <span class="lamp-title">P2 Running</span>
-        <span class="lamp-state" data-lamp-state>No data</span>
-        {# What is happening now, under the lamp that says whether it is.
-           Amps live, then when it last started and how many times it has
-           today. No duration: see pitwatch/domain/history.py. #}
-        <dl class="facts" data-facts="2">
-          <div><dt>Amps</dt><dd data-fact-amps>--</dd></div>
-          <div><dt>Last run</dt><dd data-fact-last>--</dd></div>
-          <div><dt>Runs today</dt><dd data-fact-runs>--</dd></div>
-        </dl>
       </div>
     </div>
   </div>
 
   {# The overloads have no lamp on the real door either. They show up by
-     turning a pump's word on the display into FAIL. #}
+     turning a pump's word on the screen into FAIL. #}
   <p class="door-note" data-door-note hidden></p>
 </section>
 
@@ -105,10 +75,12 @@
       <h2 data-name>Pump {{ number }}</h2>
     </header>
 
+    {# No running pill. The card outlines itself green while a pump is running
+       and the amps are right there, so a word saying the same thing is one
+       more thing to read for nothing. #}
     <div class="readout">
       <span class="amps" data-amps>--</span>
       <span class="unit">A</span>
-      <span class="pill pill-idle" data-run-pill>No data</span>
     </div>
 
     {# Amps and the contacts, and nothing derived from voltage.
@@ -121,10 +93,10 @@
        current from the same phase with the right angle between them, and there
        is no reason to think that angle is right here. So they are not shown.
 
-       Two sections, and the split is what each answers. The panel above is what
-       is happening now: lamps, the screen, live amps, when a pump last
-       started. These cards are how it has been running, which moves over weeks
-       and is where a failing pump shows up first.
+       Two sections, and the split is what each answers. The panel above is the
+       panel: what the controller and the floats are doing. These cards are the
+       pumps themselves, from the clamps, which is both what one is drawing now
+       and how it has been running.
 
        Typical load is the median of every reading above the running threshold
        over the last week, which ignores the starting surge without needing a
@@ -138,6 +110,8 @@
        them back needs a way to say which input carries pump 1's run contact,
        and inputs are free text labels now. See NOTES.md. #}
     <dl class="detail">
+      <div><dt>Last run</dt><dd data-fact-last>--</dd></div>
+      <div><dt>Runs today</dt><dd data-fact-runs>--</dd></div>
       <div><dt>Typical load</dt><dd data-typical>--</dd></div>
       <div><dt>FLA</dt><dd data-nameplate>--</dd></div>
     </dl>

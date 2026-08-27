@@ -63,19 +63,10 @@
     card.querySelector("[data-name]").textContent = pump.name || "Pump " + number;
     card.querySelector("[data-amps]").textContent = amps(pump.current);
 
-    // Three states, not two. "No data" is its own answer and it is the one
-    // that means go and look at why.
-    const pill = card.querySelector("[data-run-pill]");
-    if (pump.current === null) {
-      setPill(pill, "No data", "idle");
-      card.classList.remove("running");
-    } else if (pump.running) {
-      setPill(pill, "Running", "ok");
-      card.classList.add("running");
-    } else {
-      setPill(pill, "Idle", "idle");
-      card.classList.remove("running");
-    }
+    // The card outlines itself while a pump is running. There is no pill any
+    // more: the amps above say the same thing in a number somebody wanted
+    // anyway, and two things saying it is two things to read.
+    card.classList.toggle("running", pump.running === true);
 
     const nameplate = card.querySelector("[data-nameplate]");
     if (nameplate) {
@@ -84,22 +75,20 @@
     }
 
     renderTypical(card, pump.typical || {});
-    renderFacts(number, pump);
+    renderRecent(card, pump);
   }
 
-  // The three live facts under a run lamp. Amps first, because that is the one
-  // that moves; then when it last started and how often today, which are the
-  // two questions somebody standing in a wet basement actually asks.
-  function renderFacts(number, pump) {
-    const list = document.querySelector('[data-facts="' + number + '"]');
-    if (!list) {
+  // When it last started and how often today, which are the two questions
+  // somebody standing in a wet basement actually asks. On the pump's own card,
+  // with the amps, because they are all facts about the same motor.
+  function renderRecent(card, pump) {
+    const last = card.querySelector("[data-fact-last]");
+    const runs = card.querySelector("[data-fact-runs]");
+    if (!last || !runs) {
       return;
     }
     const recent = pump.recent || {};
-    list.querySelector("[data-fact-amps]").textContent =
-      pump.current === null ? "no data" : pump.current.toFixed(2) + " A";
 
-    const last = list.querySelector("[data-fact-last]");
     if (pump.drawing_current) {
       last.textContent = "running now";
     } else if (recent.last_start) {
@@ -108,8 +97,7 @@
       last.textContent = "not in 24 h";
     }
 
-    list.querySelector("[data-fact-runs]").textContent =
-      recent.last_start || recent.runs ? String(recent.runs) : "--";
+    runs.textContent = recent.last_start || recent.runs ? String(recent.runs) : "--";
   }
 
   // What the pump draws when it is actually running, and whether that is

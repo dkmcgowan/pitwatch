@@ -152,6 +152,15 @@ class CurrentHistory:
 
 RUN_WINDOW = timedelta(hours=24)
 
+# How far back the average of a normal day is worked out over. Long enough that
+# one storm does not become the baseline, short enough to still be this season.
+RUN_BASELINE = timedelta(days=30)
+
+# And how much of that has to have actually been recorded before an average is
+# worth printing. Two days of history divided into a month is not an average,
+# it is a small number with a decimal point.
+BASELINE_MIN_DAYS = 3
+
 # Shorter than the medians, because "last run" is a clock somebody is reading
 # rather than a trend. Still not per frame: this is a query, and the panel lamp
 # already says whether a pump is running right now.
@@ -161,15 +170,19 @@ RUNS_QUERY = """
 WITH readings AS (
     SELECT ts, current, lag(current) OVER (ORDER BY ts) AS previous
     FROM em_sample
-    WHERE channel = $1 AND ts > now() - $3::interval
-)
-SELECT
-    count(*)  FILTER (WHERE started) AS runs,
-    max(ts)   FILTER (WHERE started) AS last_start
-FROM (
+    WHERE channel = $1 AND ts > now() - $4::interval
+), edges AS (
     SELECT ts, current >= $2 AND (previous IS NULL OR previous < $2) AS started
     FROM readings
-) edges
+)
+SELECT
+    count(*) FILTER (WHERE started AND ts > now() - $3::interval) AS runs,
+    -- The last run whenever it was, not the last one today. A pump that has
+    -- not gone since Tuesday should say Tuesday, not say nothing.
+    max(ts)  FILTER (WHERE started)                              AS last_start,
+    count(*) FILTER (WHERE started)                              AS baseline_runs,
+    min(ts)                                                      AS first_seen
+FROM edges
 """
 
 
@@ -179,11 +192,18 @@ class Recent:
 
     runs: int = 0
     last_start: datetime | None = None
+    # Runs on an ordinary day, so today's count has something to be read
+    # against. Eighty-nine is a lot or a Tuesday depending on what the month
+    # looks like, and only one of those is worth getting out of bed for.
+    daily_average: float | None = None
 
     def as_json(self) -> dict:
         return {
             "runs": self.runs,
             "last_start": self.last_start.isoformat() if self.last_start else None,
+            "daily_average": (
+                round(self.daily_average) if self.daily_average is not None else None
+            ),
         }
 
 
@@ -202,14 +222,35 @@ class RecentRuns:
         self._cache[key] = (now, cached[1] if cached else Recent())
 
         try:
-            row = await pool.fetchrow(RUNS_QUERY, channel, running_amps, RUN_WINDOW)
+            row = await pool.fetchrow(
+                RUNS_QUERY, channel, running_amps, RUN_WINDOW, RUN_BASELINE
+            )
         except (asyncpg.PostgresError, OSError) as error:
             log.warning("Could not count recent runs for clamp %d: %s", channel, error)
             return self._cache[key][1]
 
-        recent = Recent(runs=int(row["runs"] or 0), last_start=row["last_start"])
+        recent = Recent(
+            runs=int(row["runs"] or 0),
+            last_start=row["last_start"],
+            daily_average=_daily_average(row["baseline_runs"], row["first_seen"], now),
+        )
         self._cache[key] = (now, recent)
         return recent
+
+
+def _daily_average(runs: int | None, first_seen: datetime | None, now: datetime) -> float | None:
+    """Runs a day, over as much of the baseline as has actually been recorded.
+
+    Dividing by thirty regardless would make every new install look quiet and
+    then slowly look busier as the denominator became real, which is a graph of
+    the install rather than of the pit.
+    """
+    if not runs or first_seen is None:
+        return None
+    days = (now - first_seen).total_seconds() / 86_400
+    if days < BASELINE_MIN_DAYS:
+        return None
+    return runs / min(days, RUN_BASELINE.total_seconds() / 86_400)
 
 
 # -- how often a contact has closed, and when it last did -------------------

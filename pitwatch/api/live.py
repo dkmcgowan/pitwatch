@@ -140,6 +140,17 @@ def panel_state(
     return lamps
 
 
+def _with_live_rise(recent: Recent, rose_at) -> dict:
+    """The run counts from the database, with the clock from memory."""
+    payload = recent.as_json()
+    if rose_at is not None and (recent.last_start is None or rose_at > recent.last_start):
+        payload["last_start"] = rose_at.isoformat()
+        # The count is left alone. It is a minute stale at worst, and guessing
+        # at it here would be right until two runs landed inside one cache
+        # window and then quietly wrong.
+    return payload
+
+
 async def build_state(app) -> dict:
     """Everything the dashboard needs, in one snapshot.
 
@@ -227,7 +238,10 @@ async def build_state(app) -> dict:
             "running": drawing,
             "nameplate_amps": settings.nameplate_amps,
             "typical": typical[number].as_json(),
-            "recent": recent[number].as_json(),
+            # The query behind this is cached for a minute, which is right for
+            # a count and wrong for a clock. The live state knows exactly when
+            # the current last rose, so it wins whenever it is newer.
+            "recent": _with_live_rise(recent[number], live.rose_at(channel)),
         }
 
     waveshare = store.waveshare

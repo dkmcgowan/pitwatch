@@ -32,6 +32,11 @@ from pitwatch.ingest.waveshare import IoEvent
 
 log = logging.getLogger(__name__)
 
+# What counts as the current rising off nothing. Not the running threshold,
+# which is a setting: this only has to tell a motor starting from a clamp
+# sitting idle, and an idle clamp on this meter reads exactly zero.
+RISE_A = 0.2
+
 QUEUE_LIMIT = 10_000
 FLUSH_INTERVAL_S = 1.0
 FLUSH_BATCH = 500
@@ -47,6 +52,15 @@ class LiveState:
     """
 
     samples: dict[int, EmSample] = field(default_factory=dict)
+    # When the current on each clamp was last seen to rise from nothing.
+    #
+    # Kept here because the database cannot answer it quickly enough. Run
+    # counts come from a query that is cached for a minute, which is fine for a
+    # count and useless for a clock: a pump stops and the dashboard goes on
+    # saying it last ran sixteen minutes ago until the cache turns over. This
+    # is exact and free, because the sample that ends the run is already in
+    # hand.
+    last_rise: dict[int, datetime] = field(default_factory=dict)
     updated_at: datetime | None = None
 
     def update(self, sample: EmSample) -> None:
@@ -67,8 +81,24 @@ class LiveState:
                 pf=sample.pf if sample.pf is not None else previous.pf,
                 freq=sample.freq if sample.freq is not None else previous.freq,
             )
+        # A rise, not a level. The threshold that decides what counts as
+        # running is a setting and this does not have it, but it does not need
+        # it: an idle clamp on this meter reads 0.000 exactly, so anything at
+        # all is the motor starting. The reader that does have the threshold
+        # checks the level itself.
+        before = previous.current if previous is not None else None
+        if (
+            sample.current is not None
+            and sample.current >= RISE_A
+            and (before is None or before < RISE_A)
+        ):
+            self.last_rise[sample.channel] = sample.ts
+
         self.samples[sample.channel] = sample
         self.updated_at = datetime.now(UTC)
+
+    def rose_at(self, channel: int) -> datetime | None:
+        return self.last_rise.get(channel)
 
     def current_for(self, channel: int) -> float | None:
         sample = self.samples.get(channel)

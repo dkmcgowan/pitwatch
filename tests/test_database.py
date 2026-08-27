@@ -387,11 +387,13 @@ async def test_counting_what_a_contact_has_done(pool):
 
     now = datetime.now(UTC)
     rows = []
-    # A float that has closed three times today and twice more this month.
-    for hours in (1, 5, 20, 200, 400):
-        rows.append((now - timedelta(hours=hours), 3, "Lead float", True, True))
+    # A float that has closed three times today, once more this month, and once
+    # long enough ago to be outside both. Written in days, because 400 hours
+    # reads like a long time and is two weeks.
+    for days in (0.04, 0.2, 0.85, 10, 45):
+        rows.append((now - timedelta(days=days), 3, "Lead float", True, True))
         rows.append(
-            (now - timedelta(hours=hours) + timedelta(seconds=30), 3, "Lead float", False, False)
+            (now - timedelta(days=days) + timedelta(seconds=30), 3, "Lead float", False, False)
         )
     # An alarm that went off once, three weeks ago.
     rows.append((now - timedelta(days=21), 4, "High water", True, True))
@@ -404,8 +406,8 @@ async def test_counting_what_a_contact_has_done(pool):
 
     closings = await SignalHistory().closings(pool, [3, 4, 5])
 
-    assert closings[3].today == 3, "three in the last day"
-    assert closings[3].month == 4, "the 400 hour old one is outside a month"
+    assert closings[3].today == 3, "three inside a day"
+    assert closings[3].month == 4, "the 45 day old one is outside a month"
     assert (now - closings[3].last_on).total_seconds() < 3700
 
     assert closings[4].today == 0

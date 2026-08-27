@@ -84,6 +84,32 @@
     }
 
     renderTypical(card, pump.typical || {});
+    renderFacts(number, pump);
+  }
+
+  // The three live facts under a run lamp. Amps first, because that is the one
+  // that moves; then when it last started and how often today, which are the
+  // two questions somebody standing in a wet basement actually asks.
+  function renderFacts(number, pump) {
+    const list = document.querySelector('[data-facts="' + number + '"]');
+    if (!list) {
+      return;
+    }
+    const recent = pump.recent || {};
+    list.querySelector("[data-fact-amps]").textContent =
+      pump.current === null ? "no data" : pump.current.toFixed(2) + " A";
+
+    const last = list.querySelector("[data-fact-last]");
+    if (pump.drawing_current) {
+      last.textContent = "running now";
+    } else if (recent.last_start) {
+      last.textContent = since(recent.last_start);
+    } else {
+      last.textContent = "not in 24 h";
+    }
+
+    list.querySelector("[data-fact-runs]").textContent =
+      recent.last_start || recent.runs ? String(recent.runs) : "--";
   }
 
   // What the pump draws when it is actually running, and whether that is

@@ -134,3 +134,79 @@ class CurrentHistory:
         )
         self._cache[key] = (now, typical)
         return typical
+
+
+# -- how often, and how recently -------------------------------------------
+#
+# **Why there is no run duration here.** A night of real readings from the
+# clamps settled it: the meter reports about every fifteen seconds while
+# nothing is changing, and pushes immediately when something does. So the start
+# and the end of a run are both caught, and the middle is not. Of 73 runs, 48
+# produced exactly two readings, and the time between them ranged from one
+# second to nearly four minutes for runs that drew the same steady current.
+#
+# That is enough to count runs and to say when the last one was, because both
+# only need the transition. It is nowhere near enough to time one. Duration has
+# to come from the panel's run contact, which is polled five times a second.
+# Showing a duration derived from these readings would be inventing a number.
+
+RUN_WINDOW = timedelta(hours=24)
+
+# Shorter than the medians, because "last run" is a clock somebody is reading
+# rather than a trend. Still not per frame: this is a query, and the panel lamp
+# already says whether a pump is running right now.
+REFRESH_RUNS = timedelta(seconds=60)
+
+RUNS_QUERY = """
+WITH readings AS (
+    SELECT ts, current, lag(current) OVER (ORDER BY ts) AS previous
+    FROM em_sample
+    WHERE channel = $1 AND ts > now() - $3::interval
+)
+SELECT
+    count(*)  FILTER (WHERE started) AS runs,
+    max(ts)   FILTER (WHERE started) AS last_start
+FROM (
+    SELECT ts, current >= $2 AND (previous IS NULL OR previous < $2) AS started
+    FROM readings
+) edges
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class Recent:
+    """How many times a pump has started lately, and when it last did."""
+
+    runs: int = 0
+    last_start: datetime | None = None
+
+    def as_json(self) -> dict:
+        return {
+            "runs": self.runs,
+            "last_start": self.last_start.isoformat() if self.last_start else None,
+        }
+
+
+class RecentRuns:
+    """Run counts and last start, cached for a minute."""
+
+    def __init__(self) -> None:
+        self._cache: dict[tuple[int, float], tuple[datetime, Recent]] = {}
+
+    async def recent(self, pool: asyncpg.Pool, channel: int, running_amps: float) -> Recent:
+        key = (channel, running_amps)
+        now = datetime.now(UTC)
+        cached = self._cache.get(key)
+        if cached is not None and now - cached[0] < REFRESH_RUNS:
+            return cached[1]
+        self._cache[key] = (now, cached[1] if cached else Recent())
+
+        try:
+            row = await pool.fetchrow(RUNS_QUERY, channel, running_amps, RUN_WINDOW)
+        except (asyncpg.PostgresError, OSError) as error:
+            log.warning("Could not count recent runs for clamp %d: %s", channel, error)
+            return self._cache[key][1]
+
+        recent = Recent(runs=int(row["runs"] or 0), last_start=row["last_start"])
+        self._cache[key] = (now, recent)
+        return recent

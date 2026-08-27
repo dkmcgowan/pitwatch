@@ -224,10 +224,12 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
    that has to be learned. */
 
 .door {
-  /* One width for every row and for the screen, so a bulb in the left column
-     sits at the same place whether it is High water, Lead float or P1
-     Running. */
+  /* One width for the screen, and one for every lamp above and below it. The
+     lamp width is what keeps a bulb in the same place whether the words beside
+     it are High water, Lead float or P1 Running. */
   --door-width: 30rem;
+  --lamp-width: 12.5rem;
+  --lamp-gap: 3rem;
 
   background: var(--surface);
   border: 1px solid var(--border);
@@ -252,20 +254,25 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   justify-items: center;
 }
 
-/* Two fixed columns, not a centered row.
-   
-   Centering puts a lamp where its own text says, so "Lead float" and "P1
-   Running" landed in different places and the column of bulbs wandered as the
-   words changed. A grid gives every row the same two slots and lets the text
-   take whatever room is left after them. */
+/* Two lamps of identical width, as a pair, centered under the screen.
+
+   Three things have to be true at once, and only this arrangement gets all
+   three. The bulbs have to sit in the same place in every row, or the column
+   wanders as the words change. The pair has to be symmetric about the middle,
+   or the left bulb hangs off the edge while the right one lands under the
+   center of a centered screen and the whole thing reads crooked. And the text
+   has to sit beside its own bulb rather than pushing it.
+
+   So: fixed width lamps, left aligned inside themselves, centered as a pair. */
 .lamp-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.9rem 1.5rem;
+  grid-template-columns: repeat(2, var(--lamp-width));
+  justify-content: center;
+  gap: 0.9rem var(--lamp-gap);
   width: 100%;
-  max-width: var(--door-width);
   margin: 0 auto;
 }
+
 
 .lamp {
   display: grid;
@@ -366,10 +373,11 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   .door { padding: 1.15rem 1rem; gap: 1.15rem; }
   /* The two columns stay. Losing them on a phone would lose the alignment
      that is the whole point, and both words fit. */
-  .lamp-row { gap: 0.8rem 1rem; }
+  .door { --lamp-width: 9.5rem; --lamp-gap: 0.75rem; }
+  .lamp-row { gap: 0.8rem var(--lamp-gap); }
   .bulb { width: 1.8rem; height: 1.8rem; }
   .lamp { column-gap: 0.55rem; }
-  .lamp-title { font-size: 0.92rem; }
+  .lamp-title { font-size: 0.9rem; }
 }
 
 /* Forms ------------------------------------------------------------------- */
@@ -560,17 +568,20 @@ table.probe td, table.probe th { border-bottom: none; padding: 0.2rem 0.6rem 0.2
   display: flex;
   align-items: baseline;
   gap: 0.35rem;
-  margin: 0.25rem 0 0.75rem;
+  margin-bottom: 0.9rem;
+  flex-wrap: wrap;
 }
 
+
+/* Smaller than it was. A number that reads zero almost all the time does not
+   earn the biggest type on the page; what it is doing over weeks does. */
 .amps {
   font-family: var(--mono);
-  font-size: 3rem;
+  font-size: 2.1rem;
+  font-weight: 700;
   line-height: 1;
-  font-variant-numeric: tabular-nums;
-  /* Tabular figures and a fixed size stop the layout jittering as the current
-     changes, which it does several times a second while a pump runs. */
 }
+
 
 .unit { color: var(--text-muted); font-size: 1.2rem; }
 
@@ -604,6 +615,27 @@ table.probe td, table.probe th { border-bottom: none; padding: 0.2rem 0.6rem 0.2
 }
 
 .drift-up { color: var(--warn); font-weight: 550; }
+
+/* The three live facts under a run lamp. Indented to the text rather than to
+   the bulb, so the column of bulbs stays the thing the eye follows down. */
+.lamp-with-facts { row-gap: 0.15rem; }
+
+.facts {
+  grid-column: 2;
+  margin: 0.45rem 0 0;
+  display: grid;
+  gap: 0.1rem;
+  font-size: 0.78rem;
+}
+
+.facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.facts dt { color: var(--text-muted); }
+.facts dd { margin: 0; font-weight: 550; font-variant-numeric: tabular-nums; }
 
 .pill {
   display: inline-block;

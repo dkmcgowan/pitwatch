@@ -829,9 +829,28 @@ def test_the_long_notes_are_behind_a_disclosure():
     assert "How often the pit has filled" in page
 
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
-    # The whole heading is the target. A 21 pixel circle is not one on a phone.
-    assert ".card-head {" in css
-    assert "cursor: pointer;" in css.split(".card-head {", 1)[1].split("}", 1)[0]
+    handle = css.split(".info-handle {", 1)[1].split("}", 1)[0]
+    assert "justify-content: flex-end;" in handle, "bottom right of the card"
+    assert "cursor: pointer;" in handle
+    # A 21 pixel circle is not a tap target. The padding around it is.
+    assert "padding:" in handle
+
+
+def test_the_note_is_at_the_foot_of_the_card_not_the_head():
+    """The numbers are what somebody came for. The explanation is what they read
+    once, so it goes last and folded."""
+    page = render_dashboard()
+
+    pump = page.split('data-pump="1"', 1)[1].split("</article>", 1)[0]
+    assert pump.index("data-nameplate") < pump.index("card-note")
+
+    # Every history card, not just the first. The last one lost its note
+    # entirely once, because the search for the end of the section ran past it
+    # and dropped it into the card below.
+    for block in page.split('<section class="card history">')[1:]:
+        card = block.split("</section>", 1)[0]
+        assert "card-note" in card, card[:80]
+        assert card.index("history-table") < card.index("card-note")
 
 
 def test_the_current_reading_is_labelled_and_not_the_biggest_thing_on_the_page():

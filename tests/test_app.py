@@ -592,9 +592,13 @@ def render_dashboard() -> str:
 
 
 def test_the_panel_is_four_blocks_across():
-    """Alerts, overloads, the screen, floats. Overloads have their own heading
-    because they are a different kind of bad news: an alert means read the
-    panel, an overload means a pump is off and staying off.
+    """Alerts, overloads, floats, then the screen. The three lists of lamps
+    read together and the screen sits apart from them, because it is the one
+    thing here that is a sentence rather than an indicator.
+
+    Overloads have their own heading because they are a different kind of bad
+    news: an alert means read the panel, an overload means a pump is off and
+    staying off.
 
     Layout is normally not worth a test. This is, because it has been described
     in prose and built from that description more than once, and shipped wrong
@@ -609,11 +613,11 @@ def test_the_panel_is_four_blocks_across():
         ">Overloads",
         'data-lamp="pump1_fault"',
         'data-lamp="pump2_fault"',
-        "door-middle",
-        "data-lcd",
         ">Floats",
         'data-lamp="lead_float"',
         'data-lamp="lag_float"',
+        "door-middle",
+        "data-lcd",
     ]
     found = [page.index(token) for token in order]
 
@@ -723,7 +727,7 @@ def test_the_run_contacts_have_no_lamp_on_the_panel():
     assert "pump2_run" in dict(DASHBOARD_ROLES)
 
 
-def test_the_screen_is_a_wide_panel_flanked_by_rules():
+def test_the_screen_is_a_wide_panel_set_apart_by_a_rule():
     """A panel, not a tile. It was square, which made the two side lists as
     tall as it and forced the whole thing into a column on a phone."""
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
@@ -737,10 +741,13 @@ def test_the_screen_is_a_wide_panel_flanked_by_rules():
     assert "min-height:" in lcd
     # The sides are sized to their own contents and the middle takes the rest,
     # which is what leaves room to be wide without guessing at fractions.
-    assert "grid-template-columns: auto auto minmax(0, 1fr) auto;" in rule(".door-grid")
+    assert "grid-template-columns: auto auto auto minmax(0, 1fr);" in rule(".door-grid")
 
     middle = rule(".door-middle")
-    assert "border-left:" in middle and "border-right:" in middle
+    # One rule, on the side the lamps are. The screen is last, so a rule on its
+    # right would sit against the edge of the card separating it from nothing.
+    assert "border-left:" in middle
+    assert "border-right:" not in middle
     # And it has to stretch. A centered grid item shrinks to fit its contents,
     # so the screen's width: 100% resolved against the width of its own text
     # and the column it had been given went unused.

@@ -14,9 +14,10 @@
 
 {# The panel door, near enough.
 
-   Four blocks across: alerts, overloads, the controller's own screen, and
-   the floats. Rules either side of the screen, because it is the one thing
-   here that is a sentence rather than a lamp.
+   Four blocks across: alerts, overloads, floats, and the controller's own
+   screen. The three lists of lamps read together, and a rule separates
+   them from the screen, which is the one thing here that is a sentence
+   rather than an indicator.
 
    Overloads have their own heading rather than sitting under Alerts. They
    are a different kind of bad news: an alert means read the panel, an
@@ -59,12 +60,6 @@
       </div>
     </div>
 
-    <div class="door-middle">
-      <div class="lcd" role="status" aria-live="polite">
-        <span class="lcd-text" data-lcd>P1:--  P2:--</span>
-      </div>
-    </div>
-
     <div class="door-side door-floats">
       <h2 class="door-heading">Floats</h2>
       <div class="lamp-pair">
@@ -76,6 +71,12 @@
         <span class="bulb" aria-hidden="true"></span>
         <span class="lamp-title">Lag</span>
       </div>
+      </div>
+    </div>
+
+    <div class="door-middle">
+      <div class="lcd" role="status" aria-live="polite">
+        <span class="lcd-text" data-lcd>P1:--  P2:--</span>
       </div>
     </div>
   </div>

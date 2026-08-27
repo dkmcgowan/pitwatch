@@ -214,65 +214,56 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 
 /* The panel door ---------------------------------------------------------- */
 
-/* Everything is stacked on the controller's screen, because that screen is the
-   one thing on the real door that says what is going on. The floats that call
-   the pumps sit above it and the contactors it closes sit below it, so the
-   column reads in the order the water moves.
+/* Three blocks across, with rules between them: what has gone wrong on the
+   left, the controller's own screen in the middle, where the water is on the
+   right. They answer different questions and the rules say so, which is
+   cheaper than making the eye work it out from spacing.
 
    A lamp is dark unless it is on. That is the point of a lamp, and it is why
    an unassigned one is dark too rather than being drawn in some third color
    that has to be learned. */
 
 .door {
-  /* One width for the screen, and one for every lamp above and below it. The
-     lamp width is what keeps a bulb in the same place whether the words beside
-     it are High water, Lead float or P1 Running. */
-  --door-width: 30rem;
-  --lamp-width: 12.5rem;
-  --lamp-gap: 3rem;
-
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1.5rem 1.25rem;
   margin-bottom: 1.25rem;
+}
+
+.door-grid {
   display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
   gap: 1.5rem;
 }
 
-.door-divider {
-  width: 100%;
-  height: 0;
-  margin: 0;
-  border: 0;
-  border-top: 1px solid var(--border);
-}
-
-.door-display {
+/* Each side is only as wide as its own widest lamp and centered in its
+   column, so the two bulbs in a stack line up under each other and both
+   stacks sit at the same distance from the screen. */
+.door-side {
   display: grid;
-  gap: 1.25rem;
-  justify-items: center;
-}
-
-/* Two lamps of identical width, as a pair, centered under the screen.
-
-   Three things have to be true at once, and only this arrangement gets all
-   three. The bulbs have to sit in the same place in every row, or the column
-   wanders as the words change. The pair has to be symmetric about the middle,
-   or the left bulb hangs off the edge while the right one lands under the
-   center of a centered screen and the whole thing reads crooked. And the text
-   has to sit beside its own bulb rather than pushing it.
-
-   So: fixed width lamps, left aligned inside themselves, centered as a pair. */
-.lamp-row {
-  display: grid;
-  grid-template-columns: repeat(2, var(--lamp-width));
-  justify-content: center;
-  gap: 0.9rem var(--lamp-gap);
-  width: 100%;
+  gap: 0.85rem;
+  width: max-content;
+  max-width: 100%;
   margin: 0 auto;
 }
 
+.door-heading {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-muted);
+}
+
+.door-middle {
+  justify-self: center;
+  padding: 0 1.75rem;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
 
 .lamp {
   display: grid;
@@ -290,7 +281,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 }
 
 .lamp-state {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -335,27 +326,27 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 
 .lamp.on .lamp-state { color: var(--text); font-weight: 600; }
 
-/* The controller's own screen. Green on green, monospace, inset, because that
-   is what is bolted to the door. */
+/* The controller's own screen. Green on green, monospace, inset, and square,
+   because that is roughly what is bolted to the door. */
 .lcd {
-  width: 100%;
-  max-width: var(--door-width);
+  width: clamp(10rem, 32vw, 14rem);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
   background: #16301a;
   border: 3px solid #0d1a10;
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 1rem;
   box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.55);
-  overflow-x: auto;
   text-align: center;
 }
 
 .lcd-text {
-  display: block;
   font-family: var(--mono);
-  font-size: clamp(1.15rem, 4.5vw, 1.7rem);
+  font-size: clamp(1.05rem, 3.4vw, 1.35rem);
   font-weight: 700;
-  letter-spacing: 0.08em;
-  white-space: nowrap;
+  letter-spacing: 0.06em;
+  line-height: 1.6;
   color: #6ef08a;
   text-shadow: 0 0 10px rgba(110, 240, 138, 0.45);
 }
@@ -363,21 +354,24 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .lcd-text.lcd-fail { color: #ff8f6b; text-shadow: 0 0 10px rgba(255, 143, 107, 0.5); }
 
 .door-note {
-  margin: 0;
+  margin: 1.25rem 0 0;
   text-align: center;
   color: var(--crit);
   font-weight: 550;
 }
 
-@media (max-width: 620px) {
-  .door { padding: 1.15rem 1rem; gap: 1.15rem; }
-  /* The two columns stay. Losing them on a phone would lose the alignment
-     that is the whole point, and both words fit. */
-  .door { --lamp-width: 9.5rem; --lamp-gap: 0.75rem; }
-  .lamp-row { gap: 0.8rem var(--lamp-gap); }
-  .bulb { width: 1.8rem; height: 1.8rem; }
-  .lamp { column-gap: 0.55rem; }
-  .lamp-title { font-size: 0.9rem; }
+/* Stacked on a phone, with the rules turning through ninety degrees so they
+   still separate the same three things. */
+@media (max-width: 700px) {
+  .door { padding: 1.15rem 1rem; }
+  .door-grid { grid-template-columns: 1fr; gap: 1.15rem; }
+  .door-middle {
+    padding: 1.25rem 0;
+    border-left: 0;
+    border-right: 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
 }
 
 /* Forms ------------------------------------------------------------------- */
@@ -615,27 +609,6 @@ table.probe td, table.probe th { border-bottom: none; padding: 0.2rem 0.6rem 0.2
 }
 
 .drift-up { color: var(--warn); font-weight: 550; }
-
-/* The three live facts under a run lamp. Indented to the text rather than to
-   the bulb, so the column of bulbs stays the thing the eye follows down. */
-.lamp-with-facts { row-gap: 0.15rem; }
-
-.facts {
-  grid-column: 2;
-  margin: 0.45rem 0 0;
-  display: grid;
-  gap: 0.1rem;
-  font-size: 0.78rem;
-}
-
-.facts > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.6rem;
-}
-
-.facts dt { color: var(--text-muted); }
-.facts dd { margin: 0; font-weight: 550; font-variant-numeric: tabular-nums; }
 
 .pill {
   display: inline-block;

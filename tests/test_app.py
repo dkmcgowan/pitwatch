@@ -591,21 +591,24 @@ def render_dashboard() -> str:
     return env.get_template("dashboard.html").render(site=SiteSettings(name="A pit"), user=None)
 
 
-def test_the_panel_reads_down_the_page_in_the_order_the_water_moves():
-    """The alarms first, on their own, because they are not a reading. Then a
-    divider. Then the floats that call the pumps, the controller's screen, and
-    the contactors it closes."""
+def test_the_panel_is_three_blocks_across():
+    """Alerts, the screen, floats. In that order, with a rule between each.
+
+    Layout is normally not worth a test. This is, because it has been described
+    in prose and built from that description more than once, and shipped wrong
+    both times without anything saying a word.
+    """
     page = render_dashboard()
 
     order = [
-        'data-lamp="high_water"',
+        ">Alerts<",
         'data-lamp="system_alert"',
-        "door-divider",
+        'data-lamp="high_water"',
+        "door-middle",
+        "data-lcd",
+        ">Floats<",
         'data-lamp="lead_float"',
         'data-lamp="lag_float"',
-        "data-lcd",
-        'data-lamp="pump1_run"',
-        'data-lamp="pump2_run"',
     ]
     found = [page.index(token) for token in order]
 
@@ -614,65 +617,59 @@ def test_the_panel_reads_down_the_page_in_the_order_the_water_moves():
     )
 
 
-def test_every_lamp_row_uses_the_same_two_columns():
-    """So a bulb in the left column is in the same place whether the words next
-    to it are "High water", "Lead float" or "P1 Running".
+def test_the_run_contacts_have_no_lamp_on_the_panel():
+    """A pump that is running says so on its own card, in amps. A lamp
+    repeating that is one more thing to read for nothing.
 
-    It was a centered flex row, which puts each lamp where its own text says
-    and leaves the column of bulbs wandering as the labels change. Checked in
-    the stylesheet rather than in a browser, which is as far as this goes
-    honestly without one, but it catches the rule being deleted and that is
-    what actually happens.
+    The assignments stay. They are what the screen reads to work out which pump
+    is lead, and they are still on the settings page.
     """
+    from pitwatch.schemas import DASHBOARD_ROLES
+
+    page = render_dashboard()
+
+    assert 'data-lamp="pump1_run"' not in page
+    assert 'data-lamp="pump2_run"' not in page
+    assert "pump1_run" in dict(DASHBOARD_ROLES)
+    assert "pump2_run" in dict(DASHBOARD_ROLES)
+
+
+def test_the_screen_is_square_and_flanked_by_rules():
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
 
     def rule(selector: str) -> str:
         return css.split(selector + " {", 1)[1].split("}", 1)[0]
 
-    row = rule(".lamp-row")
-    assert "display: grid;" in row
-    # Identical width lamps, so a bulb is in the same place in every row...
-    assert "grid-template-columns: repeat(2, var(--lamp-width));" in row
-    # ...and the pair centered, so they sit symmetrically about the middle of a
-    # centered screen instead of one hanging off the left edge.
-    assert "justify-content: center;" in row
-    assert "--lamp-width:" in rule(".door")
-    assert "max-width: var(--door-width);" in rule(".lcd")
-    assert "text-align: center;" in rule(".lcd")
+    assert "aspect-ratio: 1;" in rule(".lcd")
+    middle = rule(".door-middle")
+    assert "border-left:" in middle and "border-right:" in middle
+    # Each side is sized to its own widest lamp and centered in its column, so
+    # the two bulbs in a stack line up under each other.
+    assert "width: max-content;" in rule(".door-side")
+    assert "margin: 0 auto;" in rule(".door-side")
 
 
-def test_the_alarms_sit_side_by_side_like_every_other_row():
-    page = render_dashboard()
-    alarms = page.index('data-lamp="high_water"')
-    divider = page.index("door-divider")
-
-    assert page.index('data-lamp="system_alert"') < divider, "both above the divider"
-    assert alarms < page.index('data-lamp="system_alert"'), "high water on the left"
-    # One row element holding both, rather than a block of its own.
-    assert "door-alarms" not in page
-
-
-def test_the_run_lamps_carry_the_live_facts():
-    """Amps, when it last started, how many times today. Under the lamp that
-    says whether it is running, because that is where somebody is looking.
-
-    Deliberately no run duration. The clamps report about every fifteen seconds
-    while nothing changes, so a run's start and end are caught and its middle is
-    not; timing one from these readings would be inventing a number. See
-    pitwatch/domain/history.py.
-    """
+def test_a_pump_card_carries_everything_about_that_pump():
+    """Amps now, when it last ran, how often today, and how it has been
+    running. All facts about one motor, so they live together."""
     page = render_dashboard()
 
-    assert 'data-facts="1"' in page
-    assert 'data-facts="2"' in page
-    for marker in ("data-fact-amps", "data-fact-last", "data-fact-runs"):
+    for marker in (
+        "data-amps",
+        "data-fact-last",
+        "data-fact-runs",
+        "data-typical",
+        "data-nameplate",
+        "data-drift",
+    ):
         assert page.count(marker) == 2, marker
-    assert "duration" not in page.lower().replace("data-fact", "")
 
 
-def test_the_run_lamps_are_labelled_the_short_way():
-    """They sit in a centered row under the screen, which a long name breaks."""
+def test_a_running_pump_is_shown_by_the_card_and_not_by_a_pill():
+    """The amps are right there and the card outlines itself green. A word
+    saying the same thing is a third way to say it."""
     page = render_dashboard()
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
 
-    assert "P1 Running" in page
-    assert "P2 Running" in page
+    assert "data-run-pill" not in page
+    assert ".pump.running" in css

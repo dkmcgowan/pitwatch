@@ -811,3 +811,123 @@ def test_a_running_pump_is_shown_by_the_card_and_not_by_a_pill():
 
     assert "data-run-pill" not in page
     assert ".pump.running" in css
+
+
+def test_the_long_notes_are_behind_a_disclosure():
+    """Worth reading once and then never again, which is what a disclosure is
+    for. Native details and summary, so it works with a keyboard without being
+    told to and needs no script."""
+    page = render_dashboard()
+
+    # Every card that had a paragraph printed under it now has a handle.
+    assert page.count('class="card-note"') == 5, "three history cards and two pumps"
+    assert page.count("info-mark") == 5
+    assert page.count("<details") == page.count("<summary")
+
+    # And the words are still there, just folded away.
+    assert "full load amps printed on the motor" in page
+    assert "How often the pit has filled" in page
+
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+    # The whole heading is the target. A 21 pixel circle is not one on a phone.
+    assert ".card-head {" in css
+    assert "cursor: pointer;" in css.split(".card-head {", 1)[1].split("}", 1)[0]
+
+
+def test_the_current_reading_is_labelled_and_not_the_biggest_thing_on_the_page():
+    """A number on its own does not say what it is a number of, and this one is
+    zero most of the time."""
+    page = render_dashboard()
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+
+    # The label itself, not the word where the note explains what it means.
+    assert page.count('class="readout-label">Current<') == 2
+
+    def size(selector: str) -> float:
+        rule = css.split(selector + " {", 1)[1].split("}", 1)[0]
+        return float(rule.split("font-size:", 1)[1].split("rem", 1)[0].strip())
+
+    # Bigger than the facts under it, and by less than it used to be.
+    assert size(".amps") <= 1.75
+    assert size(".amps") > 1.0
+
+
+def test_todays_run_count_carries_an_ordinary_day_beside_it():
+    """Eighty-nine is a lot or a Tuesday depending on what the month looks
+    like, and only one of those is worth getting out of bed for."""
+    page = render_dashboard()
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+
+    assert page.count("data-fact-average") == 2
+    assert "daily_average" in js
+
+
+def test_the_last_run_clock_does_not_wait_for_the_query():
+    """The run count is cached for a minute, which is right for a count and
+    useless for a clock: a pump stops and the dashboard goes on saying it last
+    ran sixteen minutes ago until the cache turns over.
+
+    The live state knows exactly when the current rose, so it wins.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.api.live import _with_live_rise
+    from pitwatch.domain.history import Recent
+
+    stale = datetime(2026, 8, 27, 12, 0, tzinfo=UTC)
+    fresh = stale + timedelta(minutes=16)
+
+    assert _with_live_rise(Recent(runs=4, last_start=stale), fresh)["last_start"] == (
+        fresh.isoformat()
+    )
+    # Older news does not overwrite newer.
+    assert _with_live_rise(Recent(runs=4, last_start=fresh), stale)["last_start"] == (
+        fresh.isoformat()
+    )
+    # And nothing in memory yet leaves the query's answer alone.
+    assert _with_live_rise(Recent(runs=4, last_start=stale), None)["last_start"] == (
+        stale.isoformat()
+    )
+    # The count is never guessed at, because two runs inside one cache window
+    # would make a local increment quietly wrong.
+    assert _with_live_rise(Recent(runs=4, last_start=stale), fresh)["runs"] == 4
+
+
+def test_the_live_state_records_a_rise_and_not_a_level():
+    """It does not have the running threshold and does not need it: an idle
+    clamp on this meter reads 0.000 exactly, so anything at all is a start."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.ingest.shelly import EmSample
+    from pitwatch.ingest.sink import LiveState
+
+    live = LiveState()
+    base = datetime(2026, 8, 27, 3, 0, tzinfo=UTC)
+
+    def reading(seconds: int, amps: float) -> None:
+        live.update(
+            EmSample(
+                ts=base + timedelta(seconds=seconds),
+                channel=0,
+                current=amps,
+                voltage=None,
+                act_power=None,
+                aprt_power=None,
+                pf=None,
+                freq=None,
+            )
+        )
+
+    reading(0, 0.0)
+    assert live.rose_at(0) is None
+
+    reading(10, 16.4)
+    assert live.rose_at(0) == base + timedelta(seconds=10)
+
+    # Still running is not a second start.
+    reading(20, 15.2)
+    assert live.rose_at(0) == base + timedelta(seconds=10)
+
+    reading(30, 0.0)
+    reading(40, 16.1)
+    assert live.rose_at(0) == base + timedelta(seconds=40)

@@ -592,14 +592,51 @@ table.probe td, table.probe th { border-bottom: none; padding: 0.2rem 0.6rem 0.2
   box-shadow: inset 0 0 0 1px var(--ok);
 }
 
-/* The name on the left, a lamp on the right, which is where a panel would put
-   it. */
-.pump header {
+/* A card's heading, with the lamp and the note's handle beside it. */
+.card-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  gap: 0.7rem;
+  cursor: pointer;
+  list-style: none;
   margin-bottom: 0.5rem;
+}
+
+.card-head::-webkit-details-marker { display: none; }
+.card-head h2 { flex: 1; margin: 0; }
+
+/* Worth reading once and then never again, which is what a disclosure is for.
+   The i is the handle; the whole heading is the target, because a 21 pixel
+   circle is not one on a phone. */
+.info-mark {
+  flex: none;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.card-head:hover .info-mark { color: var(--text); border-color: var(--text-muted); }
+.card-note[open] .info-mark { background: var(--surface-2); color: var(--text); }
+.card-note > .hint { margin: 0 0 1rem; }
+.card-note > .hint p { margin: 0 0 0.6rem; }
+.card-note > .hint p:last-child { margin-bottom: 0; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .pump-lamp {
@@ -620,20 +657,32 @@ table.probe td, table.probe th { border-bottom: none; padding: 0.2rem 0.6rem 0.2
 }
 .pump h2 { margin: 0; font-size: 1.15rem; }
 
-.readout {
+/* Labelled, because a number on its own does not say what it is a number of,
+   and this one is zero most of the time. */
+.readout { margin-bottom: 1rem; }
+
+.readout-label {
+  display: block;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.readout-value {
   display: flex;
   align-items: baseline;
-  gap: 0.35rem;
-  margin-bottom: 0.9rem;
-  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
 }
 
 
-/* Smaller than it was. A number that reads zero almost all the time does not
-   earn the biggest type on the page; what it is doing over weeks does. */
+/* Bigger than the numbers under it and not by much. A reading that is zero
+   almost all the time has not earned the biggest type on the page; what it has
+   been doing over weeks has more to say than what it is doing this second. */
 .amps {
   font-family: var(--mono);
-  font-size: 2.1rem;
+  font-size: 1.5rem;
   font-weight: 700;
   line-height: 1;
 }
@@ -664,6 +713,15 @@ table.probe td, table.probe th { border-bottom: none; padding: 0.2rem 0.6rem 0.2
    than a real reading, so a card with no data behind it looks different at a
    glance from one that is working. */
 .detail dd.none { color: var(--text-muted); }
+
+/* The ordinary day, next to today's count. Quieter than the count, because it
+   is the thing being compared against rather than the answer. */
+.beside {
+  margin-left: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
 
 /* History ---------------------------------------------------------------- */
 

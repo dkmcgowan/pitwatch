@@ -117,6 +117,19 @@
     // clamp that has never seen a run and a clamp that is not fitted look
     // identical from this side, so neither gets to claim a confident zero.
     setFact(runs, recent.last_start || recent.runs ? String(recent.runs) : null);
+
+    // An ordinary day beside today's count. Eighty-nine is a lot or a Tuesday
+    // depending on what the month looks like, and only one of those is worth
+    // getting out of bed for.
+    const average = card.querySelector("[data-fact-average]");
+    if (average) {
+      const known =
+        recent.daily_average !== null &&
+        recent.daily_average !== undefined &&
+        (recent.last_start || recent.runs);
+      average.textContent = known ? "avg " + recent.daily_average : "";
+      average.hidden = !known;
+    }
   }
 
   // What the pump draws when it is actually running, and whether that is

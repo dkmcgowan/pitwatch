@@ -78,20 +78,48 @@
 <section class="panel" aria-label="Pump status">
   {% for number in [1, 2] %}
   <article class="pump" data-pump="{{ number }}">
-    <header>
-      <h2 data-name>Pump {{ number }}</h2>
-      {# Green while it is running. The amps below say the same thing in a
-         number, which is what a screen reader gets; this is for the glance
-         from the doorway. #}
-      <span class="pump-lamp" data-pump-lamp title="Not running"></span>
-    </header>
+    {# The note is behind the heading rather than printed under it. It is worth
+       reading once and then never again, which is exactly what a disclosure is
+       for. No JavaScript: details and summary do this natively and work with a
+       keyboard without being told to. #}
+    <details class="card-note">
+      <summary class="card-head">
+        <h2 data-name>Pump {{ number }}</h2>
+        {# Green while it is running. The current below says the same thing in
+           a number, which is what a screen reader gets; this is for the glance
+           from the doorway. #}
+        <span class="pump-lamp" data-pump-lamp title="Not running"></span>
+        <span class="info-mark" aria-hidden="true">i</span>
+        <span class="visually-hidden">What these numbers mean</span>
+      </summary>
+      <div class="hint">
+        <p><strong>Current</strong> is what the clamp is reading right now,
+          which on a pit that runs for seconds at a time is usually zero.</p>
+        <p><strong>Last run</strong> and <strong>runs today</strong> come from
+          the current rising off nothing. The average beside the count is an
+          ordinary day over the last month, so today has something to be read
+          against.</p>
+        <p><strong>Typical load</strong> is the middle reading of every one
+          taken while the pump was running this week, which leaves out the
+          starting surge without needing a rule about what counts as one. It is
+          the number to watch: a pump drawing more than it did a month ago is a
+          pump on its way to a problem.</p>
+        <p><strong>FLA</strong> is the full load amps printed on the motor
+          plate. Nothing is calculated from it. It is there so the typical load
+          has something real to sit against, and a pump drawing more than its
+          own rating is worth knowing about.</p>
+      </div>
+    </details>
 
     {# No running pill. The card outlines itself green while a pump is running
        and the amps are right there, so a word saying the same thing is one
        more thing to read for nothing. #}
     <div class="readout">
-      <span class="amps" data-amps>--</span>
-      <span class="unit">A</span>
+      <span class="readout-label">Current</span>
+      <span class="readout-value">
+        <span class="amps" data-amps>--</span>
+        <span class="unit">A</span>
+      </span>
     </div>
 
     {# Amps and the contacts, and nothing derived from voltage.
@@ -122,7 +150,10 @@
        and inputs are free text labels now. See NOTES.md. #}
     <dl class="detail">
       <div><dt>Last run</dt><dd data-fact-last>--</dd></div>
-      <div><dt>Runs today</dt><dd data-fact-runs>--</dd></div>
+      <div>
+        <dt>Runs today</dt>
+        <dd data-fact-runs>--<span class="beside" data-fact-average hidden></span></dd>
+      </div>
       <div><dt>Typical load</dt><dd data-typical>--</dd></div>
       <div><dt>FLA</dt><dd data-nameplate>--</dd></div>
     </dl>
@@ -142,7 +173,14 @@
    teach somebody to stop looking. #}
 <div class="history-row" data-history-cards>
 <section class="card history">
-  <h2>Floats</h2>
+  <details class="card-note">
+    <summary class="card-head">
+      <h2>Floats</h2>
+      <span class="info-mark" aria-hidden="true">i</span>
+      <span class="visually-hidden">What this shows</span>
+    </summary>
+    <p class="hint">How often the pit has filled far enough to call a pump, and when it last did.</p>
+  </details>
   <div class="table-scroll">
   <table class="history-table" data-window="today">
     <thead>
@@ -162,10 +200,16 @@
     </tbody>
   </table>
   </div>
-  <p class="hint">How often the pit has filled far enough to call a pump, and when it last did.</p>
 </section>
 <section class="card history">
-  <h2>Alerts</h2>
+  <details class="card-note">
+    <summary class="card-head">
+      <h2>Alerts</h2>
+      <span class="info-mark" aria-hidden="true">i</span>
+      <span class="visually-hidden">What this shows</span>
+    </summary>
+    <p class="hint">Counted by the month. These should read zero, and a month of zero is worth seeing.</p>
+  </details>
   <div class="table-scroll">
   <table class="history-table" data-window="month">
     <thead>
@@ -185,10 +229,16 @@
     </tbody>
   </table>
   </div>
-  <p class="hint">Counted by the month. These should read zero, and a month of zero is worth seeing.</p>
 </section>
 <section class="card history">
-  <h2>Overloads</h2>
+  <details class="card-note">
+    <summary class="card-head">
+      <h2>Overloads</h2>
+      <span class="info-mark" aria-hidden="true">i</span>
+      <span class="visually-hidden">What this shows</span>
+    </summary>
+    <p class="hint">A motor overload relay tripping is the panel protecting a pump that was drawing too much. One trip is worth a look; a pattern is worth a phone call.</p>
+  </details>
   <div class="table-scroll">
   <table class="history-table" data-window="month">
     <thead>
@@ -208,7 +258,6 @@
     </tbody>
   </table>
   </div>
-  <p class="hint">A motor overload relay tripping is the panel protecting a pump that was drawing too much. One trip is worth a look; a pattern is worth a phone call.</p>
 </section>
 </div>
 

@@ -79,7 +79,11 @@
   {% for number in [1, 2] %}
   <article class="pump" data-pump="{{ number }}">
     <header>
-      <h2 data-name>Pump {{ number }}</h2>
+      {# The name is written by JavaScript, so the button lives beside it
+         rather than inside it. textContent on the heading would take the
+         button with it. #}
+      <h2><span data-name>Pump {{ number }}</span>
+        <button type="button" class="info-mark" data-info="pump-{{ number }}" aria-label="What each number means">i</button></h2>
       {# Green while it is running. The current below says the same thing
          in a number, which is what a screen reader gets; this is for the
          glance from the doorway. #}
@@ -138,11 +142,8 @@
        reads it and clutter every time after, which is what a disclosure is
        for. No script: details and summary do this natively and work with a
        keyboard without being told to. #}
-    <details class="card-note">
-    <summary class="info-handle">
-      <span class="info-mark" aria-hidden="true">i</span>
-      <span class="visually-hidden">What this shows</span>
-    </summary>
+    <dialog class="note" id="note-pump-{{ number }}">
+      <h3 class="note-title">Pump {{ number }}</h3>
       <div class="hint">
         <p><strong>Current</strong> is what the clamp is reading right now,
           which on a pit that runs for seconds at a time is usually zero.</p>
@@ -160,7 +161,8 @@
           has something real to sit against, and a pump drawing more than its
           own rating is worth knowing about.</p>
       </div>
-    </details>
+      <p class="note-close">Click anywhere to close</p>
+    </dialog>
   </article>
   {% endfor %}
 </section>
@@ -176,7 +178,8 @@
    teach somebody to stop looking. #}
 <div class="history-row" data-history-cards>
 <section class="card history">
-  <h2>Floats</h2>
+  <h2>Floats
+    <button type="button" class="info-mark" data-info="floats" aria-label="What this shows means">i</button></h2>
   <div class="table-scroll">
   <table class="history-table" data-window="today">
     <thead>
@@ -196,16 +199,15 @@
     </tbody>
   </table>
   </div>
-  <details class="card-note">
-    <summary class="info-handle">
-      <span class="info-mark" aria-hidden="true">i</span>
-      <span class="visually-hidden">What this shows</span>
-    </summary>
+  <dialog class="note" id="note-floats">
+    <h3 class="note-title">Floats</h3>
     <p class="hint">How often the pit has filled far enough to call a pump, and when it last did.</p>
-  </details>
+    <p class="note-close">Click anywhere to close</p>
+  </dialog>
 </section>
 <section class="card history">
-  <h2>Alerts</h2>
+  <h2>Alerts
+    <button type="button" class="info-mark" data-info="alerts" aria-label="What this shows means">i</button></h2>
   <div class="table-scroll">
   <table class="history-table" data-window="month">
     <thead>
@@ -225,16 +227,15 @@
     </tbody>
   </table>
   </div>
-  <details class="card-note">
-    <summary class="info-handle">
-      <span class="info-mark" aria-hidden="true">i</span>
-      <span class="visually-hidden">What this shows</span>
-    </summary>
+  <dialog class="note" id="note-alerts">
+    <h3 class="note-title">Alerts</h3>
     <p class="hint">Counted by the month, because counting an alarm by the day reads zero forever.</p>
-  </details>
+    <p class="note-close">Click anywhere to close</p>
+  </dialog>
 </section>
 <section class="card history">
-  <h2>Overloads</h2>
+  <h2>Overloads
+    <button type="button" class="info-mark" data-info="overloads" aria-label="What this shows means">i</button></h2>
   <div class="table-scroll">
   <table class="history-table" data-window="month">
     <thead>
@@ -254,13 +255,11 @@
     </tbody>
   </table>
   </div>
-  <details class="card-note">
-    <summary class="info-handle">
-      <span class="info-mark" aria-hidden="true">i</span>
-      <span class="visually-hidden">What this shows</span>
-    </summary>
+  <dialog class="note" id="note-overloads">
+    <h3 class="note-title">Overloads</h3>
     <p class="hint">A motor overload relay tripping is the panel cutting power to a pump that was drawing too much.</p>
-  </details>
+    <p class="note-close">Click anywhere to close</p>
+  </dialog>
 </section>
 </div>
 

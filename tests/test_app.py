@@ -644,7 +644,7 @@ def test_the_screen_is_a_wide_panel_flanked_by_rules():
 
     lcd = rule(".lcd")
     assert "aspect-ratio" not in lcd
-    assert "max-width: 28rem;" in lcd
+    assert "width: 100%;" in lcd
     assert "min-height:" in lcd
     # The middle column gets the larger share, which is what leaves room to be
     # wide without squeezing the words either side of it.
@@ -652,9 +652,34 @@ def test_the_screen_is_a_wide_panel_flanked_by_rules():
 
     middle = rule(".door-middle")
     assert "border-left:" in middle and "border-right:" in middle
+    # And it has to stretch. A centered grid item shrinks to fit its contents,
+    # so the screen's width: 100% resolved against the width of its own text
+    # and the column it had been given went unused.
+    assert "justify-self: stretch;" in middle
     # Each side is sized to its own widest lamp, so the bulbs in a stack line
     # up under each other.
     assert "width: max-content;" in rule(".door-side")
+
+
+def test_every_missing_pump_fact_reads_the_same_way():
+    """Four fields that can each have nothing behind them, and one way of
+    saying so. Left alone they drift: this had "not set", "not in 24 h", a
+    bare dash and a sentence, all on one card."""
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+    # The three that draw a pump card, and nothing else. The panel lamps below
+    # them keep their own words: "not set" there means no input is assigned,
+    # which is a different thing from having no reading.
+    card = js.split("function renderPump", 1)[1].split("function buildInputs", 1)[0]
+
+    assert "function setFact(" in js
+    for phrase in ("not enough runs yet", "not in 24 h", '"not set"'):
+        assert phrase not in card, phrase
+    # Every one of the four goes through it, so there is nowhere for a fifth
+    # spelling to appear.
+    assert card.count("setFact(") >= 5
+
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+    assert ".detail dd.none {" in css
 
 
 def test_a_phone_puts_the_two_lists_side_by_side():

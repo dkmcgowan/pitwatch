@@ -407,12 +407,16 @@ def test_a_signed_in_non_admin_cannot_reach_the_dashboard_lamps(client):
     )
     assert client.get("/").status_code == 200, "they are signed in"
 
-    page = client.get("/settings/dashboard", follow_redirects=False)
+    # The lamps are a section of the settings page now, so the page to be kept
+    # out of is that one.
+    page = client.get("/settings", follow_redirects=False)
     assert page.status_code in (303, 403), page.status_code
-    assert "/settings/dashboard" not in page.text
 
     save = client.post("/settings/dashboard", data={"role_high_water": "3"}, follow_redirects=False)
     assert save.status_code in (303, 403)
+
+    # And alerts, which has its own place in the header now.
+    assert client.get("/alerts", follow_redirects=False).status_code in (303, 403)
     assert client.app.state.settings.dashboard.high_water is None
 
 

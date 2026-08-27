@@ -248,6 +248,8 @@ def render_settings(**overrides) -> str:
     from jinja2 import Environment, FileSystemLoader
 
     from pitwatch.schemas import (
+        DASHBOARD_ROLES,
+        DashboardSettings,
         PumpsSettings,
         ShellySettings,
         SiteSettings,
@@ -266,6 +268,8 @@ def render_settings(**overrides) -> str:
         "pumps": PumpsSettings(),
         "smtp": SmtpSettings(),
         "sms": SmsSettings(),
+        "dashboard": DashboardSettings(),
+        "roles": DASHBOARD_ROLES,
         "user": None,
         "error": None,
         "saved": False,
@@ -486,14 +490,13 @@ def test_a_lamp_with_no_input_is_not_a_lamp_that_is_off():
     assert panel["lead_float"]["state"] is None
 
 
-def test_saving_the_dashboard_page_unchanged_changes_nothing():
-    """Same round trip as the settings page: what the form renders is what the
-    parser reads."""
-    from jinja2 import Environment, FileSystemLoader
+def test_saving_the_lamps_unchanged_changes_nothing():
+    """They are a section of the settings page now rather than a page of their
+    own, so they make the same round trip everything else there makes."""
     from starlette.datastructures import FormData
 
     from pitwatch.api import forms
-    from pitwatch.schemas import DASHBOARD_ROLES, ChannelMap, DashboardSettings, WaveshareSettings
+    from pitwatch.schemas import ChannelMap, DashboardSettings, WaveshareSettings
 
     dashboard = DashboardSettings(
         system_alert=4,
@@ -505,20 +508,12 @@ def test_saving_the_dashboard_page_unchanged_changes_nothing():
         pump1_fault=7,
         pump2_fault=8,
     )
-    env = Environment(loader=FileSystemLoader("pitwatch/templates"), autoescape=True)
-    env.globals["csrf_token"] = lambda: "token"
-    env.globals["version"] = "test"
-    html = env.get_template("dashboard_settings.html").render(
-        site=None,
-        user=None,
-        roles=DASHBOARD_ROLES,
+    page = render_settings(
         dashboard=dashboard,
         waveshare=WaveshareSettings(channels=[ChannelMap(channel=3, label="Top float")]),
-        saved=False,
-        error=None,
     )
 
-    assert forms.dashboard_from(FormData(submitted(html))) == dashboard
+    assert forms.dashboard_from(FormData(submitted(page))) == dashboard
 
 
 # -- what a pump has been drawing --------------------------------------------
@@ -1087,3 +1082,34 @@ def test_every_placeholder_a_rule_offers_is_one_it_can_fill():
         # Everything says where it came from, because an alert that does not
         # name the building is one somebody has to go and work out.
         assert "{site}" in spec.placeholders, spec.key
+
+
+def test_the_header_has_one_of_each_icon():
+    """A script that inserts a link and is run twice inserts it twice, which is
+    how this page briefly had two bells."""
+    import collections
+    import re
+    from pathlib import Path as _Path
+
+    icons = _Path("pitwatch/templates/_icons.html").read_text(encoding="utf-8")
+    names = re.findall(r'<g id="([a-z-]+)"', icons)
+    repeated = [name for name, count in collections.Counter(names).items() if count > 1]
+    assert not repeated, repeated
+
+    base = _Path("pitwatch/templates/base.html").read_text(encoding="utf-8")
+    links = re.findall(r'<a href="(/[a-z]*)" class="icon-link', base)
+    assert links == ["/", "/users", "/alerts", "/settings", "/profile"], links
+    assert len(links) == len(set(links))
+
+
+def test_the_lamps_are_a_section_of_the_settings_page():
+    """Not a page of their own that the settings page points at. A settings
+    page whose job is to send you somewhere else is a menu pretending to be a
+    page."""
+    page = render_settings()
+
+    assert 'action="/settings/dashboard"' in page, "the form itself is here"
+    assert "role_high_water" in page, "and it carries the lamp fields"
+    # And nothing left behind that only points elsewhere.
+    assert "Set the lamps" not in page
+    assert 'href="/settings/alerts"' not in page

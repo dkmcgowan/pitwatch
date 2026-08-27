@@ -885,10 +885,10 @@ def test_the_alerts_page_is_for_administrators(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
-    assert client.get("/settings/alerts").status_code == 200
+    assert client.get("/alerts").status_code == 200
 
     client.post("/logout")
-    page = client.get("/settings/alerts", follow_redirects=False)
+    page = client.get("/alerts", follow_redirects=False)
     assert page.status_code == 303
     assert page.headers["location"].startswith("/login")
 
@@ -899,7 +899,7 @@ def test_every_rule_is_on_the_page_with_what_it_says(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
-    page = client.get("/settings/alerts").text
+    page = client.get("/alerts").text
 
     for spec in specs.SPECS:
         assert f"{spec.key}_enabled" in page, spec.key
@@ -914,7 +914,7 @@ def test_the_thresholds_moved_off_the_pumps_page(client):
     client.post("/setup", data=SETUP_FORM)
 
     pumps = client.get("/settings").text
-    alerts = client.get("/settings/alerts").text
+    alerts = client.get("/alerts").text
 
     for field in ("max_runtime_ms", "restart_gap_ms", "quiet_minutes_before_flag"):
         assert field not in pumps, field
@@ -931,7 +931,7 @@ def test_saving_a_rule_keeps_it(client):
     client.post("/setup", data=SETUP_FORM)
 
     response = client.post(
-        "/settings/alerts",
+        "/alerts",
         data={
             "high_water_enabled": "on",
             "high_water_severity": "warning",
@@ -962,6 +962,6 @@ def test_a_rule_keeps_its_words_when_the_box_is_left_empty(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
-    client.post("/settings/alerts", data={"high_water_enabled": "on", "high_water_message": ""})
+    client.post("/alerts", data={"high_water_enabled": "on", "high_water_message": ""})
 
     assert "{site}" in client.app.state.settings.alerts.high_water.message

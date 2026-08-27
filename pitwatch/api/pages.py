@@ -118,70 +118,26 @@ async def settings_page(request: Request, admin: auth.IsAdmin, saved: str | None
             pumps=store.pumps,
             smtp=store.smtp,
             sms=store.sms,
+            dashboard=store.dashboard,
             saved=saved,
             error=None,
         ),
     )
 
 
-# -- the dashboard ----------------------------------------------------------
-#
-# Its own page rather than another card on the settings page, because it is a
-# different job. The settings page describes the wiring; this describes the
-# display, and the two are edited at different times by people thinking about
-# different things. Administrators only, like everything under /settings.
-
-
-@router.get("/settings/dashboard", include_in_schema=False)
-async def dashboard_settings_page(request: Request, admin: auth.IsAdmin):
-    store: SettingsStore = request.app.state.settings
-    return _templates(request).TemplateResponse(
-        request,
-        "dashboard_settings.html",
-        _context(
-            request,
-            dashboard=store.dashboard,
-            waveshare=store.waveshare,
-            saved=request.query_params.get("saved") is not None,
-            error=None,
-        ),
-    )
-
-
-@router.post("/settings/dashboard", include_in_schema=False)
-async def dashboard_settings_save(request: Request, admin: auth.IsAdmin):
-    store: SettingsStore = request.app.state.settings
-    form = await request.form()
-    try:
-        await store.put(forms.dashboard_from(form))
-    except (ValueError, ValidationError) as error:
-        return _templates(request).TemplateResponse(
-            request,
-            "dashboard_settings.html",
-            _context(
-                request,
-                dashboard=store.dashboard,
-                waveshare=store.waveshare,
-                saved=False,
-                error=_readable(error),
-            ),
-            status_code=400,
-        )
-    log.info("%s updated the dashboard lamps", admin.username)
-    return RedirectResponse("/settings/dashboard?saved=1", status_code=303)
-
-
 # -- alerts ------------------------------------------------------------------
 #
-# Its own page, because there are a dozen rules each carrying a level, an
-# audience, a message and sometimes a threshold, and the settings page is
-# already the longest thing here. It also owns every threshold that raises an
-# alert: a number on the pumps page tells you nothing about what happens when
-# it is crossed, and the same number beside its own message tells you
-# everything.
+# Its own place in the header rather than a room off the settings page. A dozen
+# rules each carrying a level, an audience, a message and sometimes a threshold
+# is not a section of anything, and a settings page whose job is to send you
+# somewhere else is a menu pretending to be a page.
+#
+# It owns every threshold that raises an alert. A number on the pumps page
+# tells you nothing about what happens when it is crossed; the same number
+# beside its own message tells you everything.
 
 
-@router.get("/settings/alerts", include_in_schema=False)
+@router.get("/alerts", include_in_schema=False)
 async def alerts_page(request: Request, admin: auth.IsAdmin, saved: str | None = None):
     store: SettingsStore = request.app.state.settings
     return _templates(request).TemplateResponse(
@@ -197,7 +153,7 @@ async def alerts_page(request: Request, admin: auth.IsAdmin, saved: str | None =
     )
 
 
-@router.post("/settings/alerts", include_in_schema=False)
+@router.post("/alerts", include_in_schema=False)
 async def alerts_save(request: Request, admin: auth.IsAdmin):
     store: SettingsStore = request.app.state.settings
     form = await request.form()
@@ -217,7 +173,7 @@ async def alerts_save(request: Request, admin: auth.IsAdmin):
             status_code=400,
         )
     log.info("%s updated the alert rules", admin.username)
-    return RedirectResponse("/settings/alerts?saved=1", status_code=303)
+    return RedirectResponse("/alerts?saved=1", status_code=303)
 
 
 @router.post("/settings/{section}", include_in_schema=False)
@@ -237,6 +193,8 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
                 await store.put(forms.pumps_from(form))
             case "smtp":
                 await store.put(forms.smtp_from(form, store.smtp))
+            case "dashboard":
+                await store.put(forms.dashboard_from(form))
             case "sms":
                 await store.put(forms.sms_from(form, store.sms))
             case _:
@@ -252,6 +210,7 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
                 pumps=store.pumps,
                 smtp=store.smtp,
                 sms=store.sms,
+                dashboard=store.dashboard,
                 saved=None,
                 error=_readable(error),
             ),

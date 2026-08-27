@@ -591,8 +591,10 @@ def render_dashboard() -> str:
     return env.get_template("dashboard.html").render(site=SiteSettings(name="A pit"), user=None)
 
 
-def test_the_panel_is_three_blocks_across():
-    """Alerts, the screen, floats. In that order, with a rule between each.
+def test_the_panel_is_four_blocks_across():
+    """Alerts, overloads, the screen, floats. Overloads have their own heading
+    because they are a different kind of bad news: an alert means read the
+    panel, an overload means a pump is off and staying off.
 
     Layout is normally not worth a test. This is, because it has been described
     in prose and built from that description more than once, and shipped wrong
@@ -601,12 +603,15 @@ def test_the_panel_is_three_blocks_across():
     page = render_dashboard()
 
     order = [
-        ">Alerts<",
+        ">Alerts",
         'data-lamp="system_alert"',
         'data-lamp="high_water"',
+        ">Overloads",
+        'data-lamp="pump1_fault"',
+        'data-lamp="pump2_fault"',
         "door-middle",
         "data-lcd",
-        ">Floats<",
+        ">Floats",
         'data-lamp="lead_float"',
         'data-lamp="lag_float"',
     ]
@@ -637,17 +642,19 @@ def test_a_lamp_says_one_thing():
     assert ".lamp.unset .bulb" in css
 
 
-def test_the_overloads_have_lamps_now():
-    """They are the only thing on the panel that can stop a pump dead, and they
-    were the only assigned input with nowhere to show."""
+def test_the_overloads_have_a_block_of_their_own():
+    """They were under Alerts, which put two kinds of bad news under one word.
+    An alert means read the panel; an overload means a pump is off."""
     page = render_dashboard()
 
-    assert 'data-lamp="pump1_fault"' in page
-    assert 'data-lamp="pump2_fault"' in page
     assert ">OL1<" in page and ">OL2<" in page
-    # In the alerts block, because that is what an overload is.
-    alerts = page.split("door-alerts", 1)[1].split("door-middle", 1)[0]
-    assert "pump1_fault" in alerts and "pump2_fault" in alerts
+
+    alerts = page.split("door-alerts", 1)[1].split("door-overloads", 1)[0]
+    overloads = page.split("door-overloads", 1)[1].split("door-middle", 1)[0]
+
+    assert "system_alert" in alerts and "high_water" in alerts
+    assert "pump1_fault" not in alerts and "pump2_fault" not in alerts
+    assert "pump1_fault" in overloads and "pump2_fault" in overloads
 
 
 def test_a_pump_card_carries_its_own_lamp():
@@ -674,6 +681,17 @@ def test_the_history_cards_cover_every_lamp():
     assert page.count("data-history-count") == 6
 
 
+def test_the_history_cards_read_in_the_same_order_as_the_lamps():
+    """Alerts, overloads, floats, both times. Two orders for the same three
+    things is one more thing to hold in your head."""
+    import re as _re
+
+    page = render_dashboard()
+    cards = _re.findall(r'<section class="card history">\s*<h2>([A-Za-z]+)', page)
+
+    assert cards == ["Alerts", "Overloads", "Floats"]
+
+
 def test_floats_are_counted_by_the_day_and_alarms_by_the_month():
     """A float closes every time the pit fills, so a day is the useful number.
     An alarm counted by the day reads zero forever and teaches somebody to stop
@@ -683,7 +701,9 @@ def test_floats_are_counted_by_the_day_and_alarms_by_the_month():
     page = render_dashboard()
     windows = re.findall('data-window="([a-z]+)"', page)
 
-    assert windows == ["today", "month", "month"]
+    # In the order the cards appear, which now matches the lamps above them:
+    # alerts, overloads, floats.
+    assert windows == ["month", "month", "today"]
 
 
 def test_the_run_contacts_have_no_lamp_on_the_panel():
@@ -717,7 +737,7 @@ def test_the_screen_is_a_wide_panel_flanked_by_rules():
     assert "min-height:" in lcd
     # The sides are sized to their own contents and the middle takes the rest,
     # which is what leaves room to be wide without guessing at fractions.
-    assert "grid-template-columns: auto minmax(0, 1fr) auto;" in rule(".door-grid")
+    assert "grid-template-columns: auto auto minmax(0, 1fr) auto;" in rule(".door-grid")
 
     middle = rule(".door-middle")
     assert "border-left:" in middle and "border-right:" in middle
@@ -751,19 +771,21 @@ def test_every_missing_pump_fact_reads_the_same_way():
     assert ".detail dd.none {" in css
 
 
-def test_a_phone_puts_the_two_lists_side_by_side():
-    """Not stacked. Stacking all three made a column three screens tall with a
-    green square in the middle of it. The wide screen goes underneath them,
-    which is the same shape as the desktop view rather than a different one.
+def test_a_phone_puts_the_three_lists_side_by_side():
+    """In the same order as the wide view: alerts, overloads, floats, with the
+    screen full width underneath. Stacking them made a column several screens
+    tall, and a different arrangement on a phone is a second layout to keep
+    right rather than the same one at another size.
     """
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
     # Everything after the phone breakpoint opens. The placements below appear
     # nowhere else in the file, so there is no need to find where it closes.
     phone = css.split("@media (max-width: 700px) {", 1)[1]
 
-    assert "grid-template-columns: 1fr 1fr;" in phone
-    assert "grid-area: 1 / 1;" in phone, "alerts on the left of the first row"
-    assert "grid-area: 1 / 2;" in phone, "floats on the right of the first row"
+    assert "grid-template-columns: repeat(3, minmax(0, 1fr));" in phone
+    assert "grid-area: 1 / 1;" in phone, "alerts first"
+    assert "grid-area: 1 / 2;" in phone, "overloads second"
+    assert "grid-area: 1 / 3;" in phone, "floats third"
     assert "grid-area: 2 / 1 / 3 / -1;" in phone, "the screen spans the row below"
 
 

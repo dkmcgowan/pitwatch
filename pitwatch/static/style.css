@@ -756,6 +756,30 @@ dialog.note .hint p:last-child { margin-bottom: 0; }
   color: var(--text-muted);
 }
 
+/* Users ------------------------------------------------------------------ */
+
+table.users { min-width: 46rem; }
+
+table.users th[scope="row"] { font-weight: 600; white-space: nowrap; padding-left: 0; }
+table.users td { white-space: nowrap; }
+table.users .row-actions { display: flex; gap: 0.4rem; flex-wrap: nowrap; }
+
+/* The heading and the one button that starts something new. */
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.card-head h1, .card-head h2 { margin: 0; }
+
+/* A notification box with nowhere to send. Dimmed rather than hidden, so it is
+   clear the option exists and what it is waiting for. */
+.checkboxes label.unavailable { color: var(--text-muted); cursor: not-allowed; }
+
 /* History ---------------------------------------------------------------- */
 
 /* Three cards of the same shape, as many across as fit. What a lamp cannot

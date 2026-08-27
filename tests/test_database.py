@@ -305,7 +305,9 @@ async def test_the_current_history_query_runs_and_splits_its_two_windows(pool):
         # Plus the hours it spends switched off, which must not count.
         for index in range(500):
             rows.append((now - timedelta(days=day, seconds=1000 + index), 0, 0.03))
-    # And one starting surge per window, which the median has to ignore.
+    # And one starting surge per window. The median would survive these on its
+    # own, being two readings against two hundred, but they are also excluded
+    # outright for being the first reading of a run.
     rows.append((now - timedelta(days=2, seconds=900), 0, 61.0))
     rows.append((now - timedelta(days=20, seconds=900), 0, 58.0))
 
@@ -317,7 +319,9 @@ async def test_the_current_history_query_runs_and_splits_its_two_windows(pool):
     assert typical.earlier_median == pytest.approx(14.0)
     assert typical.drift == pytest.approx(2.0)
     # The off hours were excluded, so only the running readings were counted.
-    assert typical.samples == 201
+    # 200 of them, not 201: the surge follows an idle reading, which makes it
+    # the first reading of a run, and those are left out.
+    assert typical.samples == 200
 
 
 async def test_the_history_says_nothing_when_there_is_nothing_to_say(pool):

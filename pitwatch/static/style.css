@@ -592,22 +592,32 @@ table.probe td, table.probe th { border-bottom: none; padding: 0.2rem 0.6rem 0.2
   box-shadow: inset 0 0 0 1px var(--ok);
 }
 
-/* A card's heading, with the lamp and the note's handle beside it. */
-.card-head {
+/* The name on the left, the lamp on the right, which is where a panel would
+   put it. */
+.pump header {
   display: flex;
   align-items: center;
-  gap: 0.7rem;
-  cursor: pointer;
-  list-style: none;
+  justify-content: space-between;
+  gap: 1rem;
   margin-bottom: 0.5rem;
 }
 
-.card-head::-webkit-details-marker { display: none; }
-.card-head h2 { flex: 1; margin: 0; }
-
 /* Worth reading once and then never again, which is what a disclosure is for.
-   The i is the handle; the whole heading is the target, because a 21 pixel
-   circle is not one on a phone. */
+   At the foot of the card and out of the way, because the numbers are what
+   somebody came for. */
+.card-note { margin-top: 1rem; }
+
+.info-handle {
+  display: flex;
+  justify-content: flex-end;
+  cursor: pointer;
+  list-style: none;
+  /* A 21 pixel circle is not a tap target. The padding around it is. */
+  padding: 0.35rem 0;
+  margin: -0.35rem 0;
+}
+
+.info-handle::-webkit-details-marker { display: none; }
 .info-mark {
   flex: none;
   width: 1.35rem;
@@ -622,9 +632,9 @@ table.probe td, table.probe th { border-bottom: none; padding: 0.2rem 0.6rem 0.2
   color: var(--text-muted);
 }
 
-.card-head:hover .info-mark { color: var(--text); border-color: var(--text-muted); }
+.info-handle:hover .info-mark { color: var(--text); border-color: var(--text-muted); }
 .card-note[open] .info-mark { background: var(--surface-2); color: var(--text); }
-.card-note > .hint { margin: 0 0 1rem; }
+.card-note > .hint { margin: 0.75rem 0 0; }
 .card-note > .hint p { margin: 0 0 0.6rem; }
 .card-note > .hint p:last-child { margin-bottom: 0; }
 

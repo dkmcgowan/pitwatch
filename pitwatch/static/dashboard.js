@@ -54,6 +54,19 @@
 
   // -- rendering ------------------------------------------------------------
 
+  // One way of saying there is nothing to say, so four fields cannot drift
+  // into four different ways of saying it. Anything absent reads n/a and reads
+  // dimmer, which is what tells a card with no data behind it from a working
+  // one at a glance.
+  function setFact(node, value) {
+    if (!node) {
+      return;
+    }
+    const missing = value === null || value === undefined || value === "";
+    node.textContent = missing ? "n/a" : value;
+    node.classList.toggle("none", missing);
+  }
+
   function renderPump(number, pump) {
     const card = document.querySelector('[data-pump="' + number + '"]');
     if (!card || !pump) {
@@ -68,11 +81,10 @@
     // anyway, and two things saying it is two things to read.
     card.classList.toggle("running", pump.running === true);
 
-    const nameplate = card.querySelector("[data-nameplate]");
-    if (nameplate) {
-      nameplate.textContent =
-        pump.nameplate_amps === null ? "not set" : pump.nameplate_amps + " A";
-    }
+    setFact(
+      card.querySelector("[data-nameplate]"),
+      pump.nameplate_amps === null ? null : pump.nameplate_amps + " A"
+    );
 
     renderTypical(card, pump.typical || {});
     renderRecent(card, pump);
@@ -90,17 +102,15 @@
     const recent = pump.recent || {};
 
     if (pump.drawing_current) {
-      last.textContent = "running now";
-    } else if (recent.last_start) {
-      last.textContent = since(recent.last_start);
+      setFact(last, "running now");
     } else {
-      last.textContent = "n/a";
+      setFact(last, recent.last_start ? since(recent.last_start) : null);
     }
 
     // Nothing to count and nothing that ever ran are the same answer here. A
     // clamp that has never seen a run and a clamp that is not fitted look
     // identical from this side, so neither gets to claim a confident zero.
-    runs.textContent = recent.last_start || recent.runs ? String(recent.runs) : "n/a";
+    setFact(runs, recent.last_start || recent.runs ? String(recent.runs) : null);
   }
 
   // What the pump draws when it is actually running, and whether that is
@@ -114,15 +124,15 @@
       return;
     }
 
-    // "n/a" rather than a sentence explaining itself. There is no room for a
+    // n/a rather than a sentence explaining itself. There is no room for a
     // sentence in a two by two grid, and the settings page is where the reason
     // belongs.
-    if (typical.median === null || typical.median === undefined) {
-      value.innerHTML = '<span class="muted">n/a</span>';
+    const known = typical.median !== null && typical.median !== undefined;
+    setFact(value, known ? typical.median.toFixed(1) + " A" : null);
+    if (!known) {
       drift.hidden = true;
       return;
     }
-    value.textContent = typical.median.toFixed(1) + " A";
 
     if (typical.drift === null || typical.drift === undefined) {
       drift.hidden = true;

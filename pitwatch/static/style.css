@@ -267,7 +267,10 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 }
 
 .door-middle {
-  justify-self: center;
+  /* Stretch, not center. A centered grid item shrinks to fit its contents, so
+     the screen's own width: 100% was resolving against the width of the text
+     inside it and the column it was given went unused. */
+  justify-self: stretch;
   padding: 0 1.75rem;
   border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
@@ -338,8 +341,9 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
    because that is roughly what is bolted to the door. */
 .lcd {
   width: 100%;
-  max-width: 28rem;
-  min-height: 7rem;
+  max-width: 34rem;
+  min-height: 5.25rem;
+  margin: 0 auto;
   display: grid;
   place-items: center;
   background: #16301a;
@@ -397,7 +401,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
     border-top: 1px solid var(--border);
   }
 
-  .lcd { max-width: none; min-height: 5.5rem; }
+  .lcd { max-width: none; min-height: 4.75rem; }
 }
 
 /* Forms ------------------------------------------------------------------- */
@@ -623,6 +627,11 @@ table.probe td, table.probe th { border-bottom: none; padding: 0.2rem 0.6rem 0.2
 }
 
 .detail dd { margin: 0.1rem 0 0; }
+
+/* Nothing to report, in every field that can have nothing to report. Dimmer
+   than a real reading, so a card with no data behind it looks different at a
+   glance from one that is working. */
+.detail dd.none { color: var(--text-muted); }
 
 /* Pills ------------------------------------------------------------------- */
 

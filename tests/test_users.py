@@ -13,6 +13,7 @@ stops noticing when the application stops doing what it says.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
@@ -432,8 +433,10 @@ def test_the_users_page_is_a_list_and_not_a_pile_of_forms(client):
     # state, role and status were all here and made the table wider than the
     # page. They are on the edit form, which is where somebody goes to change
     # them anyway.
-    for gone in ("User name", "Sign in", "Role", "Status"):
+    for gone in ("User name", "Sign in", "Status"):
         assert f">{gone}</th>" not in page, gone
+    # Role is back, as one box rather than nine characters of "Administrator".
+    assert ">Admin</th>" in page
     # One editable form per account is exactly what this replaced.
     assert page.count('action="/users/') == page.count("/toggle") + page.count("/delete")
     assert 'href="/users/new"' in page
@@ -601,3 +604,59 @@ def test_deleting_asks_first(client):
     assert 'data-confirm="Delete Building Super?' in page
     assert '<dialog class="note confirm" id="confirm">' in page
     assert "data-confirm-yes" in page and "data-confirm-no" in page
+
+
+def test_administrator_is_a_box_that_can_be_ticked(client):
+    """One click either way, on a page only administrators can reach. Opening a
+    form to change one checkbox is more ceremony than the change deserves."""
+    sign_in_as_admin(client)
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
+    user_id = user_id_of(client, "super")
+
+    row = ""
+    for chunk in client.get("/users").text.split("<tr"):
+        if 'data-username="super"' in chunk:
+            row = chunk
+    assert f'action="/users/{user_id}/admin"' in row
+    assert "data-autosubmit" in row
+    assert "checked" not in row.split("data-autosubmit", 1)[1].split(">", 1)[0]
+
+    client.post(f"/users/{user_id}/admin", follow_redirects=False)
+
+    row = ""
+    for chunk in client.get("/users").text.split("<tr"):
+        if 'data-username="super"' in chunk:
+            row = chunk
+    assert "checked" in row.split("data-autosubmit", 1)[1].split(">", 1)[0]
+
+
+def test_you_cannot_take_away_your_own_administrator_rights(client):
+    """The box is ticked and fixed, and the server refuses it as well. An
+    install with nobody who can change anything needs the database edited by
+    hand to recover."""
+    sign_in_as_admin(client)
+    admin_id = user_id_of(client, auth.DEFAULT_USERNAME)
+
+    row = ""
+    for chunk in client.get("/users").text.split("<tr"):
+        if f'data-username="{auth.DEFAULT_USERNAME}"' in chunk:
+            row = chunk
+    assert "disabled" in row
+    assert f'action="/users/{admin_id}/admin"' not in row
+
+    refused = client.post(f"/users/{admin_id}/admin")
+    assert refused.status_code == 400
+    assert "cannot remove your own administrator rights" in refused.text
+
+
+def test_the_admin_box_works_without_scripting(client):
+    """A checkbox posts nothing until something submits the form, so the markup
+    carries a real button. The script hides it and lets the box do the work."""
+    sign_in_as_admin(client)
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
+
+    page = client.get("/users").text
+    js = (Path("pitwatch/static/setup.js")).read_text(encoding="utf-8")
+
+    assert "data-autosubmit-go" in page, "a real submit button in the markup"
+    assert "button.hidden = true;" in js, "hidden once the script is running"

@@ -774,6 +774,11 @@ table.users { min-width: 30rem; }
 table.users th[scope="row"] { font-weight: 600; white-space: nowrap; padding-left: 0; }
 table.users td { white-space: nowrap; }
 
+/* As narrow as its heading. A column holding one checkbox should not take the
+   room a column of words would. */
+table.users .tight { width: 1%; text-align: center; }
+table.users .tight input[type="checkbox"] { margin: 0; }
+
 /* A disabled account, dimmed. The row still reads; it just stops competing
    with the accounts that are actually being sent things. */
 table.users tr.off th[scope="row"],

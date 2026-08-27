@@ -42,6 +42,7 @@
         <th scope="col">Email</th>
         <th scope="col">Mobile</th>
         <th scope="col">Alerts</th>
+        <th scope="col" class="tight">Admin</th>
         <th scope="col"><span class="visually-hidden">Actions</span></th>
       </tr>
     </thead>
@@ -60,6 +61,33 @@
           {% if person.notify_email %}{% set _ = channels.append('Email') %}{% endif %}
           {% if person.notify_sms %}{% set _ = channels.append('Text') %}{% endif %}
           {% if channels %}{{ channels|join(', ') }}{% else %}<span class="muted">None</span>{% endif %}
+        </td>
+        {# A box rather than the word Administrator, which is nine characters
+           wide to say a yes or a no. Ticking it grants the right there and
+           then: it is one click either way, on a page only administrators can
+           reach, and the alternative is opening a form to change one thing.
+
+           Your own is ticked and fixed. An install with nobody who can change
+           anything needs the database edited by hand to recover, and the
+           server refuses this as well. #}
+        <td class="tight">
+          {% if person.id == user.id %}
+          <input type="checkbox" checked disabled
+                 title="You cannot remove your own administrator rights"
+                 aria-label="{{ person.name or person.username }} is an administrator">
+          {% else %}
+          <form method="post" action="/users/{{ person.id }}/admin" class="inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="checkbox" data-autosubmit
+                   {% if person.is_admin %}checked{% endif %}
+                   title="{% if person.is_admin %}Remove administrator rights from{% else %}Make an administrator:{% endif %} {{ person.name or person.username }}"
+                   aria-label="Administrator: {{ person.name or person.username }}">
+            {# Works without JavaScript too: the box posts nothing on its own,
+               so the button is what carries the change. It is hidden once the
+               script is running and the box submits on its own. #}
+            <button type="submit" class="button secondary small" data-autosubmit-go>Set</button>
+          </form>
+          {% endif %}
         </td>
         <td class="row-actions">
           <a class="icon-button" href="/users/{{ person.id }}/edit"

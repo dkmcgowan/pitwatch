@@ -575,6 +575,31 @@ async def _send_invitation(request: Request, user_id: int, name: str, email: str
     return None
 
 
+@router.post("/users/{user_id}/admin", include_in_schema=False)
+async def toggle_admin(request: Request, user_id: int, admin: auth.IsAdmin):
+    """Administrator or not, from the list.
+
+    One click either way, on a page only administrators can reach. Opening a
+    form to change one checkbox and pressing Save is more ceremony than the
+    change deserves, and the change is reversible by the same click.
+    """
+    if admin.id == user_id:
+        return await _list_with_error(request, "You cannot remove your own administrator rights")
+    pool = request.app.state.pool
+    person = await auth.get_user(pool, user_id)
+    if person is None:
+        return RedirectResponse("/users", status_code=303)
+
+    await pool.execute("UPDATE app_user SET is_admin = NOT is_admin WHERE id = $1", user_id)
+    log.info(
+        "%s made %s %s",
+        admin.username,
+        person.username,
+        "an ordinary user" if person.is_admin else "an administrator",
+    )
+    return RedirectResponse("/users?saved=updated", status_code=303)
+
+
 @router.post("/users/{user_id}/invite", include_in_schema=False)
 async def invite_user(request: Request, user_id: int, admin: auth.IsAdmin):
     pool = request.app.state.pool

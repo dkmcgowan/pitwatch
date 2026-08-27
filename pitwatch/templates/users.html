@@ -27,29 +27,32 @@
     <a class="button" href="/users/new">Add a user</a>
   </div>
 
-  {# A list first, and a form only when somebody asked for one. Every account
-     used to be an open form on this page, which meant eight editable copies of
-     the same shape and no way to see at a glance who gets what. #}
+  {# Who they are and what they get, and nothing else.
+
+     User name, sign in state, role and status were all here and pushed the
+     table wider than the page, which put a horizontal scrollbar under a list
+     of four people. Every one of them is on the edit form, which is where
+     somebody goes to change them anyway. Status is still visible without a
+     column: a disabled account offers Enable instead of Disable. #}
   <div class="table-scroll">
   <table class="users">
     <thead>
       <tr>
         <th scope="col">Name</th>
-        <th scope="col">User name</th>
         <th scope="col">Email</th>
         <th scope="col">Mobile</th>
         <th scope="col">Alerts</th>
-        <th scope="col">Sign in</th>
-        <th scope="col">Role</th>
-        <th scope="col">Status</th>
         <th scope="col"><span class="visually-hidden">Actions</span></th>
       </tr>
     </thead>
     <tbody>
       {% for person in users %}
-      <tr>
+      {# The account this row is about. Not shown: the sign in name is on the
+         edit form, and this is here so the row can be identified without
+         reading the words in it. #}
+      <tr data-username="{{ person.username }}"
+          {% if not person.enabled %}class="off"{% endif %}>
         <th scope="row">{{ person.name or person.username }}</th>
-        <td class="mono">{{ person.username }}</td>
         <td>{% if person.email %}{{ person.email }}{% else %}<span class="muted">n/a</span>{% endif %}</td>
         <td>{% if person.phone %}{{ person.phone }}{% else %}<span class="muted">n/a</span>{% endif %}</td>
         <td>
@@ -58,33 +61,35 @@
           {% if person.notify_sms %}{% set _ = channels.append('Text') %}{% endif %}
           {% if channels %}{{ channels|join(', ') }}{% else %}<span class="muted">None</span>{% endif %}
         </td>
-        {# Whether they can sign in at all, which is how an administrator sees
-           that an invitation is still outstanding. Most accounts never need
-           one: they only ever receive messages. #}
-        <td>
-          {% if person.has_password %}Yes{% else %}<span class="muted">once a password is set</span>{% endif %}
-        </td>
-        <td>{% if person.is_admin %}Administrator{% else %}<span class="muted">User</span>{% endif %}</td>
-        <td>
-          {% if person.enabled %}Active{% else %}<span class="bad">Disabled</span>{% endif %}
-        </td>
         <td class="row-actions">
-          <a class="button secondary small" href="/users/{{ person.id }}/edit">Edit</a>
+          <a class="icon-button" href="/users/{{ person.id }}/edit"
+             title="Edit {{ person.name or person.username }}"
+             aria-label="Edit {{ person.name or person.username }}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-pencil"/></svg>
+          </a>
           {# Neither of these is offered for your own account. An install with
              nobody who can change anything needs the database edited by hand
              to recover, and the server refuses it too. #}
           {% if person.id != user.id %}
           <form method="post" action="/users/{{ person.id }}/toggle" class="inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="button secondary small">
-              {% if person.enabled %}Disable{% else %}Enable{% endif %}
+            <button type="submit" class="icon-button"
+                    title="{% if person.enabled %}Disable{% else %}Enable{% endif %} {{ person.name or person.username }}"
+                    aria-label="{% if person.enabled %}Disable{% else %}Enable{% endif %} {{ person.name or person.username }}">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <use href="#icon-{% if person.enabled %}disable{% else %}enable{% endif %}"/>
+              </svg>
             </button>
           </form>
-          <form method="post" action="/users/{{ person.id }}/delete" class="inline">
+          {# The confirmation is a real dialog rather than the browser's own
+             box. See wireConfirms in setup.js. #}
+          <form method="post" action="/users/{{ person.id }}/delete" class="inline"
+                data-confirm="Delete {{ person.name or person.username }}? They will stop getting alerts.">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="button danger small"
-                    onclick="return confirm('Delete {{ person.name|e }}? They will stop getting alerts.')">
-              Delete
+            <button type="submit" class="icon-button danger"
+                    title="Delete {{ person.name or person.username }}"
+                    aria-label="Delete {{ person.name or person.username }}">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-trash"/></svg>
             </button>
           </form>
           {% endif %}
@@ -97,8 +102,20 @@
 
   <p class="hint">
     Everyone here can be sent alerts. A password is optional: most people only
-    ever receive messages and never sign in.
+    ever receive messages and never sign in. Open one to see whether they can
+    sign in and whether they are an administrator.
   </p>
 </section>
+
+{# One dialog for every row. Which account it is about is written into it as it
+   opens, so there is not a copy of this per person. #}
+<dialog class="note confirm" id="confirm">
+  <h3 class="note-title">Are you sure?</h3>
+  <p class="hint" data-confirm-body></p>
+  <div class="row-actions">
+    <button type="button" class="button danger" data-confirm-yes>Yes, delete</button>
+    <button type="button" class="button secondary" data-confirm-no>No, keep them</button>
+  </div>
+</dialog>
 
 {% endblock %}

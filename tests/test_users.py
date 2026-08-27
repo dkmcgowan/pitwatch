@@ -81,13 +81,14 @@ def user_id_of(client, username: str) -> int:
     the wrong person turned out to be the admin.
     """
     page = client.get("/users").text
-    # Row by row. Scanning the whole page for a username and then reaching
-    # backwards for an id happily starts in one row and finishes in the next,
-    # which returns the wrong id and then edits the wrong account. That is
-    # exactly what an earlier version of this did, and the test that noticed
-    # was the one where the wrong account turned out to be the admin.
-    for row in page.split("<tr>")[1:]:
-        if f'class="mono">{username}<' not in row:
+    # By the account the row is about, not by reading the words in it. Scanning
+    # the whole page for a name and then reaching backwards for an id happily
+    # starts in one row and finishes in the next, which returns the wrong id
+    # and then edits the wrong account. That is exactly what an earlier version
+    # of this did, and the test that noticed was the one where the wrong
+    # account turned out to be the admin.
+    for row in page.split("<tr")[1:]:
+        if f'data-username="{username}"' not in row:
             continue
         at = row.index("/users/") + len("/users/")
         return int(row[at : row.index("/edit", at)])
@@ -134,12 +135,14 @@ def test_someone_added_can_be_reached_without_ever_signing_in(client):
     sign_in_as_admin(client)
     client.post("/users/new", data=SUPER | {"send_invite": ""})
 
-    page = client.get("/users").text
+    # They are on the list, and reachable, without a password.
+    assert 'data-username="super"' in client.get("/users").text
 
-    # The Sign in column, which is how an administrator sees that an invitation
-    # is still outstanding. Most accounts never need one: they only ever
-    # receive messages.
-    assert "once a password is set" in page, "should be shown as having no password"
+    # Whether they can sign in is on the edit form now rather than in a column.
+    # The list is who they are and what they get.
+    user_id = user_id_of(client, "super")
+    form = client.get(f"/users/{user_id}/edit").text
+    assert "Send an invitation" in form, "no password yet, so an invitation is offered"
 
 
 def test_a_person_set_to_be_texted_needs_a_number(client):
@@ -423,8 +426,14 @@ def test_the_users_page_is_a_list_and_not_a_pile_of_forms(client):
     page = client.get("/users").text
 
     assert "<table" in page
-    for column in ("Name", "User name", "Email", "Mobile", "Alerts", "Role", "Status"):
+    for column in ("Name", "Email", "Mobile", "Alerts"):
         assert f">{column}</th>" in page, column
+    # Who they are and what they get, and nothing else. User name, sign in
+    # state, role and status were all here and made the table wider than the
+    # page. They are on the edit form, which is where somebody goes to change
+    # them anyway.
+    for gone in ("User name", "Sign in", "Role", "Status"):
+        assert f">{gone}</th>" not in page, gone
     # One editable form per account is exactly what this replaced.
     assert page.count('action="/users/') == page.count("/toggle") + page.count("/delete")
     assert 'href="/users/new"' in page
@@ -435,15 +444,17 @@ def test_the_list_shows_what_each_account_gets(client):
     client.post("/users/new", data=SUPER | {"send_invite": ""})
 
     row = ""
-    for chunk in client.get("/users").text.split("<tr>"):
-        if 'class="mono">super<' in chunk:
+    for chunk in client.get("/users").text.split("<tr"):
+        if 'data-username="super"' in chunk:
             row = chunk
     assert row, "the account is not in the table"
 
     assert "super@example.com" in row
     assert "Email, Text" in row, "both channels are on for this one"
-    assert ">User<" in row, "not an administrator"
-    assert "Active" in row
+    # Active or not is the icon offered rather than a column: an account that
+    # is on can be disabled, one that is off can be enabled.
+    assert "#icon-disable" in row
+    assert "#icon-enable" not in row
 
 
 def test_adding_happens_on_its_own_page_and_comes_back_to_the_list(client):
@@ -548,3 +559,45 @@ def test_a_notification_box_needs_somewhere_to_send(client):
     )
     assert refused.status_code == 400
     assert "has no number" in refused.text
+
+
+def test_the_row_actions_are_icons(client):
+    """Three words per row was most of what made the table too wide. An icon
+    with a title and a label says the same thing in a quarter of the space."""
+    sign_in_as_admin(client)
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
+
+    page = client.get("/users").text
+
+    for icon in ("#icon-pencil", "#icon-disable", "#icon-trash"):
+        assert icon in page, icon
+    # Every one still says what it is, for a screen reader and on hover.
+    assert 'aria-label="Edit Building Super"' in page
+    assert 'aria-label="Delete Building Super"' in page
+    assert 'title="Disable Building Super"' in page
+
+
+def test_disabling_flips_which_icon_is_offered(client):
+    """Status has no column any more. Which icon is there is how it shows."""
+    sign_in_as_admin(client)
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
+    user_id = user_id_of(client, "super")
+
+    client.post(f"/users/{user_id}/toggle")
+
+    page = client.get("/users").text
+    assert 'title="Enable Building Super"' in page
+    assert 'title="Disable Building Super"' not in page
+
+
+def test_deleting_asks_first(client):
+    """A real dialog rather than the browser's confirm box, which cannot say
+    which account it means in the page's own voice."""
+    sign_in_as_admin(client)
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
+
+    page = client.get("/users").text
+
+    assert 'data-confirm="Delete Building Super?' in page
+    assert '<dialog class="note confirm" id="confirm">' in page
+    assert "data-confirm-yes" in page and "data-confirm-no" in page

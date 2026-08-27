@@ -18,9 +18,14 @@ up or a bearing going dry shows as a number that climbs over weeks, not as a
 number that is wrong on any given day. So this reports the last week against
 the four weeks before it, and the difference is the part worth reading.
 
-**Only readings above the running threshold count.** Averaging in the hours a
-pump spends switched off would produce a number near zero that moves when the
-weather does, which is a rain gauge rather than a health check.
+**Only readings above the running threshold count**, and not the first one of
+each run. Averaging in the hours a pump spends switched off would produce a
+number near zero that moves when the weather does, which is a rain gauge rather
+than a health check. And the first reading of a run is where the starting surge
+lands: on the reference panel it ran 1.3 A above every later reading, and it is
+43 percent of all the readings taken while running, because a short run
+produces two of them and one is the first. Leaving it in put about 0.4 A of
+starting surge into a number that is supposed to describe a motor at work.
 """
 
 from __future__ import annotations
@@ -47,17 +52,32 @@ MIN_SAMPLES = 30
 REFRESH = timedelta(minutes=5)
 
 QUERY = """
+WITH readings AS (
+    -- Every reading in the window, running or not. The threshold cannot be
+    -- applied here: lag() has to see the reading before this one as it
+    -- actually was, or the reading before every start would be the end of the
+    -- previous run and no start would ever be recognized.
+    SELECT ts, current, lag(current) OVER (ORDER BY ts) AS previous
+    FROM em_sample
+    WHERE channel = $1 AND ts > now() - $4::interval
+), running AS (
+    SELECT ts, current
+    FROM readings
+    WHERE current >= $2
+      -- Not the first reading of a run, which is where the surge lands, and
+      -- not the first reading in the window either, because there is no way to
+      -- tell whether that one started a run or sat in the middle of one.
+      AND previous IS NOT NULL
+      AND previous >= $2
+)
 SELECT
     percentile_cont(0.5) WITHIN GROUP (ORDER BY current)
-        FILTER (WHERE ts > now() - $3::interval)   AS recent_median,
+        FILTER (WHERE ts > now() - $3::interval)      AS recent_median,
     count(*) FILTER (WHERE ts > now() - $3::interval) AS recent_samples,
     percentile_cont(0.5) WITHIN GROUP (ORDER BY current)
-        FILTER (WHERE ts <= now() - $3::interval)  AS earlier_median,
+        FILTER (WHERE ts <= now() - $3::interval)     AS earlier_median,
     count(*) FILTER (WHERE ts <= now() - $3::interval) AS earlier_samples
-FROM em_sample
-WHERE channel = $1
-  AND current >= $2
-  AND ts > now() - $4::interval
+FROM running
 """
 
 

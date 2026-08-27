@@ -443,3 +443,36 @@ async def test_the_history_ignores_contacts_opening(pool):
     closings = await SignalHistory().closings(pool, [6])
 
     assert closings[6].today == 2
+
+
+async def test_the_typical_load_leaves_out_the_start_of_each_run(pool):
+    """The first reading of a run is where the starting surge lands, and on a
+    pit that runs in short bursts it is a large share of every reading taken.
+
+    On the reference panel it was 43 percent of them and ran 1.3 A high, which
+    put about 0.4 A of surge into a number that is meant to describe a motor at
+    work rather than one getting going.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.history import CurrentHistory
+
+    now = datetime.now(UTC)
+    rows = []
+    # Forty runs, each a high first reading and two settled ones. If the first
+    # readings counted, the median would land between 16 and 20 rather than on
+    # the 16 the motor actually draws while working.
+    for index in range(40):
+        start = now - timedelta(hours=index + 1)
+        rows.append((start - timedelta(seconds=20), 0, 0.0))
+        rows.append((start, 0, 40.0))
+        rows.append((start + timedelta(seconds=20), 0, 16.0))
+        rows.append((start + timedelta(seconds=40), 0, 16.0))
+        rows.append((start + timedelta(seconds=60), 0, 0.0))
+
+    await pool.executemany("INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)", rows)
+
+    typical = await CurrentHistory().typical(pool, channel=0, running_amps=1.0)
+
+    assert typical.median == pytest.approx(16.0), "the 40 A starts are excluded"
+    assert typical.samples == 80, "two settled readings from each of forty runs"

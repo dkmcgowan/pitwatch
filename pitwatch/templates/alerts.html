@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% set active = 'settings' %}
+{% set active = 'alerts' %}
 {% block title %}Alerts{% endblock %}
 
 {% block content %}
@@ -11,10 +11,7 @@
 {% endif %}
 
 <section class="card">
-  <div class="card-head">
-    <h1>Alerts</h1>
-    <a class="button secondary" href="/settings">Back to settings</a>
-  </div>
+  <h1>Alerts</h1>
   <p class="hint">
     Every rule PitWatch can raise, what it says, and who hears it. The list is
     fixed: eight contacts and two clamps only answer so many questions, and a
@@ -35,7 +32,7 @@
   </p>
 </section>
 
-<form method="post" action="/settings/alerts">
+<form method="post" action="/alerts">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
   {% for spec in specs %}

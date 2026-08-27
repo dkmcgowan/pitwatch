@@ -39,6 +39,7 @@
         <th scope="col">Email</th>
         <th scope="col">Mobile</th>
         <th scope="col">Alerts</th>
+        <th scope="col">Sign in</th>
         <th scope="col">Role</th>
         <th scope="col">Status</th>
         <th scope="col"><span class="visually-hidden">Actions</span></th>
@@ -56,6 +57,12 @@
           {% if person.notify_email %}{% set _ = channels.append('Email') %}{% endif %}
           {% if person.notify_sms %}{% set _ = channels.append('Text') %}{% endif %}
           {% if channels %}{{ channels|join(', ') }}{% else %}<span class="muted">None</span>{% endif %}
+        </td>
+        {# Whether they can sign in at all, which is how an administrator sees
+           that an invitation is still outstanding. Most accounts never need
+           one: they only ever receive messages. #}
+        <td>
+          {% if person.has_password %}Yes{% else %}<span class="muted">once a password is set</span>{% endif %}
         </td>
         <td>{% if person.is_admin %}Administrator{% else %}<span class="muted">User</span>{% endif %}</td>
         <td>

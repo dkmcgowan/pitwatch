@@ -562,7 +562,7 @@ def test_the_header_is_icons_rather_than_words(client):
     assert ">Settings</a>" not in page
 
 
-def test_a_non_admin_sees_no_settings_or_people_icon(client):
+def test_a_non_admin_sees_no_settings_or_users_icon(client):
     """The icons are a menu, not decoration: what is not theirs is not shown."""
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
@@ -575,7 +575,7 @@ def test_a_non_admin_sees_no_settings_or_people_icon(client):
     assert 'aria-label="Settings"' in page, "the admin should see it"
 
     # The template decides by user.is_admin, which the People page shows too.
-    assert 'aria-label="People"' in page
+    assert 'aria-label="Users"' in page
 
 
 def test_the_profile_page_carries_everything_about_you(client):

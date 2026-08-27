@@ -520,3 +520,37 @@ function csrfHeader(form) {
     asking = null;
   });
 })();
+
+
+// A checkbox in a table that saves itself.
+//
+// Without this the box posts nothing until something submits the form, so the
+// markup carries a real button and works with scripting off. With scripting
+// on the button is redundant and in the way of a tidy column, so it goes and
+// the box carries the change instead.
+
+(function () {
+  "use strict";
+
+  const boxes = Array.prototype.slice.call(document.querySelectorAll("[data-autosubmit]"));
+  if (!boxes.length) {
+    return;
+  }
+
+  boxes.forEach(function (box) {
+    const form = box.closest("form");
+    if (!form) {
+      return;
+    }
+    const button = form.querySelector("[data-autosubmit-go]");
+    if (button) {
+      button.hidden = true;
+    }
+    box.addEventListener("change", function () {
+      // Disabled straight away, so a second click while the page is still
+      // reloading cannot send a second flip and undo the first.
+      box.disabled = true;
+      form.submit();
+    });
+  });
+})();

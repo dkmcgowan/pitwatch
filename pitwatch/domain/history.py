@@ -222,9 +222,7 @@ class RecentRuns:
         self._cache[key] = (now, cached[1] if cached else Recent())
 
         try:
-            row = await pool.fetchrow(
-                RUNS_QUERY, channel, running_amps, RUN_WINDOW, RUN_BASELINE
-            )
+            row = await pool.fetchrow(RUNS_QUERY, channel, running_amps, RUN_WINDOW, RUN_BASELINE)
         except (asyncpg.PostgresError, OSError) as error:
             log.warning("Could not count recent runs for clamp %d: %s", channel, error)
             return self._cache[key][1]

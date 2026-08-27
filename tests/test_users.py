@@ -439,8 +439,12 @@ def test_the_users_page_is_a_list_and_not_a_pile_of_forms(client):
         assert f">{gone}</th>" not in page, gone
     # Role is back, as one box rather than nine characters of "Administrator".
     assert ">Admin</th>" in page
-    # One editable form per account is exactly what this replaced.
-    assert page.count('action="/users/') == page.count("/toggle") + page.count("/delete")
+    # One editable form per account is exactly what this replaced, so the only
+    # forms here are the single actions on a row. Counting them was the old
+    # check and it broke the moment a third action appeared; naming the fields
+    # that must not be here says what it means.
+    for field in ('name="name"', 'name="email"', 'name="phone"', 'name="min_severity"'):
+        assert field not in page, field
     assert 'href="/users/new"' in page
 
 

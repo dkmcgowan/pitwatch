@@ -373,3 +373,71 @@ async def test_a_clamp_that_has_never_seen_a_run_says_so(pool):
 
     assert recent.runs == 0
     assert recent.last_start is None
+
+
+async def test_counting_what_a_contact_has_done(pool):
+    """Counting rows, not counting samples and hoping.
+
+    io_event only ever holds transitions, so every row with state true is a
+    contact closing. That is the whole reason the reader writes edges.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.history import SignalHistory
+
+    now = datetime.now(UTC)
+    rows = []
+    # A float that has closed three times today and twice more this month.
+    for hours in (1, 5, 20, 200, 400):
+        rows.append((now - timedelta(hours=hours), 3, "Lead float", True, True))
+        rows.append(
+            (now - timedelta(hours=hours) + timedelta(seconds=30), 3, "Lead float", False, False)
+        )
+    # An alarm that went off once, three weeks ago.
+    rows.append((now - timedelta(days=21), 4, "High water", True, True))
+    rows.append((now - timedelta(days=21, seconds=-60), 4, "High water", False, False))
+    # And an input nothing has ever been recorded for.
+    await pool.executemany(
+        "INSERT INTO io_event (ts, channel, label, state, raw) VALUES ($1, $2, $3, $4, $5)",
+        rows,
+    )
+
+    closings = await SignalHistory().closings(pool, [3, 4, 5])
+
+    assert closings[3].today == 3, "three in the last day"
+    assert closings[3].month == 4, "the 400 hour old one is outside a month"
+    assert (now - closings[3].last_on).total_seconds() < 3700
+
+    assert closings[4].today == 0
+    assert closings[4].month == 1
+    assert closings[4].known is True
+
+    # Nothing recorded is not the same as a quiet month, and the payload says
+    # so by sending null rather than zero.
+    assert 5 not in closings
+    from pitwatch.domain.history import Closings
+
+    assert Closings().as_json() == {"last_on": None, "today": None, "month": None}
+
+
+async def test_the_history_ignores_contacts_opening(pool):
+    """Only closings count. A contact that opens is the end of something, and
+    counting both would double every number on the card."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.history import SignalHistory
+
+    now = datetime.now(UTC)
+    await pool.executemany(
+        "INSERT INTO io_event (ts, channel, label, state, raw) VALUES ($1, $2, $3, $4, $5)",
+        [
+            (now - timedelta(minutes=10), 6, "Lag float", True, True),
+            (now - timedelta(minutes=9), 6, "Lag float", False, False),
+            (now - timedelta(minutes=8), 6, "Lag float", True, True),
+            (now - timedelta(minutes=7), 6, "Lag float", False, False),
+        ],
+    )
+
+    closings = await SignalHistory().closings(pool, [6])
+
+    assert closings[6].today == 2

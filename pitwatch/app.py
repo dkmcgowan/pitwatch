@@ -27,7 +27,7 @@ from pitwatch.api import live as live_api
 from pitwatch.api import pages, stream, users
 from pitwatch.config import Config, get_config
 from pitwatch.db import lifespan_pool
-from pitwatch.domain.history import CurrentHistory, RecentRuns
+from pitwatch.domain.history import CurrentHistory, RecentRuns, SignalHistory
 from pitwatch.ingest.sink import LiveIo, LiveState
 from pitwatch.ingest.supervisor import Supervisor
 from pitwatch.middleware import RequireSignIn, SecurityHeaders
@@ -94,6 +94,7 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
             app.state.live_io = live_io
             app.state.history = CurrentHistory()
             app.state.recent_runs = RecentRuns()
+            app.state.signal_history = SignalHistory()
             app.state.supervisor = supervisor
 
             await supervisor.start()

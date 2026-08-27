@@ -81,6 +81,12 @@
     // anyway, and two things saying it is two things to read.
     card.classList.toggle("running", pump.running === true);
 
+    const lamp = card.querySelector("[data-pump-lamp]");
+    if (lamp) {
+      lamp.classList.toggle("on", pump.running === true);
+      lamp.title = pump.running ? "Running" : "Not running";
+    }
+
     setFact(
       card.querySelector("[data-nameplate]"),
       pump.nameplate_amps === null ? null : pump.nameplate_amps + " A"
@@ -199,30 +205,24 @@
     document.querySelectorAll("[data-lamp]").forEach(function (node) {
       const role = node.getAttribute("data-lamp");
       const lamp = lamps[role];
-      const state = node.querySelector("[data-lamp-state]");
       const node_title = node.querySelector(".lamp-title");
 
-      if (!lamp || !lamp.channel) {
-        node.classList.remove("on");
-        node.classList.add("unset");
-        state.textContent = "not set";
-        return;
-      }
-      node.classList.remove("unset");
-      // The lamp keeps the name of the job, not the name of the wire. These
-      // six are the six roles somebody assigned, and which input each one is
-      // on is a question the settings page answers. Titles here also have to
-      // fit a centered row, which "Pump 1 overload tripped" does not.
+      // A lamp says one thing: lit or not. It used to carry a line of text
+      // under it saying "not set" or "no data", which is a sentence where an
+      // indicator should be. What it has been doing is answered downstairs.
+      //
+      // An unassigned lamp still draws dimmer, which is the one piece of that
+      // distinction worth keeping without words: dark because nobody wired it
+      // reads differently from dark because the contact is open.
+      const wired = Boolean(lamp && lamp.channel);
+      node.classList.toggle("unset", !wired);
+      node.classList.toggle("on", wired && lamp.state === true);
+
       if (node_title) {
-        node_title.title = lamp.label ? lamp.label + " (DI" + lamp.channel + ")" : "";
+        node_title.title = wired
+          ? (lamp.label || lamp.title) + " on DI" + lamp.channel
+          : "No input assigned";
       }
-      if (lamp.state === null) {
-        node.classList.remove("on");
-        state.textContent = "no data";
-        return;
-      }
-      node.classList.toggle("on", lamp.state === true);
-      state.textContent = lamp.state ? "ON" : "off";
     });
 
     const lcd = document.querySelector("[data-lcd]");
@@ -253,6 +253,27 @@
         note.hidden = true;
       }
     }
+  }
+
+  // What each contact has been doing. One row per lamp, reading the same
+  // panel payload the lamps do, so a row and its lamp can never disagree.
+  function renderHistory(panel) {
+    const lamps = panel || {};
+
+    document.querySelectorAll("[data-history]").forEach(function (row) {
+      const lamp = lamps[row.getAttribute("data-history")];
+      const last = row.querySelector("[data-history-last]");
+      const count = row.querySelector("[data-history-count]");
+      const window_ = row.closest("table").getAttribute("data-window") || "today";
+      const history = (lamp && lamp.history) || {};
+
+      setFact(last, history.last_on ? since(history.last_on) : null);
+      // Zero is a real answer here, unlike a run count from a clamp that might
+      // not be fitted: an input somebody has assigned and PitWatch has read is
+      // an input whose quiet month means something.
+      const times = history[window_];
+      setFact(count, times === null || times === undefined ? null : String(times));
+    });
   }
 
   function renderInputs(inputs) {
@@ -363,6 +384,7 @@
     renderPump(1, (state.pumps || {})["1"]);
     renderPump(2, (state.pumps || {})["2"]);
     renderPanel(state.panel);
+    renderHistory(state.panel);
     renderInputs(state.inputs);
     renderDevices(state.devices);
     renderBanner(state);

@@ -87,9 +87,6 @@ SETUP_FORM = {
     "pump2_name": "South pump",
     "pump2_running_amps": "1.5",
     "pump2_nameplate_amps": "9.6",
-    "max_runtime_ms": "10000",
-    "restart_streak": "4",
-    "quiet_minutes_before_flag": "240",
 }
 
 
@@ -879,3 +876,92 @@ def test_two_lamps_may_share_one_input(client):
     panel = client.get("/api/state").json()["panel"]
     assert panel["high_water"]["channel"] == 3
     assert panel["system_alert"]["channel"] == 3
+
+
+# -- the alerts page ---------------------------------------------------------
+
+
+def test_the_alerts_page_is_for_administrators(client):
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    assert client.get("/settings/alerts").status_code == 200
+
+    client.post("/logout")
+    page = client.get("/settings/alerts", follow_redirects=False)
+    assert page.status_code == 303
+    assert page.headers["location"].startswith("/login")
+
+
+def test_every_rule_is_on_the_page_with_what_it_says(client):
+    from pitwatch.domain import alerts as specs
+
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    page = client.get("/settings/alerts").text
+
+    for spec in specs.SPECS:
+        assert f"{spec.key}_enabled" in page, spec.key
+        assert f"{spec.key}_message" in page, spec.key
+        assert spec.title in page, spec.title
+
+
+def test_the_thresholds_moved_off_the_pumps_page(client):
+    """A number on the pumps page told you nothing about what happened when it
+    was crossed. Beside its own message it tells you everything."""
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    pumps = client.get("/settings").text
+    alerts = client.get("/settings/alerts").text
+
+    for field in ("max_runtime_ms", "restart_gap_ms", "quiet_minutes_before_flag"):
+        assert field not in pumps, field
+    assert "short_cycling_restart_within_ms" in alerts
+    assert "nothing_has_run_quiet_minutes" in alerts
+    assert "run_too_long_longer_than_ms" in alerts
+    # What a pump is stays on the pumps page.
+    assert "pump1_running_amps" in pumps
+    assert "pump1_nameplate_amps" in pumps
+
+
+def test_saving_a_rule_keeps_it(client):
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    response = client.post(
+        "/settings/alerts",
+        data={
+            "high_water_enabled": "on",
+            "high_water_severity": "warning",
+            "high_water_message": "The pit is full at {site}.",
+            "over_current_enabled": "on",
+            "over_current_severity": "critical",
+            "over_current_pump1_amps": "18.5",
+            "over_current_readings": "3",
+            "device_offline_admins_only": "on",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    alerts = client.app.state.settings.alerts
+    assert alerts.high_water.message == "The pit is full at {site}."
+    assert alerts.high_water.severity.value == "warning"
+    assert alerts.over_current.pump1_amps == 18.5
+    assert alerts.over_current.readings == 3
+    assert alerts.device_offline.admins_only is True
+    # Anything the form did not carry is switched off rather than left on, the
+    # way an unchecked box always is.
+    assert alerts.float_activity.enabled is False
+
+
+def test_a_rule_keeps_its_words_when_the_box_is_left_empty(client):
+    """Clearing the message would send a blank text at three in the morning."""
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    client.post("/settings/alerts", data={"high_water_enabled": "on", "high_water_message": ""})
+
+    assert "{site}" in client.app.state.settings.alerts.high_water.message

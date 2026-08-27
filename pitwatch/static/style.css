@@ -763,6 +763,37 @@ dialog.note .hint p:last-child { margin-bottom: 0; }
   color: var(--text-muted);
 }
 
+/* Alerts ------------------------------------------------------------------ */
+
+/* One card per rule. A rule that is switched off is dimmed rather than hidden,
+   because what is available and turned off is worth knowing and a page that
+   hides it looks like a page that does not have it. */
+.rule-off { opacity: 0.62; }
+
+.rule-needs {
+  flex: none;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+textarea {
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* Users ------------------------------------------------------------------ */
 
 /* Four columns and a set of icons. It was eight columns of words, which was

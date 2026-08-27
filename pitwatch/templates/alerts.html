@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% set active = 'settings' %}
+{% block title %}Alerts{% endblock %}
+
+{% block content %}
+
+{% if error %}
+<p class="error" role="alert">{{ error }}</p>
+{% elif saved %}
+<p class="saved" role="status">Saved.</p>
+{% endif %}
+
+<section class="card">
+  <div class="card-head">
+    <h1>Alerts</h1>
+    <a class="button secondary" href="/settings">Back to settings</a>
+  </div>
+  <p class="hint">
+    Every rule PitWatch can raise, what it says, and who hears it. The list is
+    fixed: eight contacts and two clamps only answer so many questions, and a
+    builder for arbitrary conditions is a query language nobody asked to learn.
+  </p>
+  <p class="hint">
+    <strong>One message, two lengths.</strong> The line you write is what a
+    text message says, so keep it short enough to read on a lock screen. An
+    email sends the same line and then the readings behind it, and adds a link
+    to the dashboard for anybody who has a password. You never write it twice.
+  </p>
+  <p class="hint">
+    <strong>Who hears it.</strong> Everyone whose own setting is at or below
+    the level here, on the <a href="/users">Users</a> page. Marking a rule for
+    administrators only is a separate question from how loud it is: the Shelly
+    going quiet is worth waking somebody who can fix it and is noise to
+    everybody else.
+  </p>
+</section>
+
+<form method="post" action="/settings/alerts">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  {% for spec in specs %}
+  {% set rule = rules[spec.key] %}
+  <section class="card rule {% if not rule.enabled %}rule-off{% endif %}">
+    <div class="card-head">
+      <h2>{{ spec.title }}</h2>
+      <span class="rule-needs">reads {{ spec.needs }}</span>
+    </div>
+
+    <p class="hint">{{ spec.what }}</p>
+
+    <div class="grid">
+      <div class="field">
+        <label>
+          <input type="checkbox" name="{{ spec.key }}_enabled"
+                 {% if rule.enabled %}checked{% endif %}>
+          Raise this alert
+        </label>
+      </div>
+      <div class="field">
+        <label for="{{ spec.key }}_severity">Level</label>
+        <select id="{{ spec.key }}_severity" name="{{ spec.key }}_severity">
+          {% for value, label in [('info', 'Info'), ('warning', 'Warning'), ('critical', 'Critical')] %}
+          <option value="{{ value }}" {% if rule.severity.value == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>
+          <input type="checkbox" name="{{ spec.key }}_admins_only"
+                 {% if rule.admins_only %}checked{% endif %}>
+          Administrators only
+        </label>
+      </div>
+      {% if spec.clears %}
+      <div class="field">
+        <label>
+          <input type="checkbox" name="{{ spec.key }}_tell_when_it_clears"
+                 {% if rule.tell_when_it_clears %}checked{% endif %}>
+          Say so when {{ spec.clears }}
+        </label>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if spec.thresholds %}
+    <div class="grid">
+      {% for threshold in spec.thresholds %}
+      <div class="field">
+        <label for="{{ spec.key }}_{{ threshold.field }}">{{ threshold.label }}</label>
+        <input type="number" step="{{ threshold.step }}" min="{{ threshold.minimum }}"
+               id="{{ spec.key }}_{{ threshold.field }}"
+               name="{{ spec.key }}_{{ threshold.field }}"
+               value="{{ rule[threshold.field] if rule[threshold.field] is not none else '' }}">
+        {% if threshold.hint %}<p class="hint">{{ threshold.hint }}</p>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="field">
+      <label for="{{ spec.key }}_message">What it says</label>
+      <textarea id="{{ spec.key }}_message" name="{{ spec.key }}_message" rows="2"
+                >{{ rule.message }}</textarea>
+      <p class="hint">
+        Fills in:
+        {% for name in spec.placeholders %}<code>{{ name }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+        Anything else in braces is left as you typed it.
+      </p>
+    </div>
+  </section>
+  {% endfor %}
+
+  <section class="card">
+    <button type="submit" class="button">Save all alerts</button>
+  </section>
+</form>
+
+{% endblock %}

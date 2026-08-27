@@ -15,11 +15,14 @@ from pydantic import ValidationError
 
 from pitwatch import domain
 from pitwatch.schemas import (
+    ALERT_ORDER,
     SETTING_MODELS,
+    AlertsSettings,
     ChannelMap,
     PumpSettings,
     PumpsSettings,
     ShellySettings,
+    ShortCyclingRule,
     WaveshareSettings,
 )
 
@@ -164,22 +167,34 @@ def _filled(model) -> dict:
     return values
 
 
+def test_the_thresholds_live_with_the_alerts_they_raise():
+    """They were on the pumps page, which told you a number and nothing about
+    what happened when it was crossed. Beside its own message, the same number
+    tells you everything.
+
+    What is left on a pump is what a pump is: its name, what counts as running,
+    and what its plate says.
+    """
+    assert set(PumpSettings.model_fields) == {"name", "running_amps", "nameplate_amps"}
+    assert set(PumpsSettings.model_fields) == {"pump1", "pump2"}
+
+
 def test_the_overcurrent_check_is_counted_in_readings_not_milliseconds():
     """It was milliseconds, and it could never have worked.
 
     The meter reports on its own schedule, roughly every fifteen seconds while
     a current is steady. "Held for 1500 ms" asked for two readings 1.5 s apart,
-    which essentially never exist, so the alert could not fire and a check that
-    silently never fires is worse than no check: it looks like coverage.
-
-    A count of readings degrades properly instead. It means about half a minute
-    at the meter's own cadence and would mean two seconds if anything ever
-    sampled faster.
+    which essentially never exist, so the alert could not fire, and a check
+    that silently never fires is worse than no check: it looks like coverage.
     """
-    pumps = PumpsSettings()
+    rule = AlertsSettings().over_current
 
-    assert not hasattr(pumps.pump1, "overcurrent_hold_ms")
-    assert pumps.pump1.overcurrent_readings >= 2, "one reading is the starting surge"
+    assert not hasattr(rule, "hold_ms")
+    assert rule.readings >= 2, "one reading is the starting surge"
+    # Per motor, because the two can be different sizes and one threshold for
+    # both would fire constantly on one pump and never on the other.
+    assert "pump1_amps" in type(rule).model_fields
+    assert "pump2_amps" in type(rule).model_fields
 
 
 def test_there_is_no_inrush_window():
@@ -198,24 +213,41 @@ def test_run_length_is_off_until_something_can_measure_it():
     """The clamps report the start and the end of a run and nothing in between,
     so two readings four minutes apart and two four seconds apart look the
     same. A default here would fire on a sampling gap."""
-    assert PumpsSettings().max_runtime_ms is None
+    assert AlertsSettings().run_too_long.longer_than_ms is None
 
 
 def test_short_cycling_is_on_because_there_is_finally_a_measurement():
-    """The shortest rest between runs across a night on the reference panel was
-    82 seconds. The default has to sit below that with room, because the end of
-    a run is only known to within a reading."""
-    pumps = PumpsSettings()
+    """It used to be off, and that was right at the time: a threshold guessed
+    at before there is any run history mostly produces false alarms.
 
-    assert pumps.restart_gap_ms is not None
-    assert pumps.restart_gap_ms <= 60_000
-    assert pumps.restart_streak >= 3, "one mismeasured gap must not raise an alert"
+    There is run history now. A night on the reference panel put the shortest
+    rest between runs at 82 seconds, so the default sits below that with room
+    for the fact that the end of a run is only known to within a reading.
+    """
+    rule = AlertsSettings().short_cycling
+
+    assert rule.restart_within_ms == 45_000
+    assert rule.times_in_a_row >= 3, "one mismeasured gap must not raise an alert"
+
+
+def test_short_cycling_is_measured_by_the_gap_not_by_a_rate():
+    """A pit that takes roof water cycles continuously through a storm, which is
+    the equipment doing its job. A rule counting starts per hour fires on every
+    rainstorm. The gap between runs is what separates a failed check valve, where
+    the same column of water falls back in about the same short time each time,
+    from inflow, which has to refill a real volume and varies with the weather.
+    """
+    fields = ShortCyclingRule.model_fields
+
+    assert "restart_within_ms" in fields
+    assert "max_starts" not in fields
+    assert "starts_window_min" not in fields
 
 
 def test_silence_is_noticed_within_a_working_day():
     """A pit that has not run in hours is either dry or blind, and four hours
     was most of a day before anybody heard the clamp had fallen off."""
-    assert PumpsSettings().quiet_minutes_before_flag == 120
+    assert AlertsSettings().nothing_has_run.quiet_minutes == 120
 
 
 def test_a_run_can_end_before_the_next_one_starts():
@@ -231,60 +263,60 @@ def test_a_run_can_end_before_the_next_one_starts():
     panel, so a hold measured in a second or two has room to spare.
     """
     assert domain.RUN_STOP_HOLD_MS <= 2000
-    assert PumpsSettings().restart_gap_ms > domain.RUN_STOP_HOLD_MS
+    assert AlertsSettings().short_cycling.restart_within_ms > domain.RUN_STOP_HOLD_MS
 
 
 def test_every_alert_threshold_can_be_turned_off():
     """Empty means do not run that check, everywhere, with no exceptions.
 
-    The two that used to be compulsory were compulsory by accident rather than
-    by argument, and a threshold that cannot be turned off is one that gets set
-    to an absurd value instead, which reads as configured and behaves as off.
+    A threshold that cannot be turned off is one that gets set to an absurd
+    value instead, which reads as configured and behaves as off.
     """
-    off = PumpsSettings(
-        max_runtime_ms=None,
-        restart_gap_ms=None,
-        quiet_minutes_before_flag=None,
-        pump1=PumpSettings(overcurrent_amps=None),
-    )
+    alerts = AlertsSettings()
+    alerts.run_too_long.longer_than_ms = None
+    alerts.short_cycling.restart_within_ms = None
+    alerts.nothing_has_run.quiet_minutes = None
+    alerts.over_current.pump1_amps = None
+    alerts.load_drift.climb_amps = None
 
-    assert off.max_runtime_ms is None
-    assert off.restart_gap_ms is None
-    assert off.quiet_minutes_before_flag is None
-    assert off.pump1.overcurrent_amps is None
-
-
-def test_there_is_no_undercurrent_alert():
-    """Removed. Deciding a pump is drawing too little needs a model of what it
-    should be drawing, which varies with head and with what is in the pit, and
-    a threshold guessed at would mostly produce false alarms."""
-    assert "undercurrent" not in str(PumpSettings.model_fields)
+    assert alerts.run_too_long.longer_than_ms is None
+    assert alerts.short_cycling.restart_within_ms is None
+    assert alerts.nothing_has_run.quiet_minutes is None
+    assert alerts.over_current.pump1_amps is None
+    assert alerts.load_drift.climb_amps is None
 
 
-def test_short_cycling_is_on_now_that_it_is_not_a_guess():
-    """It used to be off, and that was right at the time: a threshold guessed
-    at before there is any run history mostly produces false alarms, and an
-    alert that cries wolf gets ignored along with the ones that matter.
+def test_every_rule_has_something_to_say():
+    """A rule with an empty message is a rule that sends a blank text at three
+    in the morning."""
+    alerts = AlertsSettings()
 
-    There is run history now. A night on the reference panel put the shortest
-    rest between runs at 82 seconds, so the default sits below that with room
-    for the fact that the end of a run is only known to within a reading.
-    """
-    assert PumpsSettings().restart_gap_ms == 45_000
+    for key in ALERT_ORDER:
+        rule = getattr(alerts, key)
+        assert rule.message.strip(), key
+        # Every default names the building, because an alert that does not say
+        # where it came from is an alert somebody has to go and work out.
+        assert "{site}" in rule.message, key
 
 
-def test_short_cycling_is_measured_by_the_gap_not_by_a_rate():
-    """A pit that takes roof water cycles continuously through a storm, which is
-    the equipment doing its job. A rule counting starts per hour fires on every
-    rainstorm. The gap between runs is what separates a failed check valve, where
-    the same column of water falls back in about the same short time each time,
-    from inflow, which has to refill a real volume and varies with the weather.
-    """
-    fields = PumpsSettings.model_fields
+def test_a_rule_that_needs_watching_is_not_on_by_default():
+    """The two that fire on every run would drown everything else."""
+    alerts = AlertsSettings()
 
-    assert "restart_gap_ms" in fields
-    assert "max_starts" not in fields
-    assert "starts_window_min" not in fields
+    assert alerts.float_activity.enabled is False
+    assert alerts.pump_running.enabled is False
+
+
+def test_the_page_and_the_model_agree_about_which_rules_exist():
+    """The order on the page comes from one place, and every rule described
+    there has to be a rule the settings model holds."""
+    from pitwatch.domain import alerts as specs
+
+    assert [spec.key for spec in specs.SPECS] == list(ALERT_ORDER)
+    for key in ALERT_ORDER:
+        rule = getattr(AlertsSettings(), key)
+        for threshold in specs.BY_KEY[key].thresholds:
+            assert threshold.field in type(rule).model_fields, (key, threshold.field)
 
 
 # -- what each input is called ----------------------------------------------

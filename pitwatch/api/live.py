@@ -14,7 +14,14 @@ from pydantic import ValidationError
 
 from pitwatch import auth
 from pitwatch.api import forms
-from pitwatch.domain.history import CurrentHistory, Recent, RecentRuns, Typical
+from pitwatch.domain.history import (
+    Closings,
+    CurrentHistory,
+    Recent,
+    RecentRuns,
+    SignalHistory,
+    Typical,
+)
 from pitwatch.ingest import shelly as shelly_ingest
 from pitwatch.ingest import waveshare as waveshare_ingest
 from pitwatch.ingest.sink import LiveIo, LiveState
@@ -101,12 +108,17 @@ def lead_and_lag(dashboard: DashboardSettings, live_io: LiveIo) -> tuple[str, st
 
 
 def panel_state(
-    dashboard: DashboardSettings, waveshare: WaveshareSettings, live_io: LiveIo
+    dashboard: DashboardSettings,
+    waveshare: WaveshareSettings,
+    live_io: LiveIo,
+    closings: dict[int, Closings] | None = None,
 ) -> dict:
     """The lamps and the display, laid out the way the panel door is."""
+    closings = closings or {}
     lamps = {}
     for role, title in DASHBOARD_ROLES:
         channel = getattr(dashboard, role)
+        history = closings.get(channel) if channel else None
         lamps[role] = {
             "title": title,
             "channel": channel,
@@ -117,6 +129,10 @@ def panel_state(
             # is off, and a lamp that reads off when it means unknown is the
             # lamp that gets believed.
             "state": live_io.state_of(channel) if channel else None,
+            # When this contact last closed and how often it has lately, which
+            # is the part a lamp cannot say: a lamp that is off now looks the
+            # same whether it went twenty times today or never.
+            "history": (history or Closings()).as_json(),
         }
 
     first, second = lead_and_lag(dashboard, live_io)
@@ -217,6 +233,9 @@ async def build_state(app) -> dict:
     waveshare = store.waveshare
     assigned = {channel for channel in store.dashboard.assignments.values() if channel}
 
+    signals: SignalHistory | None = getattr(app.state, "signal_history", None)
+    closings = await signals.closings(pool, sorted(assigned)) if signals else {}
+
     def input_state(mapped) -> dict:
         changed = live_io.changed_at(mapped.channel)
         return {
@@ -232,7 +251,7 @@ async def build_state(app) -> dict:
     return {
         "site": store.site.model_dump(mode="json"),
         "pumps": {"1": pump_state(1), "2": pump_state(2)},
-        "panel": panel_state(store.dashboard, waveshare, live_io),
+        "panel": panel_state(store.dashboard, waveshare, live_io, closings),
         # Named inputs that no lamp is showing. Nothing should go missing just
         # because the dashboard has no place built for it.
         "inputs": [

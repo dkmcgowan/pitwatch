@@ -210,3 +210,84 @@ class RecentRuns:
         recent = Recent(runs=int(row["runs"] or 0), last_start=row["last_start"])
         self._cache[key] = (now, recent)
         return recent
+
+
+# -- how often a contact has closed, and when it last did -------------------
+#
+# Cheap, because io_event only ever holds transitions. Every row with state
+# true is a contact closing, so counting them is counting events rather than
+# counting samples and hoping. That is the whole reason the reader writes edges
+# instead of polls.
+#
+# Two windows on one scan. A float closes every time the pit fills, so a day is
+# the useful number for one; an alarm that went off twice in a month is the
+# whole story for the other. Both are cheap enough that the display picks which
+# to show rather than the query being asked twice.
+
+SIGNAL_TODAY = timedelta(hours=24)
+SIGNAL_MONTH = timedelta(days=30)
+
+SIGNAL_QUERY = """
+SELECT
+    channel,
+    max(ts)                                          AS last_on,
+    count(*) FILTER (WHERE ts > now() - $2::interval) AS today,
+    count(*) FILTER (WHERE ts > now() - $3::interval) AS month
+FROM io_event
+WHERE state AND channel = ANY($1::smallint[])
+GROUP BY channel
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class Closings:
+    """What one contact has been doing."""
+
+    last_on: datetime | None = None
+    today: int = 0
+    month: int = 0
+    # False when nothing has ever been recorded for this input, which is not
+    # the same as a contact that has sat open. One means nobody has wired it or
+    # the module has never been reachable; the other is a quiet week.
+    known: bool = False
+
+    def as_json(self) -> dict:
+        return {
+            "last_on": self.last_on.isoformat() if self.last_on else None,
+            "today": self.today if self.known else None,
+            "month": self.month if self.known else None,
+        }
+
+
+class SignalHistory:
+    """Closings per input, for every input a lamp is pointed at."""
+
+    def __init__(self) -> None:
+        self._at: datetime | None = None
+        self._by_channel: dict[int, Closings] = {}
+
+    async def closings(self, pool: asyncpg.Pool, channels: list[int]) -> dict[int, Closings]:
+        now = datetime.now(UTC)
+        if self._at is not None and now - self._at < REFRESH_RUNS:
+            return self._by_channel
+        if not channels:
+            self._at, self._by_channel = now, {}
+            return self._by_channel
+
+        self._at = now
+        try:
+            rows = await pool.fetch(SIGNAL_QUERY, channels, SIGNAL_TODAY, SIGNAL_MONTH)
+        except (asyncpg.PostgresError, OSError) as error:
+            log.warning("Could not read the contact history: %s", error)
+            return self._by_channel
+
+        self._by_channel = {
+            row["channel"]: Closings(
+                last_on=row["last_on"],
+                today=int(row["today"] or 0),
+                month=int(row["month"] or 0),
+                known=True,
+            )
+            for row in rows
+        }
+        return self._by_channel

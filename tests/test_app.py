@@ -617,6 +617,75 @@ def test_the_panel_is_three_blocks_across():
     )
 
 
+def test_a_lamp_says_one_thing():
+    """Lit or not. It used to carry a line of text under it reading "not set"
+    or "no data", which is a sentence where an indicator should be.
+
+    An unassigned lamp still draws dimmer, which is the one piece of that
+    distinction worth keeping without words: dark because nobody wired it reads
+    differently from dark because the contact is open.
+    """
+    page = render_dashboard()
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+
+    assert "lamp-state" not in page
+    assert "lamp-state" not in css
+    # Nothing reaches for the element any more either, so it cannot come back
+    # by halves: markup without the writer, or a writer with no markup.
+    assert "data-lamp-state" not in js
+    assert ".lamp.unset .bulb" in css
+
+
+def test_the_overloads_have_lamps_now():
+    """They are the only thing on the panel that can stop a pump dead, and they
+    were the only assigned input with nowhere to show."""
+    page = render_dashboard()
+
+    assert 'data-lamp="pump1_fault"' in page
+    assert 'data-lamp="pump2_fault"' in page
+    assert ">OL1<" in page and ">OL2<" in page
+    # In the alerts block, because that is what an overload is.
+    alerts = page.split("door-alerts", 1)[1].split("door-middle", 1)[0]
+    assert "pump1_fault" in alerts and "pump2_fault" in alerts
+
+
+def test_a_pump_card_carries_its_own_lamp():
+    """Green while it is running, top right, where a panel would put it."""
+    page = render_dashboard()
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+
+    assert page.count("data-pump-lamp") == 2
+    assert ".pump-lamp.on {" in css
+
+
+def test_the_history_cards_cover_every_lamp():
+    """Every contact with a lamp gets a row, because a lamp that is off now
+    looks the same whether it went twenty times today or never."""
+    from pitwatch.schemas import DASHBOARD_ROLES
+
+    page = render_dashboard()
+
+    for role, _ in DASHBOARD_ROLES:
+        if role in ("pump1_run", "pump2_run"):
+            continue  # those are the pump cards' own runs today
+        assert 'data-history="' + role + '"' in page, role
+    assert page.count("data-history-last") == 6
+    assert page.count("data-history-count") == 6
+
+
+def test_floats_are_counted_by_the_day_and_alarms_by_the_month():
+    """A float closes every time the pit fills, so a day is the useful number.
+    An alarm counted by the day reads zero forever and teaches somebody to stop
+    looking at it."""
+    import re
+
+    page = render_dashboard()
+    windows = re.findall('data-window="([a-z]+)"', page)
+
+    assert windows == ["today", "month", "month"]
+
+
 def test_the_run_contacts_have_no_lamp_on_the_panel():
     """A pump that is running says so on its own card, in amps. A lamp
     repeating that is one more thing to read for nothing.
@@ -646,9 +715,9 @@ def test_the_screen_is_a_wide_panel_flanked_by_rules():
     assert "aspect-ratio" not in lcd
     assert "width: 100%;" in lcd
     assert "min-height:" in lcd
-    # The middle column gets the larger share, which is what leaves room to be
-    # wide without squeezing the words either side of it.
-    assert "minmax(0, 2fr)" in rule(".door-grid")
+    # The sides are sized to their own contents and the middle takes the rest,
+    # which is what leaves room to be wide without guessing at fractions.
+    assert "grid-template-columns: auto minmax(0, 1fr) auto;" in rule(".door-grid")
 
     middle = rule(".door-middle")
     assert "border-left:" in middle and "border-right:" in middle

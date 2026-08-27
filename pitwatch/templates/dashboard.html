@@ -15,13 +15,12 @@
 {# The panel door, near enough.
 
    Three blocks across: what has gone wrong on the left, the controller's
-   own screen in the middle, and where the water is on the right. Rules
-   between them, because they answer different questions and the eye should
-   not have to work that out.
+   own screen in the middle, where the water is on the right. Rules between
+   them, because they answer different questions.
 
-   The run contacts have no lamp here. A pump that is running says so on its
-   own card below, in amps, and a lamp repeating that is one more thing to
-   read for nothing.
+   A lamp says one thing: on or not. What it has been doing lately is a
+   different question and it is answered downstairs, in the history cards,
+   where there is room for a number and a time.
 
    Which input drives which lamp is a setting, under /settings/dashboard.
    The markup is here rather than built in JavaScript so the page has a
@@ -30,15 +29,23 @@
   <div class="door-grid">
     <div class="door-side door-alerts">
       <h2 class="door-heading">Alerts</h2>
-      <div class="lamp lamp-red" data-lamp="system_alert">
-        <span class="bulb" aria-hidden="true"></span>
-        <span class="lamp-title">Alert</span>
-        <span class="lamp-state" data-lamp-state>No data</span>
-      </div>
-      <div class="lamp lamp-red" data-lamp="high_water">
-        <span class="bulb" aria-hidden="true"></span>
-        <span class="lamp-title">High</span>
-        <span class="lamp-state" data-lamp-state>No data</span>
+      <div class="lamp-pair">
+        <div class="lamp lamp-red" data-lamp="system_alert">
+          <span class="bulb" aria-hidden="true"></span>
+          <span class="lamp-title">Alert</span>
+        </div>
+        <div class="lamp lamp-red" data-lamp="high_water">
+          <span class="bulb" aria-hidden="true"></span>
+          <span class="lamp-title">High</span>
+        </div>
+        <div class="lamp lamp-red" data-lamp="pump1_fault">
+          <span class="bulb" aria-hidden="true"></span>
+          <span class="lamp-title">OL1</span>
+        </div>
+        <div class="lamp lamp-red" data-lamp="pump2_fault">
+          <span class="bulb" aria-hidden="true"></span>
+          <span class="lamp-title">OL2</span>
+        </div>
       </div>
     </div>
 
@@ -50,21 +57,21 @@
 
     <div class="door-side door-floats">
       <h2 class="door-heading">Floats</h2>
-      <div class="lamp lamp-amber" data-lamp="lead_float">
-        <span class="bulb" aria-hidden="true"></span>
-        <span class="lamp-title">Lead</span>
-        <span class="lamp-state" data-lamp-state>No data</span>
-      </div>
-      <div class="lamp lamp-amber" data-lamp="lag_float">
-        <span class="bulb" aria-hidden="true"></span>
-        <span class="lamp-title">Lag</span>
-        <span class="lamp-state" data-lamp-state>No data</span>
+      <div class="lamp-pair lamp-pair-one">
+        <div class="lamp lamp-amber" data-lamp="lead_float">
+          <span class="bulb" aria-hidden="true"></span>
+          <span class="lamp-title">Lead</span>
+        </div>
+        <div class="lamp lamp-amber" data-lamp="lag_float">
+          <span class="bulb" aria-hidden="true"></span>
+          <span class="lamp-title">Lag</span>
+        </div>
       </div>
     </div>
   </div>
 
-  {# The overloads have no lamp on the real door either. They show up by
-     turning a pump's word on the screen into FAIL. #}
+  {# An overload has a lamp now, but it still turns a pump's word on the
+     screen into FAIL, and this says which pump in words. #}
   <p class="door-note" data-door-note hidden></p>
 </section>
 
@@ -73,6 +80,10 @@
   <article class="pump" data-pump="{{ number }}">
     <header>
       <h2 data-name>Pump {{ number }}</h2>
+      {# Green while it is running. The amps below say the same thing in a
+         number, which is what a screen reader gets; this is for the glance
+         from the doorway. #}
+      <span class="pump-lamp" data-pump-lamp title="Not running"></span>
     </header>
 
     {# No running pill. The card outlines itself green while a pump is running
@@ -122,6 +133,85 @@
 
 {# Anything named that no lamp is showing. Hidden when there is nothing,
    because on a panel whose eight inputs are all assigned there never is. #}
+{# What the contacts have been doing, which a lamp cannot say: one that is
+   off now looks the same whether it went twenty times today or never.
+
+   Different windows on purpose. A float closes every time the pit fills, so
+   a day is the useful number. An alarm that went twice in a month is the
+   whole story, and counting those by the day would read zero forever and
+   teach somebody to stop looking. #}
+<div class="history-row" data-history-cards>
+<section class="card history">
+  <h2>Floats</h2>
+  <div class="table-scroll">
+  <table class="history-table" data-window="today">
+    <thead>
+      <tr><th scope="col"></th><th scope="col">Last on</th><th scope="col">Today</th></tr>
+    </thead>
+    <tbody>
+        <tr data-history="lead_float">
+          <th scope="row">Lead</th>
+          <td data-history-last>--</td>
+          <td data-history-count>--</td>
+        </tr>
+        <tr data-history="lag_float">
+          <th scope="row">Lag</th>
+          <td data-history-last>--</td>
+          <td data-history-count>--</td>
+        </tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="hint">How often the pit has filled far enough to call a pump, and when it last did.</p>
+</section>
+<section class="card history">
+  <h2>Alerts</h2>
+  <div class="table-scroll">
+  <table class="history-table" data-window="month">
+    <thead>
+      <tr><th scope="col"></th><th scope="col">Last raised</th><th scope="col">This month</th></tr>
+    </thead>
+    <tbody>
+        <tr data-history="system_alert">
+          <th scope="row">Alert</th>
+          <td data-history-last>--</td>
+          <td data-history-count>--</td>
+        </tr>
+        <tr data-history="high_water">
+          <th scope="row">High water</th>
+          <td data-history-last>--</td>
+          <td data-history-count>--</td>
+        </tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="hint">Counted by the month. These should read zero, and a month of zero is worth seeing.</p>
+</section>
+<section class="card history">
+  <h2>Overloads</h2>
+  <div class="table-scroll">
+  <table class="history-table" data-window="month">
+    <thead>
+      <tr><th scope="col"></th><th scope="col">Last trip</th><th scope="col">This month</th></tr>
+    </thead>
+    <tbody>
+        <tr data-history="pump1_fault">
+          <th scope="row">OL1</th>
+          <td data-history-last>--</td>
+          <td data-history-count>--</td>
+        </tr>
+        <tr data-history="pump2_fault">
+          <th scope="row">OL2</th>
+          <td data-history-last>--</td>
+          <td data-history-count>--</td>
+        </tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="hint">A motor overload relay tripping is the panel protecting a pump that was drawing too much. One trip is worth a look; a pattern is worth a phone call.</p>
+</section>
+</div>
+
 <section class="card" data-other-card hidden>
   <h2>Other inputs</h2>
   {# Empty on purpose. Which inputs exist and what they are called are

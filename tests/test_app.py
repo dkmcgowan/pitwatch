@@ -571,3 +571,73 @@ def test_the_history_query_only_counts_readings_taken_while_running():
 
     assert "current >= $2" in QUERY
     assert "percentile_cont(0.5)" in QUERY
+
+
+# -- how the panel is laid out ----------------------------------------------
+#
+# Layout is normally not worth a test. This is, because it was described in
+# prose, built from that description, and shipped sitting beside the screen
+# instead of stacked on it, and nothing said a word. The order things appear in
+# down the page is a claim, so it gets checked like one.
+
+
+def render_dashboard() -> str:
+    from jinja2 import Environment, FileSystemLoader
+
+    from pitwatch.schemas import SiteSettings
+
+    env = Environment(loader=FileSystemLoader("pitwatch/templates"), autoescape=True)
+    env.globals["csrf_token"] = lambda: "token"
+    env.globals["version"] = "test"
+    return env.get_template("dashboard.html").render(site=SiteSettings(name="A pit"), user=None)
+
+
+def test_the_panel_reads_down_the_page_in_the_order_the_water_moves():
+    """The alarms first, on their own, because they are not a reading. Then a
+    divider. Then the floats that call the pumps, the controller's screen, and
+    the contactors it closes."""
+    page = render_dashboard()
+
+    order = [
+        'data-lamp="high_water"',
+        'data-lamp="system_alert"',
+        "door-divider",
+        'data-lamp="lead_float"',
+        'data-lamp="lag_float"',
+        "data-lcd",
+        'data-lamp="pump1_run"',
+        'data-lamp="pump2_run"',
+    ]
+    found = [page.index(token) for token in order]
+
+    assert found == sorted(found), "the panel is out of order: " + str(
+        list(zip(order, found, strict=True))
+    )
+
+
+def test_the_screen_and_the_lamps_around_it_are_centered():
+    """Checked in the stylesheet rather than in a browser, which is as far as
+    this can honestly go without one. It catches the rule being deleted, which
+    is what actually happens."""
+    page = render_dashboard()
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+
+    def rule(selector: str) -> str:
+        return css.split(selector + " {", 1)[1].split("}", 1)[0]
+
+    assert 'class="door-alarms"' in page
+    assert 'class="door-display"' in page
+    # The alarm block is held to the width of the wider lamp and centered as a
+    # unit, so the two bulbs line up under each other.
+    assert "margin: 0 auto;" in rule(".door-alarms")
+    assert "width: max-content;" in rule(".door-alarms")
+    assert "justify-content: center;" in rule(".lamp-row")
+    assert "text-align: center;" in rule(".lcd")
+
+
+def test_the_run_lamps_are_labelled_the_short_way():
+    """They sit in a centered row under the screen, which a long name breaks."""
+    page = render_dashboard()
+
+    assert "P1 Running" in page
+    assert "P2 Running" in page

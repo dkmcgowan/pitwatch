@@ -224,6 +224,11 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
    that has to be learned. */
 
 .door {
+  /* One width for every row and for the screen, so a bulb in the left column
+     sits at the same place whether it is High water, Lead float or P1
+     Running. */
+  --door-width: 30rem;
+
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -231,18 +236,6 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   margin-bottom: 1.25rem;
   display: grid;
   gap: 1.5rem;
-}
-
-/* The two that mean somebody has to do something. Stacked so they read as a
-   list of things that are wrong rather than as a row of readings, and held to
-   the width of the wider one so their bulbs line up under each other. */
-.door-alarms {
-  display: grid;
-  gap: 0.8rem;
-  justify-items: start;
-  width: max-content;
-  max-width: 100%;
-  margin: 0 auto;
 }
 
 .door-divider {
@@ -259,13 +252,19 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   justify-items: center;
 }
 
-/* The floats above and the run contacts below, each pair centered on the
-   screen between them. */
+/* Two fixed columns, not a centered row.
+   
+   Centering puts a lamp where its own text says, so "Lead float" and "P1
+   Running" landed in different places and the column of bulbs wandered as the
+   words changed. A grid gives every row the same two slots and lets the text
+   take whatever room is left after them. */
 .lamp-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 1rem 3rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem 1.5rem;
+  width: 100%;
+  max-width: var(--door-width);
+  margin: 0 auto;
 }
 
 .lamp {
@@ -333,7 +332,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
    is what is bolted to the door. */
 .lcd {
   width: 100%;
-  max-width: 30rem;
+  max-width: var(--door-width);
   background: #16301a;
   border: 3px solid #0d1a10;
   border-radius: 6px;
@@ -365,7 +364,12 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 
 @media (max-width: 620px) {
   .door { padding: 1.15rem 1rem; gap: 1.15rem; }
-  .lamp-row { gap: 0.9rem 1.5rem; }
+  /* The two columns stay. Losing them on a phone would lose the alignment
+     that is the whole point, and both words fit. */
+  .lamp-row { gap: 0.8rem 1rem; }
+  .bulb { width: 1.8rem; height: 1.8rem; }
+  .lamp { column-gap: 0.55rem; }
+  .lamp-title { font-size: 0.92rem; }
 }
 
 /* Forms ------------------------------------------------------------------- */

@@ -526,11 +526,18 @@ def test_active_can_be_flipped_from_the_list(client):
     client.post("/users/new", data=SUPER | {"send_invite": ""})
     user_id = user_id_of(client, "super")
 
+    # There is no Status column any more. Which icon the row offers is how the
+    # state shows: an account that is on can be disabled, one that is off can
+    # be enabled.
     client.post(f"/users/{user_id}/toggle", follow_redirects=False)
-    assert "Disabled" in client.get("/users").text
+    page = client.get("/users").text
+    assert 'title="Enable Building Super"' in page
+    assert "row-off" in page or 'class="off"' in page, "and the row is dimmed"
 
     client.post(f"/users/{user_id}/toggle", follow_redirects=False)
-    assert "Disabled" not in client.get("/users").text
+    page = client.get("/users").text
+    assert 'title="Disable Building Super"' in page
+    assert 'class="off"' not in page
 
 
 def test_you_cannot_disable_yourself_from_the_list_either(client):

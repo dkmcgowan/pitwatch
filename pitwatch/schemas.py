@@ -169,37 +169,46 @@ class ShellySettings(BaseModel):
 class PumpSettings(BaseModel):
     """What one motor is expected to draw.
 
-    Everything here is in amps except the hold, which is in milliseconds,
-    because an ejector pump runs for a few seconds at a time and seconds are too
-    coarse a unit to describe anything that happens inside one.
+    Every number here was checked against eleven hours of readings from a real
+    duplex ejector panel before it was given a default. Where the readings said
+    a setting could not be measured, the setting is gone rather than sitting on
+    the page looking configurable.
     """
 
     name: str = "Pump"
 
-    # The line between off and running. Not zero: a clamp on a live conductor
-    # reads a little noise, and a control transformer sharing the conductor
-    # reads more than a little.
+    # The line between off and running.
+    #
+    # Not zero, but not for the reason this used to say. It claimed a clamp on a
+    # live conductor reads noise; on a real one it reads 0.000 exactly, for
+    # hours at a time. This is margin against a control transformer sharing the
+    # conductor, and nothing finer matters: on the readings from the reference
+    # panel every threshold from 0.2 A to 10 A found the same 73 runs.
     running_amps: float = Field(default=1.0, ge=0)
 
-    # The full load amps printed on the motor's nameplate, which is what it
-    # draws doing the work it was built for. Nothing is computed from it. It is
-    # here so that the numbers below can be judged against something real when
-    # somebody is deciding what to put in them, and so a pump drawing more than
-    # its own rating is visible for what it is.
+    # Full load amps off the motor's own plate. Nothing is computed from it. It
+    # is here so the threshold below can be judged against something real, and
+    # so a pump drawing more than its own rating is visible for what it is,
+    # which on the reference panel it turned out to be.
     nameplate_amps: float | None = Field(default=None, gt=0)
 
-    # Above this, for longer than overcurrent_hold_ms, is an overload the panel
-    # has not tripped on yet. The starting surge is excluded before this is
-    # applied; see PumpsSettings.inrush_ignore_ms.
+    # Above this, for the number of readings below, is an overload the panel has
+    # not tripped on yet. Off by default: what counts as too much depends on the
+    # motor, and a guess here alerts on every run or on none.
     overcurrent_amps: float | None = Field(default=None, gt=0)
 
-    # How long the current has to stay above that before it counts.
+    # How many readings in a row have to be above it.
     #
-    # Milliseconds, and short. These pumps run for three or four seconds. A hold
-    # measured in seconds, as this was, is longer than the entire run: the
-    # condition could never last long enough to fire and the alert would simply
-    # never happen, which is the worst way for a check to be wrong.
-    overcurrent_hold_ms: int = Field(default=1500, ge=100, le=600_000)
+    # Readings, not milliseconds. It was milliseconds, and that could never
+    # work: the meter reports on its own schedule, roughly every fifteen
+    # seconds while a current is steady, so "held for 1500 ms" asked for two
+    # readings 1.5 s apart that essentially never exist. A count degrades
+    # properly instead. It means about thirty seconds at the meter's own
+    # cadence and would mean two seconds if anything ever sampled faster.
+    #
+    # Two is also what discards the starting surge, because the surge only ever
+    # lands in the first reading of a run.
+    overcurrent_readings: int = Field(default=2, ge=1, le=100)
 
 
 class PumpsSettings(BaseModel):
@@ -208,54 +217,50 @@ class PumpsSettings(BaseModel):
     pump1: PumpSettings = Field(default_factory=lambda: PumpSettings(name="Pump 1"))
     pump2: PumpSettings = Field(default_factory=lambda: PumpSettings(name="Pump 2"))
 
-    # How much of the start to throw away.
+    # There is no inrush window any more.
     #
-    # A motor pulls six to eight times its running current for a fraction of a
-    # second as it comes up to speed. Sixty amps settling to sixteen is a
-    # healthy pump, not an overloaded one. Every reading in this window is left
-    # out of the run's averages and out of the overcurrent check, so a threshold
-    # can be set just above the running current without the start tripping it.
-    #
-    # The peak is still recorded, on its own, because a starting surge climbing
-    # month over month is a bearing on its way out.
-    inrush_ignore_ms: int = Field(default=800, ge=0, le=30_000)
+    # It was a number of milliseconds at the start of a run to throw away, which
+    # assumed readings arrive fast enough for a fraction of a second to contain
+    # any. They do not. What the readings actually show is that the surge lands
+    # in the first reading of a run and nowhere else: across 73 runs the first
+    # reading ran about 1.3 A above every later one, and only 16 runs caught a
+    # surge at all. So the detector discards the first reading of a run, which
+    # is the same idea expressed in something that exists. See
+    # pitwatch.domain.DISCARD_FIRST_READING.
 
-    # A run longer than this is a stuck float or a blockage. Normal here is a
-    # few seconds, so ten is already well outside it. Empty turns the check off.
+    # A run longer than this is a stuck float or pumping against a blockage.
     #
-    # Deciding a run has ended is not a setting. It used to be, and it was a
-    # knob nobody could set without knowing how the detector works. See
-    # pitwatch.domain.RUN_STOP_HOLD_MS.
-    max_runtime_ms: int | None = Field(default=10_000, ge=1_000, le=86_400_000)
+    # Off by default, and it has to be. Run length cannot be measured from the
+    # clamps: the meter reports the start and the end of a run and nothing in
+    # between, so two readings four minutes apart and two readings four seconds
+    # apart look identical. This becomes real when the panel's run contact is
+    # wired, which is polled five times a second, and a number guessed at
+    # before then would fire on a sampling gap rather than on a stuck float.
+    max_runtime_ms: int | None = Field(default=None, ge=1_000, le=86_400_000)
 
-    # Short cycling, detected by the gap between runs rather than by counting
-    # starts in an hour.
+    # Short cycling, by the gap between runs rather than by a rate.
     #
-    # Counting starts does not work at a site that takes roof water. During a
-    # storm the pit refills as fast as it empties and the pumps cycle
-    # continuously for hours, which is the equipment doing its job; a rate based
-    # rule fires on every rainstorm and is then ignored, which is worse than not
-    # having it.
+    # A failed check valve lets the column of water in the discharge pipe run
+    # back into the pit the moment a pump stops, which calls it straight out
+    # again. Counting starts per hour cannot see that at a site taking roof
+    # water, because a storm produces the same count for the right reasons.
+    # What separates them is how soon, not how often.
     #
-    # A failed check valve looks different. When the pump stops, the column of
-    # water standing in the discharge pipe runs back down into the pit, refills
-    # it, and calls the pump straight back out. The distinguishing mark is not
-    # how often that happens but how soon: the same column takes about the same
-    # short time to fall back every time, so the gaps are both very short and
-    # very alike. Inflow, even heavy inflow, has to fill the volume between the
-    # off level and the lead float, which takes longer and varies.
-    #
-    # Off by default. What counts as suspiciously soon depends on the pit, and a
-    # threshold guessed at before there is any run history to look at is a
-    # threshold that mostly produces false alarms.
-    restart_gap_ms: int | None = Field(default=None, ge=100, le=600_000)
-    # How many restarts that soon, one after another, before it means something.
+    # On now, at 45 seconds, because there is finally a measurement behind it.
+    # The shortest rest between runs across a night on the reference panel was
+    # 82 seconds. 45 leaves room for the fact that the end of a run is only
+    # known to within a reading, and the streak below covers the rest.
+    restart_gap_ms: int | None = Field(default=45_000, ge=100, le=600_000)
     restart_streak: int = Field(default=4, ge=2, le=50)
 
     # Nothing running at all for this long is either a very dry spell or a
-    # sensor that has quietly died, and the second is worth knowing about.
-    # Empty turns the check off.
-    quiet_minutes_before_flag: int | None = Field(default=240, ge=5, le=525_600)
+    # sensor that has quietly died.
+    #
+    # Two hours, down from four. The reference pit never went more than 21
+    # minutes between runs across a night, so four hours of silence would be
+    # most of a working day before anybody heard that the clamp had fallen off.
+    # Two still allows a genuinely quiet spell.
+    quiet_minutes_before_flag: int | None = Field(default=120, ge=5, le=525_600)
 
     @property
     def by_number(self) -> dict[int, PumpSettings]:

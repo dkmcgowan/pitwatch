@@ -164,31 +164,58 @@ def _filled(model) -> dict:
     return values
 
 
-def test_an_overcurrent_decision_fits_inside_a_real_run():
-    """The defaults have to be able to fire on the pump they are for.
+def test_the_overcurrent_check_is_counted_in_readings_not_milliseconds():
+    """It was milliseconds, and it could never have worked.
 
-    An ejector pump runs for three or four seconds. The check cannot start until
-    the starting surge has been discarded, and then has to hold. If those two
-    added up to longer than a run, the alert could never happen at all, and a
-    check that silently never fires is worse than no check: it looks like
-    coverage.
+    The meter reports on its own schedule, roughly every fifteen seconds while
+    a current is steady. "Held for 1500 ms" asked for two readings 1.5 s apart,
+    which essentially never exist, so the alert could not fire and a check that
+    silently never fires is worse than no check: it looks like coverage.
 
-    This was real. The hold defaulted to fifteen seconds against runs of four.
+    A count of readings degrades properly instead. It means about half a minute
+    at the meter's own cadence and would mean two seconds if anything ever
+    sampled faster.
     """
     pumps = PumpsSettings()
 
-    decided_at = pumps.inrush_ignore_ms + pumps.pump1.overcurrent_hold_ms
+    assert not hasattr(pumps.pump1, "overcurrent_hold_ms")
+    assert pumps.pump1.overcurrent_readings >= 2, "one reading is the starting surge"
 
-    assert decided_at <= 3000, f"needs {decided_at} ms of run to say anything"
 
+def test_there_is_no_inrush_window():
+    """Removed rather than retuned.
 
-def test_the_inrush_window_is_long_enough_to_cover_a_start():
-    """Six to eight times running current, for a fraction of a second.
-
-    Too short and the surge lands in the average and in the overcurrent check,
-    which is what forces a threshold to be set uselessly high.
+    It assumed readings arrive fast enough that a fraction of a second at the
+    start of a run contains several of them. A real panel produces two readings
+    for a whole run. The surge lands in the first reading and nowhere else, so
+    the detector drops that reading instead of a span of time.
     """
-    assert PumpsSettings().inrush_ignore_ms >= 500
+    assert not hasattr(PumpsSettings(), "inrush_ignore_ms")
+    assert domain.DISCARD_FIRST_READING is True
+
+
+def test_run_length_is_off_until_something_can_measure_it():
+    """The clamps report the start and the end of a run and nothing in between,
+    so two readings four minutes apart and two four seconds apart look the
+    same. A default here would fire on a sampling gap."""
+    assert PumpsSettings().max_runtime_ms is None
+
+
+def test_short_cycling_is_on_because_there_is_finally_a_measurement():
+    """The shortest rest between runs across a night on the reference panel was
+    82 seconds. The default has to sit below that with room, because the end of
+    a run is only known to within a reading."""
+    pumps = PumpsSettings()
+
+    assert pumps.restart_gap_ms is not None
+    assert pumps.restart_gap_ms <= 60_000
+    assert pumps.restart_streak >= 3, "one mismeasured gap must not raise an alert"
+
+
+def test_silence_is_noticed_within_a_working_day():
+    """A pit that has not run in hours is either dry or blind, and four hours
+    was most of a day before anybody heard the clamp had fallen off."""
+    assert PumpsSettings().quiet_minutes_before_flag == 120
 
 
 def test_a_run_can_end_before_the_next_one_starts():
@@ -198,9 +225,13 @@ def test_a_run_can_end_before_the_next_one_starts():
     Not a setting any more, which is the point of checking it here. It is a
     fact about how often the meter reports, so it lives in the detector and the
     only thing left to get wrong is this number.
+
+    It also has to be shorter than the shortest rest between runs, or two calls
+    for water are recorded as one. That rest was 82 seconds on the reference
+    panel, so a hold measured in a second or two has room to spare.
     """
     assert domain.RUN_STOP_HOLD_MS <= 2000
-    assert PumpsSettings().max_runtime_ms > domain.RUN_STOP_HOLD_MS
+    assert PumpsSettings().restart_gap_ms > domain.RUN_STOP_HOLD_MS
 
 
 def test_every_alert_threshold_can_be_turned_off():
@@ -230,11 +261,16 @@ def test_there_is_no_undercurrent_alert():
     assert "undercurrent" not in str(PumpSettings.model_fields)
 
 
-def test_short_cycling_is_off_until_somebody_sets_a_gap():
-    """A threshold guessed at before there is run history to look at is a
-    threshold that mostly produces false alarms, and an alert that cries wolf
-    gets ignored along with the ones that matter."""
-    assert PumpsSettings().restart_gap_ms is None
+def test_short_cycling_is_on_now_that_it_is_not_a_guess():
+    """It used to be off, and that was right at the time: a threshold guessed
+    at before there is any run history mostly produces false alarms, and an
+    alert that cries wolf gets ignored along with the ones that matter.
+
+    There is run history now. A night on the reference panel put the shortest
+    rest between runs at 82 seconds, so the default sits below that with room
+    for the fact that the end of a run is only known to within a reading.
+    """
+    assert PumpsSettings().restart_gap_ms == 45_000
 
 
 def test_short_cycling_is_measured_by_the_gap_not_by_a_rate():

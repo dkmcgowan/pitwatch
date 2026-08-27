@@ -177,8 +177,7 @@
 
 {% macro pump_fields(pumps) %}
 <p class="hint">
-  Timings are in milliseconds, because these pumps run for a few seconds. Any
-  box that raises an alert can be left empty, which turns that check off.
+  Any box that raises an alert can be left empty, which turns that check off.
 </p>
 
 <div class="grid">
@@ -192,28 +191,31 @@
     <label for="pump{{ number }}_running_amps">Counts as running above (A)</label>
     <input type="number" step="0.1" min="0" id="pump{{ number }}_running_amps"
            name="pump{{ number }}_running_amps" value="{{ pump.running_amps }}">
-    <p class="hint">Not zero. A clamp reads a little noise with the motor off.</p>
+    <p class="hint">Margin, not precision. Anything from a fraction of an amp to
+      most of the running current finds the same runs.</p>
 
-    <label for="pump{{ number }}_nameplate_amps">Nameplate full load (A)</label>
+    <label for="pump{{ number }}_nameplate_amps">FLA (A)</label>
     <input type="number" step="0.1" min="0" id="pump{{ number }}_nameplate_amps"
            name="pump{{ number }}_nameplate_amps"
            value="{{ pump.nameplate_amps if pump.nameplate_amps is not none else '' }}">
-    <p class="hint">Off the motor, often marked FLA. Nothing is calculated from
-      it; it is here so the number below has something real to sit against.</p>
+    <p class="hint">Full load amps off the motor plate. Nothing is calculated
+      from it; it is what the typical load on the dashboard gets judged
+      against.</p>
 
     <label for="pump{{ number }}_overcurrent_amps">Alert above (A)</label>
     <input type="number" step="0.1" min="0" id="pump{{ number }}_overcurrent_amps"
            name="pump{{ number }}_overcurrent_amps"
            value="{{ pump.overcurrent_amps if pump.overcurrent_amps is not none else '' }}">
-    <p class="hint">Just above what it draws once turning. The starting surge is
-      thrown away first, so 18 A will not trip on a motor that spikes to 60 and
-      settles at 16.</p>
+    <p class="hint">Set it against the typical load on the dashboard once there
+      is a week of it, not against the plate.</p>
 
-    <label for="pump{{ number }}_overcurrent_hold_ms">Held for (ms)</label>
-    <input type="number" min="100" step="100" id="pump{{ number }}_overcurrent_hold_ms"
-           name="pump{{ number }}_overcurrent_hold_ms" value="{{ pump.overcurrent_hold_ms }}">
-    <p class="hint">This plus the ignore window below has to fit inside a normal
-      run, or the alert can never fire.</p>
+    <label for="pump{{ number }}_overcurrent_readings">for this many readings in a row</label>
+    <input type="number" min="1" max="100" id="pump{{ number }}_overcurrent_readings"
+           name="pump{{ number }}_overcurrent_readings" value="{{ pump.overcurrent_readings }}">
+    <p class="hint">Readings, not seconds: the meter reports on its own
+      schedule. Two is about half a minute of sustained draw, and it is also
+      what ignores the starting surge, which only ever lands in the first
+      reading of a run.</p>
   </fieldset>
   {% endfor %}
 </div>
@@ -222,23 +224,13 @@
 
 <div class="grid">
   <div class="field">
-    <label for="inrush_ignore_ms">Ignore the first (ms) of a run</label>
-    <input type="number" min="0" step="100" id="inrush_ignore_ms" name="inrush_ignore_ms"
-           value="{{ pumps.inrush_ignore_ms }}">
-    <p class="hint">
-      A motor pulls six to eight times its running current as it comes up to
-      speed. Readings in this window are left out of the averages and the
-      overcurrent check. The peak is still recorded.
-    </p>
-  </div>
-
-  <div class="field">
     <label for="max_runtime_ms">Alert on a run longer than (ms)</label>
     <input type="number" min="1000" step="500" id="max_runtime_ms" name="max_runtime_ms"
            value="{{ pumps.max_runtime_ms if pumps.max_runtime_ms is not none else '' }}">
     <p class="hint">
-      A stuck float, or pumping against a blockage. If a normal run is three or
-      four seconds, ten is well outside it.
+      A stuck float, or pumping against a blockage. Off until the panel's run
+      contact is wired: the clamps report the start and the end of a run and
+      nothing in between, so they cannot time one.
     </p>
   </div>
 
@@ -248,7 +240,7 @@
            value="{{ pumps.quiet_minutes_before_flag if pumps.quiet_minutes_before_flag is not none else '' }}">
     <p class="hint">
       Silence can be a dry spell, or a stuck float, a clamp that has fallen off,
-      or a dead panel. Set it a bit longer than the longest normal gap.
+      or a dead panel. Set it longer than the longest gap you see on a dry week.
     </p>
   </div>
 </div>
@@ -268,13 +260,14 @@
   </div>
 </div>
 <p class="hint">
-  A check valve that stops sealing lets the discharge pipe run back into the
-  pit the moment a pump stops, which calls it straight back out. Measured
-  between runs of either pump, so alternating does not hide it.
+  A check valve that stops sealing lets the discharge pipe run back into the pit
+  the moment a pump stops, which calls it straight out again. Measured between
+  runs of either pump, so alternating does not hide it.
 </p>
 <p class="hint">
-  Off unless you set a gap, and fine left off. Counted by how soon rather than
-  how often, because a pit taking roof water cycles all through a storm.
+  Counted by how soon rather than how often, because a pit taking roof water
+  cycles all through a storm and that is the equipment working. Compare the
+  default against your own rest between runs once you have a week of them.
 </p>
 {% endmacro %}
 

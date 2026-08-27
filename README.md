@@ -405,20 +405,35 @@ motor that is not turning. Bringing that back needs a way to say which input
 carries pump 1's run contact, and inputs are names you type rather than roles
 this application knows. Undecided; see the note under [Alerts](#alerts).
 
-**Inrush is discarded, not smoothed** (designed, not yet built). A motor pulls
-six to eight times its running current for a fraction of a second as it comes up
-to speed. Sixty or seventy amps settling to sixteen is a healthy pump. Every
-reading in the first few hundred milliseconds is left out of the run's averages
-and out of the overcurrent check, which is what lets that threshold sit just
-above the running current instead of above the surge. The peak is still
-recorded, on its own, because a starting surge that climbs month over month is a
-bearing on the way out.
+**How often the clamps actually report, and what it costs.** The meter is not
+sampled on a timer. It pushes when a reading changes and otherwise reports on
+its own schedule, which on the reference panel worked out at about every
+fifteen seconds. A jump from nothing to sixteen amps is exactly the kind of
+change that makes it push, so the **start and the end of every run are caught**.
+The middle is not: across eleven hours, 48 of 73 runs produced exactly two
+readings, and the time between them ranged from one second to nearly four
+minutes for runs drawing the same steady current.
 
-**The timings are in milliseconds**, because these pumps run for three or four
-seconds at a time and seconds are too coarse to describe anything inside a run
-that short. The default is to throw away the first 800 ms and then require an
-overcurrent to hold for 1500 ms, so a decision is reached 2.3 seconds into a
-run.
+So the clamps can count runs, say when one last started, and say what a pump
+draws while running. They **cannot time a run**, and nothing here pretends
+otherwise. Run length, and anything that needs a duration, comes from the
+panel's run contact through the I/O module, which is polled five times a
+second.
+
+**Inrush is discarded, not smoothed** (designed, not yet built). A motor pulls
+several times its running current as it comes up to speed. At the rate readings
+arrive, that surge lands in the **first reading of a run and nowhere else**: on
+the reference panel the first reading of each run ran about 1.3 A above every
+later one. So the first reading of a run is dropped from the averages and from
+the overcurrent check, which is what lets that threshold sit just above the
+running current instead of above the surge. The peak is still recorded, on its
+own, because a starting surge that climbs month over month is a bearing on the
+way out.
+
+That is also why the overcurrent check counts **readings rather than
+milliseconds**. Two readings in a row above the threshold is about half a minute
+at the meter's own pace, and it would be two seconds if anything ever sampled
+faster. A hold measured in milliseconds asked for readings that do not exist.
 
 **Lead and lag** (designed, not yet built). The controller alternates: it starts
 one pump this time and the other next time, so wear is even. Its display says
@@ -458,12 +473,12 @@ what it needs.
 | Alert | Fires when |
 | --- | --- |
 | Overload tripped | The panel's overload contact opened for that pump. |
-| Running over current | A pump has drawn more than its threshold for long enough that this is not a surge. |
+| Running over current | A pump has been above its threshold for several readings in a row, so this is not the starting surge. |
 | Running under current | A pump is running but barely drawing anything: an impeller spinning in air, a lost coupling, a lost phase. |
 | High water | The high water float is wet. |
 | Both pumps running | Normal during a lag call, worth knowing about the rest of the time. |
 | Run too long | One run past the limit you set. Stuck float, or pumping against something. |
-| Short cycling | The pumps restarting unusually soon after stopping, several times running. Usually a check valve letting the discharge run back into the pit. Off until you set a threshold, because a pit that takes roof water cycles continuously through a storm and that is the equipment working. |
+| Short cycling | The pumps restarting unusually soon after stopping, several times running. Usually a check valve letting the discharge run back into the pit. Counted by how soon rather than how often, because a pit taking roof water cycles continuously through a storm and that is the equipment working. |
 | Contactor without current | The run contact closed and no current followed. |
 | Current without contactor | Current with no run contact. Either a miswired channel or a contactor that is welded shut. |
 | Device offline | The Shelly or the Waveshare stopped answering. |

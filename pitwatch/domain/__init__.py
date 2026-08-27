@@ -23,3 +23,23 @@ from __future__ import annotations
 # A second bridges a dropped or low reading and is far shorter than the gap
 # between two genuinely separate calls, which is the pit refilling.
 RUN_STOP_HOLD_MS = 1000
+
+
+# Throw away the first reading of every run.
+#
+# This replaces a settable inrush window measured in milliseconds, which could
+# never have worked: it assumed readings arrive fast enough that a fraction of
+# a second at the start of a run contains several, and they do not. The meter
+# reports on its own schedule and a four second run produces two readings.
+#
+# What eleven hours of real readings show is much simpler. The surge lands in
+# the first reading of a run and nowhere else. Across 73 runs the first reading
+# had a median of 16.5 A against 15.2 A for every reading after it, and the
+# handful of runs that caught a real surge saw 20 to 40 A, always in that first
+# reading. So the rule is not a duration at all. It is: the first reading of a
+# run is the start of a motor and the rest are the motor working, and only the
+# rest describe what it draws.
+#
+# The peak is still recorded, separately and including the surge, because a
+# starting surge climbing month over month is a bearing on its way out.
+DISCARD_FIRST_READING = True

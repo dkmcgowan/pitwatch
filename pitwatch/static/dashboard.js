@@ -94,10 +94,13 @@
     } else if (recent.last_start) {
       last.textContent = since(recent.last_start);
     } else {
-      last.textContent = "not in 24 h";
+      last.textContent = "n/a";
     }
 
-    runs.textContent = recent.last_start || recent.runs ? String(recent.runs) : "--";
+    // Nothing to count and nothing that ever ran are the same answer here. A
+    // clamp that has never seen a run and a clamp that is not fitted look
+    // identical from this side, so neither gets to claim a confident zero.
+    runs.textContent = recent.last_start || recent.runs ? String(recent.runs) : "n/a";
   }
 
   // What the pump draws when it is actually running, and whether that is
@@ -111,8 +114,11 @@
       return;
     }
 
+    // "n/a" rather than a sentence explaining itself. There is no room for a
+    // sentence in a two by two grid, and the settings page is where the reason
+    // belongs.
     if (typical.median === null || typical.median === undefined) {
-      value.innerHTML = '<span class="muted">not enough runs yet</span>';
+      value.innerHTML = '<span class="muted">n/a</span>';
       drift.hidden = true;
       return;
     }

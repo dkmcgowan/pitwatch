@@ -170,7 +170,7 @@
       const role = node.getAttribute("data-lamp");
       const lamp = lamps[role];
       const state = node.querySelector("[data-lamp-state]");
-      const title = node.querySelector(".lamp-title");
+      const node_title = node.querySelector(".lamp-title");
 
       if (!lamp || !lamp.channel) {
         node.classList.remove("on");
@@ -179,10 +179,12 @@
         return;
       }
       node.classList.remove("unset");
-      // The panel's own word for it when somebody has typed one, because that
-      // is what is printed next to the wire in the box.
-      if (lamp.label) {
-        title.textContent = lamp.label;
+      // The lamp keeps the name of the job, not the name of the wire. These
+      // six are the six roles somebody assigned, and which input each one is
+      // on is a question the settings page answers. Titles here also have to
+      // fit a centered row, which "Pump 1 overload tripped" does not.
+      if (node_title) {
+        node_title.title = lamp.label ? lamp.label + " (DI" + lamp.channel + ")" : "";
       }
       if (lamp.state === null) {
         node.classList.remove("on");

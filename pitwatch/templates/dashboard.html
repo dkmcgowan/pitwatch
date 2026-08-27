@@ -14,64 +14,71 @@
 
 {# The panel door, near enough.
 
-   Laid out the way the real one is, because the people who read this already
-   know that one: the alarm lamp on the left, the controller display in the
-   middle, the two lit selector switches along the bottom. The floats across
-   the top are the part the panel does not show at all, which is most of why
-   this exists.
+   Everything is stacked on the controller's screen, because that screen is the
+   one thing on the real door that says what is going on. The floats that call
+   the pumps sit above it and the contactors it closes sit below it, so the
+   column reads in the order the water moves. The floats are the part the real
+   panel does not show at all, which is most of why this exists.
 
    Which input drives which lamp is a setting, under /settings/dashboard. The
    markup is here rather than built in JavaScript so the page has a shape
    before the first reply arrives. #}
 <section class="door" aria-label="Panel">
-  <div class="lamp-row lamp-row-floats">
-    <div class="lamp lamp-amber" data-lamp="lead_float">
+  {# The two that mean somebody has to do something. Stacked, on their own,
+     above the divider: they are not a reading, they are a phone call. #}
+  <div class="door-alarms">
+    <div class="lamp lamp-red" data-lamp="high_water">
       <span class="bulb" aria-hidden="true"></span>
-      <span class="lamp-title">Lead float</span>
+      <span class="lamp-title">High water</span>
       <span class="lamp-state" data-lamp-state>No data</span>
     </div>
-    <div class="lamp lamp-amber" data-lamp="lag_float">
+    <div class="lamp lamp-red" data-lamp="system_alert">
       <span class="bulb" aria-hidden="true"></span>
-      <span class="lamp-title">Lag float</span>
+      <span class="lamp-title">System alert</span>
       <span class="lamp-state" data-lamp-state>No data</span>
     </div>
   </div>
 
-  <div class="door-middle">
-    <div class="lamp-row lamp-row-alarms">
-      <div class="lamp lamp-red" data-lamp="system_alert">
+  <hr class="door-divider">
+
+  {# The controller's own screen, with the floats that call the pumps above
+     it and the contactors it closes below, all centered on it. That is the
+     order the water moves in: the pit comes up, the controller decides, a
+     pump runs. #}
+  <div class="door-display">
+    <div class="lamp-row">
+      <div class="lamp lamp-amber" data-lamp="lead_float">
         <span class="bulb" aria-hidden="true"></span>
-        <span class="lamp-title">System alert</span>
+        <span class="lamp-title">Lead float</span>
         <span class="lamp-state" data-lamp-state>No data</span>
       </div>
-      <div class="lamp lamp-red" data-lamp="high_water">
+      <div class="lamp lamp-amber" data-lamp="lag_float">
         <span class="bulb" aria-hidden="true"></span>
-        <span class="lamp-title">High water</span>
+        <span class="lamp-title">Lag float</span>
         <span class="lamp-state" data-lamp-state>No data</span>
       </div>
     </div>
 
-    {# The controller's own screen, which is a two line green LCD. #}
     <div class="lcd" role="status" aria-live="polite">
       <span class="lcd-text" data-lcd>P1:--  P2:--</span>
     </div>
+
+    <div class="lamp-row">
+      <div class="lamp lamp-green" data-lamp="pump1_run">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">P1 Running</span>
+        <span class="lamp-state" data-lamp-state>No data</span>
+      </div>
+      <div class="lamp lamp-green" data-lamp="pump2_run">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">P2 Running</span>
+        <span class="lamp-state" data-lamp-state>No data</span>
+      </div>
+    </div>
   </div>
 
-  <div class="lamp-row lamp-row-pumps">
-    <div class="lamp lamp-green" data-lamp="pump1_run">
-      <span class="bulb" aria-hidden="true"></span>
-      <span class="lamp-title">Pump 1 running</span>
-      <span class="lamp-state" data-lamp-state>No data</span>
-    </div>
-    <div class="lamp lamp-green" data-lamp="pump2_run">
-      <span class="bulb" aria-hidden="true"></span>
-      <span class="lamp-title">Pump 2 running</span>
-      <span class="lamp-state" data-lamp-state>No data</span>
-    </div>
-  </div>
-
-  {# The overloads have no lamp of their own on the real door either. They
-     show up by turning a pump's word on the display into FAIL. #}
+  {# The overloads have no lamp on the real door either. They show up by
+     turning a pump's word on the display into FAIL. #}
   <p class="door-note" data-door-note hidden></p>
 </section>
 

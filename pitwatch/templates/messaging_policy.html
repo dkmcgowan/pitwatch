@@ -31,6 +31,22 @@
     believing a problem is still open when it is not.
   </p>
 
+  {% if samples %}
+  <h2>What one looks like</h2>
+  <p>
+    These are the messages this installation is configured to send, filled in
+    with example readings. The same text goes to email and to text messages.
+  </p>
+  <ul class="samples">
+    {% for sample in samples %}
+    <li>
+      <span class="sample-label">{{ sample.title }}</span>
+      <span class="sample-text">{{ sample.text }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
   <h2>How someone starts receiving them</h2>
   <p>
     Recipients are added by the building administrator, who enters their name,

@@ -62,6 +62,49 @@ def configure_logging(config: Config) -> None:
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 
+def _sample_messages(store: SettingsStore) -> list[dict[str, str]]:
+    """Three real alerts, filled in, for the policy page.
+
+    Every messaging registration asks to see the actual text. Writing samples
+    by hand would mean a public page that drifts from what the system sends the
+    moment somebody edits a message, so these are built from the configured
+    rules themselves. Change a message on the alerts page and this page changes
+    with it.
+
+    ``{site}`` is filled with a generic phrase rather than the building, for the
+    same reason the rest of this page never names it. The shape and the content
+    of the message are what a reviewer is checking, not the address.
+    """
+    from pitwatch.domain.alerts import BY_KEY, fill
+
+    example = {
+        "site": "the building",
+        "time": "2:14 AM",
+        "pump": "Pump 1",
+        "overload": "OL1",
+        "amps": "15.2 A",
+        "duration": "9 minutes",
+        "pumps_state": "both pumps are running",
+        "device": "the panel inputs",
+    }
+
+    alerts = store.alerts
+    samples = []
+    for key in ("high_water", "overload", "run_too_long"):
+        rule = getattr(alerts, key, None)
+        spec = BY_KEY.get(key)
+        if rule is None or spec is None or not rule.message:
+            continue
+        samples.append(
+            {
+                "title": spec.title,
+                "severity": rule.severity,
+                "text": fill(rule.message, example),
+            }
+        )
+    return samples
+
+
 def create_app(config: Config | None = None, *, secret_key: str | None = None) -> FastAPI:
     """Build the application.
 
@@ -199,7 +242,13 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
         """Public on purpose. See pitwatch.middleware for why."""
         store: SettingsStore = request.app.state.settings
         return templates.TemplateResponse(
-            request, "messaging_policy.html", {"site": store.site, "user": None}
+            request,
+            "messaging_policy.html",
+            {
+                "site": store.site,
+                "user": None,
+                "samples": _sample_messages(store),
+            },
         )
 
     @app.get("/privacy", include_in_schema=False)

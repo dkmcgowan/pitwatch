@@ -610,6 +610,34 @@ class SiteSettings(BaseModel):
     contact_email: str = ""
     contact_phone: str = ""
 
+    # Who is answerable for this installation, as it should read on a page
+    # anyone can open: "David McGowan, Sole Proprietor", "Greenwich Mews Board
+    # of Managers". A carrier reviewing a messaging registration is looking for
+    # a real person or business behind the number, and so is somebody deciding
+    # whether a text about a pump at two in the morning is legitimate.
+    operator: str = ""
+    # Town and state. Deliberately not a street address, and the field is named
+    # so that filling one in feels like the wrong thing to do. Where somebody
+    # lives is not the carrier's question, and a public page is public forever.
+    operator_locality: str = ""
+
+    @property
+    def operates_in(self) -> str:
+        return self.operator_locality.strip()
+
+    @property
+    def public_pumps_at(self) -> str:
+        """What to call the equipment on a page anyone can read.
+
+        Never ``name``. That field is an address on this installation and
+        probably on most others; it earns its place in an alert, where it tells
+        somebody woken at two in the morning which building to drive to, and it
+        has no business on a page a search engine can reach. So the public
+        pages get the town, or they get nothing.
+        """
+        where = self.operates_in
+        return f"pump equipment in {where}" if where else "pump equipment"
+
     @property
     def where(self) -> str:
         """The building, or empty if nobody has said yet.

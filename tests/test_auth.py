@@ -71,14 +71,15 @@ def test_the_login_page_is_reachable(client):
     assert client.get("/login").status_code == 200
 
 
-@pytest.mark.parametrize("path", ["/messaging-policy", "/privacy"])
-def test_the_policy_pages_are_public(client, path):
+@pytest.mark.parametrize("path", ["/", "/contact", "/messaging-policy", "/privacy"])
+def test_the_public_pages_are_public(client, path):
     """Deliberate, and the thing most likely to be "fixed" later.
 
-    A carrier reviewing a toll-free number registration has to be able to read
-    how people opt in and out without an account. Putting these behind the login
-    fails the registration, and is the wrong thing to do to somebody deciding
-    whether to give you their phone number.
+    A carrier reviewing a toll-free number registration has to be able to see
+    who is behind the number and how people opt in and out, without an account.
+    A registration was refused for exactly this before these pages existed.
+    Putting any of them behind the login fails it again, and is the wrong thing
+    to do to somebody deciding whether to give you their phone number.
     """
     response = client.get(path)
 
@@ -108,13 +109,21 @@ def test_the_login_page_links_to_the_policies(client):
 def test_the_public_list_is_short_and_deliberate():
     """A reminder to think, if this list ever grows."""
     expected = {
-        "/login",
-        "/logout",
-        "/health",
-        "/healthz",
+        # The public face: what this is, who runs it, what it will send you,
+        # and how to stop it. A carrier reviewing a messaging registration
+        # reads all four without an account, and so does anybody who just got a
+        # text about a pump.
+        "/",
+        "/contact",
         "/messaging-policy",
         "/privacy",
+        # Getting in, and the two ways of not being in.
+        "/login",
+        "/logout",
         "/set-password",
+        # Nothing a load balancer or a browser can sign in for.
+        "/health",
+        "/healthz",
         "/favicon.ico",
     }
 
@@ -296,29 +305,41 @@ def test_the_api_gets_a_status_code_rather_than_a_login_page(client):
     assert response.json()["error"]
 
 
-def test_the_policies_never_print_a_placeholder_building(client):
-    """Before setup there is no building name, and inventing one shows up on
-    a page a carrier reads. The application is PitWatch; the building is
-    whatever somebody types, and until they do it is not named at all."""
+def test_the_policies_never_print_a_placeholder_location(client):
+    """Before setup nothing has been said about where this is, and inventing
+    something shows up on a page a carrier reads. The application is PitWatch;
+    everything else is whatever somebody types, and until they do it is not
+    named at all."""
     for path in ("/messaging-policy", "/privacy"):
         page = prose(client.get(path).text)
-        assert "PitWatch monitors the pumps in this building" in page, path
+        assert "PitWatch monitors pump equipment." in page, path
         assert "Ejector" not in page, path
 
 
-def test_the_policies_name_the_building_once_it_is_set(client):
+def test_the_policies_give_the_town_once_it_is_set(client):
     sign_in_as_admin(client)
     client.post(
         "/settings/site",
-        data={"site_name": "822 Greenwich St"},
+        data={"site_operator_locality": "New York, NY 10014"},
     )
 
     page = prose(client.get("/messaging-policy").text)
 
-    assert "the pumps at 822 Greenwich St" in page
-    # The part of the building the pumps are in belongs in an alert, not in
-    # prose on a policy page.
-    assert "822 Greenwich St, Basement, rear" not in page
+    assert "pump equipment in New York, NY 10014" in page
+
+
+def test_the_policies_never_name_the_building(client):
+    """The building goes in the subject line of an alert, where it tells
+    somebody woken at two in the morning which building to drive to. On this
+    installation it is a home address, and it used to open both policy pages."""
+    sign_in_as_admin(client)
+    client.post(
+        "/settings/site",
+        data={"site_name": "822 Greenwich St", "site_operator_locality": "New York, NY 10014"},
+    )
+
+    for path in ("/", "/contact", "/messaging-policy", "/privacy", "/login"):
+        assert "822 Greenwich St" not in client.get(path).text, path
 
 
 def test_the_public_pages_are_named_after_the_product(client):

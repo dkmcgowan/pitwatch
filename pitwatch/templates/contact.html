@@ -1,0 +1,67 @@
+{% extends "public.html" %}
+{# Public for the same reason the policies are: somebody who got a text about a
+   pump has to be able to reach a human without an account, and a carrier
+   reviewing a messaging registration has to be able to see that they can.
+
+   No form. A form on a page like this collects spam and creates an inbox
+   nobody watches, and the honest answer to "how do I reach you" is an address
+   that a person actually reads. #}
+{% block title %}Contact{% endblock %}
+
+{% block content %}
+<section class="card prose">
+  <h1>Contact</h1>
+
+  {% if site.operator or site.operates_in %}
+  <h2>Who this is</h2>
+  <p>
+    {% if site.operator %}<strong>{{ site.operator }}</strong>{% else %}This installation{% endif %}
+    {%- if site.operates_in %}<br>{{ site.operates_in }}{% endif %}
+  </p>
+  {% endif %}
+
+  <h2>How to reach us</h2>
+  {% if site.contact_email or site.contact_phone %}
+  <ul>
+    {% if site.contact_email %}
+    <li>Email:
+      <a href="mailto:{{ site.contact_email }}">{{ site.contact_email }}</a></li>
+    {% endif %}
+    {% if site.contact_phone %}
+    <li>Phone: {{ site.contact_phone }}</li>
+    {% endif %}
+  </ul>
+  {% else %}
+  <p>
+    No public contact details have been published for this installation. If you
+    are receiving alerts from it, the person who added you is the one to ask.
+  </p>
+  {% endif %}
+
+  <h2>If you are getting text messages</h2>
+  <p>
+    You do not have to reach anybody to stop them. Reply <strong>STOP</strong>
+    to any message and they end immediately. That is handled by the mobile
+    carriers rather than by this system, so it works whatever else is going on.
+    Replying <strong>HELP</strong> returns assistance details.
+  </p>
+  <p>
+    To stop email alerts, reply to any one of them. To be removed entirely,
+    {% if site.contact_email %}ask at the address above{% else %}ask the person
+    who added you{% endif %} and it will be done.
+  </p>
+  <p>
+    The <a href="/messaging-policy">messaging policy</a> covers what is sent and
+    why, and the <a href="/privacy">privacy notice</a> covers what is held and
+    for how long.
+  </p>
+
+  <h2>About the software</h2>
+  <p>
+    PitWatch is open source under the MIT license. Bugs, questions and patches
+    belong on
+    <a href="https://github.com/dkmcgowan/pitwatch">github.com/dkmcgowan/pitwatch</a>
+    rather than in email, where other people running it can see the answer.
+  </p>
+</section>
+{% endblock %}

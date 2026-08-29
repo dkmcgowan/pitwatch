@@ -1,0 +1,99 @@
+{% extends "public.html" %}
+{# What a signed out visitor sees at the root.
+
+   It exists because a monitoring tool that is entirely behind a login has no
+   public face at all, and several things need one: a carrier reviewing a
+   messaging registration, somebody who got a text about a pump and wants to
+   know what sent it, and anybody deciding whether to hand over a phone number.
+
+   So this page answers three questions in order, and nothing else: what is
+   this, what will it send me, and who is behind it. #}
+{% block title %}PitWatch{% endblock %}
+
+{% block content %}
+<section class="card prose">
+  <h1>PitWatch</h1>
+  <p class="lede">
+    Monitoring and alerting for a duplex ejector pump panel. It watches the
+    pumps, and when something is wrong it tells the people responsible for them.
+  </p>
+
+  <p>
+    An ejector pit sits below the sewer line in a basement, and a pump lifts
+    what collects there up to it. When those pumps fail, the failure is quiet.
+    Nothing alarms, nothing is displayed, and the first anybody knows about it
+    is water coming up through a floor. PitWatch exists to make that failure
+    loud, early, and reach a phone.
+  </p>
+
+  <h2>What it watches</h2>
+  <p>
+    A current clamp on each motor, and the panel's own contacts: the floats,
+    the run signals, the motor overloads and the panel alarm. From those it
+    knows what each pump is drawing, how long it ran, how often it runs, and
+    whether the panel itself is complaining.
+  </p>
+  <p>
+    That combination is the point. Current alone says a pump is running but not
+    why it started. Contacts alone say a float is wet but not that the motor is
+    drawing half again what it did last month. Together they catch a pump on
+    its way out rather than one that has already gone.
+  </p>
+
+  <h2>What it sends</h2>
+  <p>
+    Text messages and emails, to a short list of people entered by the
+    administrator of the building it is installed in. Every message is an
+    operational alert about the equipment: an overload tripped, the high water
+    float is wet, a pump has run far longer than a normal cycle, the monitoring
+    hardware has stopped reporting. A matching message goes out when the
+    condition clears.
+  </p>
+  <p>
+    <strong>There is no marketing of any kind, and no public sign up.</strong>
+    A phone number reaches this system only by an administrator entering it on
+    behalf of somebody who agreed to it. Replying <strong>STOP</strong> to any
+    message ends them. In normal operation the equipment is quiet and nothing
+    is sent at all, sometimes for months.
+  </p>
+  <p>
+    The <a href="/messaging-policy">messaging policy</a> sets all of that out in
+    full, including consent, frequency and how to stop.
+  </p>
+
+  <h2>Who runs it</h2>
+  {% if site.operator %}
+  <p>
+    This installation is operated by <strong>{{ site.operator }}</strong>{% if site.operates_in %},
+    {{ site.operates_in }}{% endif %}. It monitors {{ site.public_pumps_at }} at
+    a single property and is not a service offered to the public.
+  </p>
+  {% else %}
+  <p>
+    This installation monitors {{ site.public_pumps_at }} at a single property
+    and is not a service offered to the public.
+  </p>
+  {% endif %}
+  <p>
+    PitWatch itself is open source, published under the MIT license at
+    <a href="https://github.com/dkmcgowan/pitwatch">github.com/dkmcgowan/pitwatch</a>.
+    Anybody can run their own copy on their own hardware. Each installation
+    holds its own data and sends its own messages; there is no central service
+    and nothing is shared between them.
+  </p>
+
+  <h2>Where the data goes</h2>
+  <p>
+    Nowhere. Readings, alert history and the recipient list live on the machine
+    the building runs this on. Nothing is sold, rented or shared, and the only
+    thing that leaves is the alert itself, handed to a mail server or a
+    messaging provider so it can be delivered. See the
+    <a href="/privacy">privacy notice</a>.
+  </p>
+
+  <p class="actions">
+    <a class="button" href="/contact">Contact</a>
+    <a class="button secondary" href="/login">Sign in</a>
+  </p>
+</section>
+{% endblock %}

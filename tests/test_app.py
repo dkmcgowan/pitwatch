@@ -356,6 +356,8 @@ def test_saving_the_settings_page_unchanged_changes_nothing():
         base_url="https://pitwatch.example.com",
         contact_email="pumps@example.com",
         contact_phone="+12125550142",
+        operator="Jane Smith, Sole Proprietor",
+        operator_locality="New York, NY 10014",
         notify_delay_s=11,
         notify_cooldown_s=1234,
     )

@@ -1,7 +1,11 @@
 <!doctype html>
-{# The layout for pages a signed out visitor can see: the login page and the
-   policies. Deliberately without the application navigation, which would be a
-   row of links to somewhere they cannot go. #}
+{# The layout for pages a signed out visitor can see: the home page, the
+   contact page, the policies and the login form.
+
+   The navigation here is not the application's. That one is a row of links to
+   places somebody signed out cannot go. This one is the handful of pages they
+   can, which is the whole public face of the thing: what it is, who runs it,
+   what it will send them, and how to stop it. #}
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -17,18 +21,37 @@
     <span class="brand-mark" aria-hidden="true"></span>
     PitWatch
   </a>
+  <nav class="public-nav" aria-label="Pages">
+    <a href="/contact">Contact</a>
+    <a href="/messaging-policy">Messaging</a>
+    <a href="/privacy">Privacy</a>
+    <a href="/login">Sign in</a>
+  </nav>
 </header>
 
 <main>
 {% block content %}{% endblock %}
 </main>
 
-<footer class="footer">
-  <span>PitWatch {{ version }}</span>
-  <span>
-    <a href="/messaging-policy">Messaging policy</a>
+{# The operator's identity, on every public page rather than only on the one
+   somebody thinks to look at. A carrier checking a messaging registration
+   should not have to hunt for who is behind the number, and neither should a
+   person who just got a text about a pump. #}
+<footer class="footer public-footer">
+  <div class="footer-who">
+    {% if site.operator %}<span>{{ site.operator }}</span>{% endif %}
+    {% if site.operates_in %}<span>{{ site.operates_in }}</span>{% endif %}
+    {% if site.contact_email %}
+    <span><a href="mailto:{{ site.contact_email }}">{{ site.contact_email }}</a></span>
+    {% endif %}
+  </div>
+  <div class="footer-links">
+    <a href="/">Home</a>
+    &middot; <a href="/contact">Contact</a>
+    &middot; <a href="/messaging-policy">Messaging policy</a>
     &middot; <a href="/privacy">Privacy</a>
-  </span>
+  </div>
+  <div class="footer-version">PitWatch {{ version }}</div>
 </footer>
 </body>
 </html>

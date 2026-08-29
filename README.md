@@ -179,29 +179,40 @@ editing by hand to recover.
 
 ### What a stranger can see
 
-Almost nothing. The exceptions are the login page, the health checks, the static
-files, the password link page, and the **messaging policy** and **privacy**
-pages.
+The **home page**, the **contact page**, the **messaging policy** and the
+**privacy notice**, plus the login page, the health checks, the static files and
+the password link page. Everything else needs an account.
 
-Those last two are public deliberately. A carrier reviewing a toll-free number
-registration has to be able to read how people opt in and out of text messages
-without an account, and so does anybody deciding whether to give you their phone
-number. Putting consent terms behind a login is both a failed registration and
-the wrong thing to do. The login page carries a summary of the same terms,
-because that is the page an unauthenticated visitor actually lands on.
+Those four are public deliberately, and the home page most of all. A carrier
+reviewing a toll-free or 10DLC registration has to be able to see who is behind
+the number and how people opt in and out of text messages, without an account,
+and so does anybody deciding whether to give you their phone number. A
+registration was refused for exactly this before the public pages existed: the
+site required a login, so there was nothing to review. `/` is the URL to
+register, and `/messaging-policy` is the one to give when a form asks for the
+opt-in terms specifically.
 
-**Fill in the building and the contact details in settings before pointing a
-carrier at those pages**, because they are what the pages say. Until the
-building is set they read "PitWatch monitors this building's pumps", which is
-true and vague; once it is set they read "the pumps at 822 Greenwich St".
+**Fill in the public details in settings before pointing a carrier at them.**
+Under "Published on the public pages" there are four fields, and they are what
+those pages say:
 
-`/messaging-policy` is the URL to register.
+| Field | Example | Where it shows |
+| --- | --- | --- |
+| Operated by | `Jane Smith, Sole Proprietor` | Footer of every public page, home, contact, messaging policy |
+| Town and state | `New York, NY 10014` | Same |
+| Public email | `pitwatch@example.com` | Same |
+| Public phone | optional | Contact page, messaging policy |
 
-The application is called PitWatch everywhere. The **building** is a separate
-thing: an address or a name, whichever somebody woken at two in the morning
-would recognize. It goes in the subject line of every alert and on the policy
-pages, and it has no default, so that a placeholder nobody chose never ends up
-printed on a page a carrier is reading.
+Register the number under the same name you put in **Operated by**. A carrier
+comparing the two is the whole point of the exercise.
+
+**The building is never published.** It is a separate field, an address or a
+name, whichever somebody woken at two in the morning would recognize. It goes
+in the subject line of every alert, because that is where it earns its place,
+and it appears nowhere a signed out visitor can reach. The public pages say the
+town instead. That is why "Town and state" asks for a town and states plainly
+that it is not a street address: a public page is public forever, and where
+somebody lives is not the carrier's question.
 
 ## Set it up
 

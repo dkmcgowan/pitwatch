@@ -7,7 +7,7 @@
   <p class="muted">Last updated {{ policy_updated }}</p>
 
   <p>
-    PitWatch monitors {{ site.pumps_at }}. This page explains what messages it
+    PitWatch monitors {{ site.public_pumps_at }}. This page explains what messages it
     sends, who receives them, how someone consents to receive them, and how to
     stop.
   </p>
@@ -92,16 +92,18 @@
   </p>
   <p>
     {% if site.contact_email or site.contact_phone %}
-      For anything else, contact the administrator of {{ site.where or "this building" }}
+      For anything else, contact {% if site.operator %}{{ site.operator }}{% else %}the
+      administrator of this system{% endif %}
       {% if site.contact_email %}by email at
         <a href="mailto:{{ site.contact_email }}">{{ site.contact_email }}</a>{% endif %}
       {% if site.contact_email and site.contact_phone %} or {% endif %}
       {% if site.contact_phone %}by phone on {{ site.contact_phone }}{% endif %}.
+      See the <a href="/contact">contact page</a>.
     {% else %}
-      For anything else, contact the administrator of
-      {{ site.where or "this building" }}, who is the person who added you to
-      these alerts and holds the only copy of this list. There is no public sign
-      up, so everyone receiving these messages already knows who that is.
+      For anything else, contact the administrator of this system, who is the
+      person who added you to these alerts and holds the only copy of this
+      list. There is no public sign up, so everyone receiving these messages
+      already knows who that is.
     {% endif %}
   </p>
 </section>

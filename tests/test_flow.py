@@ -967,3 +967,96 @@ def test_a_rule_keeps_its_words_when_the_box_is_left_empty(client):
     client.post("/alerts", data={"high_water_enabled": "on", "high_water_message": ""})
 
     assert "{site}" in client.app.state.settings.alerts.high_water.message
+
+
+# -- the public face ---------------------------------------------------------
+#
+# A monitoring tool entirely behind a login has no public face at all, and a
+# carrier reviewing a messaging registration refused this one for exactly that:
+# the site required an account, so there was nothing to review. These are the
+# pages that fixed it, and the checks that keep them reachable.
+
+
+def test_the_home_page_is_readable_without_an_account(client):
+    """The root, not a side door. It is the address somebody registers and the
+    address a reviewer types."""
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 200
+    page = response.text
+    assert "PitWatch" in page
+    # The three questions the page exists to answer.
+    assert "ejector" in page.lower()
+    assert "/messaging-policy" in page
+    assert "/contact" in page
+
+
+def test_the_contact_page_is_readable_without_an_account(client):
+    response = client.get("/contact", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "STOP" in response.text
+
+
+def test_the_public_pages_carry_the_operator(client):
+    """Who is behind the number, on every public page rather than on the one
+    somebody thinks to look at."""
+    sign_in_as_admin(client)
+    client.post(
+        "/settings/site",
+        data={
+            "site_name": "822 Example St",
+            "site_timezone": "America/New_York",
+            "site_operator": "Jane Smith, Sole Proprietor",
+            "site_operator_locality": "New York, NY 10014",
+            "site_contact_email": "pitwatch@example.com",
+        },
+        follow_redirects=False,
+    )
+    client.get("/logout", follow_redirects=False)
+
+    for path in ("/", "/contact", "/messaging-policy", "/privacy"):
+        page = client.get(path, follow_redirects=False).text
+        assert "Jane Smith, Sole Proprietor" in page, path
+        assert "New York, NY 10014" in page, path
+        assert "pitwatch@example.com" in page, path
+
+
+def test_the_building_is_never_published(client):
+    """The one that would have leaked a home address.
+
+    The building name is an address on the reference installation and probably
+    on most others. It earns its place in an alert, where it tells somebody
+    woken at two in the morning which building to drive to. It has no business
+    on a page a search engine can reach, and the public pages used to print it
+    in the opening sentence.
+    """
+    sign_in_as_admin(client)
+    client.post(
+        "/settings/site",
+        data={
+            "site_name": "822 Example St",
+            "site_timezone": "America/New_York",
+            "site_operator_locality": "New York, NY 10014",
+        },
+        follow_redirects=False,
+    )
+    client.get("/logout", follow_redirects=False)
+
+    for path in ("/", "/contact", "/messaging-policy", "/privacy", "/login"):
+        page = client.get(path, follow_redirects=False).text
+        assert "822 Example St" not in page, path
+
+
+def test_signing_in_still_takes_over_the_root(client):
+    """The public page is for people without an account, and nobody else. A
+    signed in user landing on a marketing page instead of their pumps would be
+    a regression somebody notices at two in the morning."""
+    signed_out = client.get("/", follow_redirects=False).text
+    assert "ejector" in signed_out.lower()
+
+    sign_in_as_admin(client)
+    signed_in = client.get("/", follow_redirects=False)
+
+    assert signed_in.status_code == 200
+    assert "ejector pit sits below the sewer line" not in signed_in.text

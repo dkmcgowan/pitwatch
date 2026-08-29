@@ -288,9 +288,23 @@
    your alerts go.
 
    Fields first and explanation under them, like every other group here. #}
-<h3>Published on the policy pages</h3>
+<h3>Published on the public pages</h3>
 
 <div class="grid">
+  <div class="field">
+    <label for="site_operator">Operated by</label>
+    <input type="text" id="site_operator" name="site_operator" value="{{ site.operator }}"
+           placeholder="Jane Smith, Sole Proprietor">
+    <p class="hint">The person or business answerable for this installation.</p>
+  </div>
+  <div class="field">
+    <label for="site_operator_locality">Town and state</label>
+    <input type="text" id="site_operator_locality" name="site_operator_locality"
+           value="{{ site.operator_locality }}" placeholder="New York, NY 10014">
+    <p class="hint">Town, state and post code. <strong>Not a street
+      address.</strong> The building above is never published; this is what the
+      public pages say instead.</p>
+  </div>
   <div class="field">
     <label for="site_contact_email">Public email</label>
     <input type="email" id="site_contact_email" name="site_contact_email"
@@ -304,8 +318,9 @@
 </div>
 
 <p class="hint">
-  Anyone can read these without signing in. <strong>Not where your alerts
-  go</strong>; that is your own email and mobile, on your profile.
+  Anyone can read these without signing in, on the home page, the contact page
+  and the policies. <strong>Not where your alerts go</strong>; that is your own
+  email and mobile, on your profile.
 </p>
 <p class="hint">
   Both optional; replying STOP is what actually stops messages. Prefer a role

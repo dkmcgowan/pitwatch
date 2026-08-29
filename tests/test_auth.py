@@ -57,9 +57,13 @@ def sign_in_as_admin(client, password: str = NEW_PASSWORD):
 
 @pytest.mark.parametrize(
     "path",
-    ["/", "/setup", "/settings", "/users", "/change-password", "/api/state"],
+    ["/setup", "/settings", "/users", "/change-password", "/api/state"],
 )
 def test_everything_needs_an_account(client, path):
+    """The root is not on this list on purpose: signed out it is the public
+    home page. Everything a signed out visitor may reach is enumerated in
+    test_the_public_list_is_short_and_deliberate, and this is the other half of
+    that argument."""
     response = client.get(path, follow_redirects=False)
 
     assert response.status_code in (303, 401), path
@@ -165,7 +169,7 @@ def test_the_shipped_password_opens_nothing_but_the_change_page(client):
 def test_changing_the_password_opens_the_rest(client):
     sign_in_as_admin(client)
 
-    assert client.get("/").status_code == 200
+    assert client.get("/profile").status_code == 200
     assert client.get("/settings").status_code == 200
 
 
@@ -226,7 +230,7 @@ def test_a_wrong_password_is_refused(client):
     response = client.post("/login", data={"username": "admin", "password": "wrong-password"})
 
     assert response.status_code == 401
-    assert client.get("/", follow_redirects=False).status_code == 303
+    assert client.get("/settings", follow_redirects=False).status_code == 303
 
 
 def test_login_will_not_redirect_off_site(client):
@@ -337,6 +341,8 @@ def test_the_policies_never_name_the_building(client):
         "/settings/site",
         data={"site_name": "822 Greenwich St", "site_operator_locality": "New York, NY 10014"},
     )
+
+    client.post("/logout")
 
     for path in ("/", "/contact", "/messaging-policy", "/privacy", "/login"):
         assert "822 Greenwich St" not in client.get(path).text, path

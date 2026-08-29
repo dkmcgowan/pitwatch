@@ -396,3 +396,25 @@ def test_contact_details_are_shown_when_there_are_some(client):
     # And STOP is still the first thing offered, because it is the one that
     # works without asking anybody.
     assert page.index("never have to reach anybody") < page.index("pumps@example.com")
+
+
+def test_the_policy_shows_the_messages_it_will_actually_send(client):
+    """Every messaging registration asks to see the text.
+
+    Built from the configured rules rather than written by hand, so that
+    editing a message on the alerts page cannot leave a public page describing
+    something the system stopped sending a year ago.
+    """
+    page = prose(client.get("/messaging-policy").text)
+
+    assert "High water at" in page
+    assert "overload tripped at" in page
+
+
+def test_a_sample_message_does_not_leak_the_building(client):
+    """The messages themselves carry {site}, which is the building, which on
+    this installation is a home address."""
+    sign_in_as_admin(client)
+    client.post("/settings/site", data={"site_name": "822 Greenwich St"})
+
+    assert "822 Greenwich St" not in client.get("/messaging-policy").text

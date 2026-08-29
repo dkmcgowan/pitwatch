@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
@@ -209,11 +209,38 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
             request, "privacy.html", {"site": store.site, "user": None}
         )
 
+    @app.get("/contact", include_in_schema=False)
+    async def contact(request: Request) -> HTMLResponse:
+        """Public on purpose. See pitwatch.middleware for why."""
+        store: SettingsStore = request.app.state.settings
+        return templates.TemplateResponse(
+            request, "contact.html", {"site": store.site, "user": None}
+        )
+
     @app.get("/", include_in_schema=False)
     async def index(request: Request) -> HTMLResponse:
-        """The dashboard, or an invitation to set up if nothing is configured."""
+        """Two pages sharing an address.
+
+        Signed out this is the public home page, which is the whole reason the
+        root is not behind the login: a monitoring tool with no public face
+        cannot be checked by a carrier reviewing a messaging registration, and
+        cannot answer somebody who got a text about a pump and wants to know
+        what sent it.
+
+        Signed in it is the dashboard, or an invitation to set up.
+        """
         store: SettingsStore = request.app.state.settings
         user = auth.current_user(request)
+        if user is None:
+            return templates.TemplateResponse(
+                request, "home.html", {"site": store.site, "user": None}
+            )
+
+        # The middleware enforces this everywhere it guards, and this path is
+        # now outside it. A default password is a password everybody knows.
+        if user.must_change_password:
+            return RedirectResponse("/change-password", status_code=303)
+
         if not await store.is_setup_complete():
             return templates.TemplateResponse(
                 request, "index.html", {"site": store.site, "user": user, "setup_complete": False}

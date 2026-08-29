@@ -10,12 +10,18 @@ What is public, and why each one:
 * **Static files.** The stylesheet for the login page, and nothing that is not
   already in the repository.
 * **The health check.** A load balancer cannot sign in.
-* **The messaging policy and privacy pages.** These are the ones that look like
-  a mistake and are not. A carrier reviewing a toll-free number registration has
-  to be able to read how people opt in and out of texts, without an account, and
-  so does anybody deciding whether to hand over their phone number. Putting
-  consent terms behind a login is both a failed registration and the wrong thing
-  to do.
+* **The home page, the contact page, the messaging policy and the privacy
+  notice.** These are the ones that look like a mistake and are not. A carrier
+  reviewing a toll-free number registration has to be able to see who is behind
+  the number and how people opt in and out of texts, without an account, and so
+  does anybody deciding whether to hand over their phone number. A registration
+  was refused for exactly this: the site required a login, so there was nothing
+  to review. Putting consent terms behind one is both a failed registration and
+  the wrong thing to do.
+
+  The root is the awkward one, because signed in it is the dashboard. That
+  branch lives in the index route rather than here, and it carries the password
+  change check with it, since this middleware no longer runs on it.
 * **The set password page.** Somebody following an invitation link has no
   password yet, which is the entire point of the link.
 """
@@ -35,6 +41,8 @@ log = logging.getLogger(__name__)
 
 PUBLIC_PATHS = frozenset(
     {
+        "/",
+        "/contact",
         "/login",
         "/logout",
         "/health",

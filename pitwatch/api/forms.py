@@ -80,6 +80,8 @@ def site_from(form: FormData) -> SiteSettings:
         base_url=text(form, "site_base_url").rstrip("/"),
         contact_email=text(form, "site_contact_email"),
         contact_phone=text(form, "site_contact_phone"),
+        operator=text(form, "site_operator"),
+        operator_locality=text(form, "site_operator_locality"),
         notify_delay_s=integer(form, "notify_delay_s", 5),
         notify_cooldown_s=integer(form, "notify_cooldown_s", 900),
     )

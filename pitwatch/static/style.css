@@ -1057,6 +1057,51 @@ table.steps th { font-weight: 500; }
 .prose li { margin-bottom: 0.35rem; }
 .prose a { color: var(--accent); }
 
+/* The public pages: home, contact, the policies and the login form. Small
+   additions rather than a second design, because a visitor who sees this and
+   then signs in should not feel like they changed websites. */
+
+.prose .lede {
+  font-size: 1.05rem;
+  color: var(--text);
+  max-width: 60ch;
+}
+
+.prose .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 1.75rem;
+}
+
+.public-footer {
+  align-items: baseline;
+  row-gap: 0.75rem;
+}
+
+.footer-who {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  color: var(--text);
+}
+
+/* A rule rather than a separator character, so that a name wrapping onto its
+   own line on a phone does not leave a dot stranded at the start of it. */
+.footer-who span + span {
+  border-left: 1px solid var(--border);
+  padding-left: 0.6rem;
+}
+
+.footer-who a { color: inherit; }
+
+@media (max-width: 30rem) {
+  .footer-who span + span {
+    border-left: 0;
+    padding-left: 0;
+  }
+}
+
 .break { word-break: break-all; }
 
 .notice-inline {

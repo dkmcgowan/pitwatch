@@ -170,7 +170,7 @@ def test_changing_a_password_ends_every_other_session(client):
         },
     )
     second_browser = client.cookies.get(cookie)
-    assert client.get("/").status_code == 200, "the second browser should be in"
+    assert client.get("/profile").status_code == 200, "the second browser should be in"
 
     # Back to the first, which changes the password.
     client.cookies.clear()
@@ -191,7 +191,7 @@ def test_changing_a_password_ends_every_other_session(client):
     # cookie happened to expire.
     client.cookies.clear()
     client.cookies.set(cookie, second_browser)
-    assert client.get("/", follow_redirects=False).status_code == 303
+    assert client.get("/settings", follow_redirects=False).status_code == 303
 
 
 # -- headers -----------------------------------------------------------------
@@ -328,7 +328,7 @@ def test_changing_your_own_password_does_not_sign_you_out(client):
 
     assert response.status_code == 303
     assert response.headers["location"] == "/profile?saved=1"
-    assert client.get("/").status_code == 200, "signed out by their own change"
+    assert client.get("/profile").status_code == 200, "signed out by their own change"
 
 
 @pytest.mark.parametrize("path", ["/login", "/messaging-policy", "/privacy"])

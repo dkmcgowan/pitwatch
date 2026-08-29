@@ -248,7 +248,11 @@ def test_only_an_admin_can_manage_people_or_settings(client):
     assert client.get("/settings", follow_redirects=False).status_code == 403
     assert client.post("/settings/site", data={"site_name": "Nope"}).status_code == 403
     # The dashboard, which is what they were given an account for, works.
-    assert client.get("/").status_code == 200
+    # Checked for the signed in layout rather than for a 200, because the root
+    # answers 200 to a signed out visitor too: it is the public home page.
+    dashboard = client.get("/")
+    assert dashboard.status_code == 200
+    assert "public-nav" not in dashboard.text
 
 
 # -- invitations -------------------------------------------------------------
@@ -273,7 +277,7 @@ def test_an_invitation_sets_a_password_and_signs_them_in(client):
     )
 
     assert response.status_code == 303
-    assert client.get("/").status_code == 200
+    assert client.get("/profile").status_code == 200
 
 
 def test_an_invitation_link_only_works_once(client):
@@ -405,7 +409,7 @@ def test_a_signed_in_non_admin_cannot_reach_the_dashboard_lamps(client):
             "confirm_password": "their-own-long-password",
         },
     )
-    assert client.get("/").status_code == 200, "they are signed in"
+    assert client.get("/profile").status_code == 200, "they are signed in"
 
     # The lamps are a section of the settings page now, so the page to be kept
     # out of is that one.

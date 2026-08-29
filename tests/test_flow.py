@@ -619,7 +619,7 @@ def test_wanting_no_alerts_at_all_is_allowed(client):
     )
 
     assert response.status_code == 200
-    assert client.get("/").status_code == 200
+    assert client.get("/profile").status_code == 200
 
 
 def test_asking_for_alerts_with_nowhere_to_send_them_is_refused(client):
@@ -674,7 +674,7 @@ def test_your_own_profile_cannot_make_you_an_administrator(client):
     # Still not an administrator, and still able to sign in.
     assert client.get("/users", follow_redirects=False).status_code == 403
     assert client.get("/settings", follow_redirects=False).status_code == 403
-    assert client.get("/").status_code == 200
+    assert client.get("/profile").status_code == 200
 
 
 def _user_id(client, username: str) -> int:
@@ -1013,7 +1013,7 @@ def test_the_public_pages_carry_the_operator(client):
         },
         follow_redirects=False,
     )
-    client.get("/logout", follow_redirects=False)
+    client.post("/logout")
 
     for path in ("/", "/contact", "/messaging-policy", "/privacy"):
         page = client.get(path, follow_redirects=False).text
@@ -1041,7 +1041,7 @@ def test_the_building_is_never_published(client):
         },
         follow_redirects=False,
     )
-    client.get("/logout", follow_redirects=False)
+    client.post("/logout")
 
     for path in ("/", "/contact", "/messaging-policy", "/privacy", "/login"):
         page = client.get(path, follow_redirects=False).text

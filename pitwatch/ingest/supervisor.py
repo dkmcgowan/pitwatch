@@ -92,7 +92,7 @@ class Supervisor:
     async def _start_inputs(self) -> None:
         settings = self._store.inputs
         if not settings.enabled or not settings.host:
-            log.info("panel module ingest is off: no address configured")
+            log.info("Panel input ingest is off")
             await record_device_status(self._pool, "inputs", False, "Not configured")
             return
 
@@ -102,7 +102,9 @@ class Supervisor:
         known = await self.io_sink.prime()
         reader = InputsReader(settings, self.io_sink.submit, on_status, initial_state=known)
         self._spawn("inputs", reader.run)
-        log.info("panel module ingest started for %s:%d", settings.host, settings.port)
+        log.info(
+            "Panel input ingest listening to the broker at %s:%d", settings.host, settings.port
+        )
 
     # -- task plumbing ------------------------------------------------------
 
@@ -149,7 +151,7 @@ class Supervisor:
                 await self._kill("shelly")
                 await self._start_shelly()
             if keys & INPUT_KEYS:
-                log.info("panel module settings changed, restarting ingest")
+                log.info("Panel input settings changed, restarting ingest")
                 await self._kill("inputs")
                 await self._start_inputs()
 

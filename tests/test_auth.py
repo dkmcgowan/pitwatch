@@ -424,3 +424,22 @@ def test_a_sample_message_does_not_leak_the_building(client):
     client.post("/settings/site", data={"site_name": "822 Greenwich St"})
 
     assert "822 Greenwich St" not in client.get("/messaging-policy").text
+
+
+def test_a_button_in_prose_is_not_recolored_into_invisibility(client):
+    """The prose link color outranks the white a button sets, so a button
+    inside a prose block came out as accent text on an accent background: a
+    blue rectangle with nothing in it. Shipped once, on the home page."""
+    css = client.get("/static/style.css").text
+
+    assert ".prose a:not(.button)" in css
+    assert ".prose a {" not in css
+
+
+def test_the_home_page_does_not_repeat_the_header_links(client):
+    """Contact and Sign in are in the top right of every public page. A second
+    copy at the bottom of the home page was two more things to keep in step and
+    no more ways to get anywhere."""
+    page = client.get("/").text
+
+    assert 'class="button"' not in page

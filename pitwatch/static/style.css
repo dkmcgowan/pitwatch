@@ -1045,17 +1045,28 @@ table.steps th { font-weight: 500; }
   align-items: start;
 }
 
-/* The card fills the page; the text inside it does not.
+/* The card is the measure. Both halves of this have been wrong once.
  *
- * Capping the card left a narrow column against a lot of empty space on a
- * laptop. Capping the lines instead keeps them at a readable measure while the
- * card, its background and its headings use the width they are given. */
-.prose h1, .prose h2, .prose p, .prose ul, .prose ol { max-width: 72ch; }
+ * Capping the lines instead of the card, which is what this used to do, keeps
+ * the card as wide as the page while the text stops two thirds of the way
+ * across it. On a laptop that is unremarkable. On a wide monitor it is a band
+ * of empty card beside every paragraph, and it reads as a layout that has gone
+ * wrong rather than as a margin.
+ *
+ * So the width lives on the card, and 80ch is the upper end of a comfortable
+ * line rather than the middle of one: erring wide here is what keeps the card
+ * from looking pinched on a laptop, which is the failure this replaced. */
+.card.prose {
+  max-width: calc(80ch + 3rem);
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .prose table { max-width: 100%; }
 .prose h2 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; }
 .prose h2:first-of-type { margin-top: 1rem; }
 .prose li { margin-bottom: 0.35rem; }
-.prose a { color: var(--accent); }
+.prose a:not(.button) { color: var(--accent); }
 
 /* The public pages: home, contact, the policies and the login form. Small
    additions rather than a second design, because a visitor who sees this and
@@ -1064,14 +1075,6 @@ table.steps th { font-weight: 500; }
 .prose .lede {
   font-size: 1.05rem;
   color: var(--text);
-  max-width: 60ch;
-}
-
-.prose .actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-top: 1.75rem;
 }
 
 .public-footer {

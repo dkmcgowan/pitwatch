@@ -1,5 +1,5 @@
 -- The two raw data streams: current from the CT clamps, contact state from the
--- Waveshare.
+-- panel module.
 --
 -- These are shaped very differently on purpose. The clamps produce a reading
 -- roughly once a second forever, which is a time series and belongs in a

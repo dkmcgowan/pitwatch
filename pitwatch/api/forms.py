@@ -19,13 +19,13 @@ from pitwatch.schemas import (
     AlertsSettings,
     ChannelMap,
     DashboardSettings,
+    InputsSettings,
     PumpSettings,
     PumpsSettings,
     ShellySettings,
     SiteSettings,
     SmsSettings,
     SmtpSettings,
-    WaveshareSettings,
 )
 
 
@@ -106,13 +106,19 @@ def shelly_from(form: FormData, existing: ShellySettings | None = None) -> Shell
     )
 
 
-def waveshare_from(form: FormData) -> WaveshareSettings:
-    """The I/O module and what each of its eight inputs is called.
+def inputs_from(form: FormData, existing: InputsSettings | None = None) -> InputsSettings:
+    """The broker to listen to, and what each of the eight inputs is called.
 
     A blank name means nothing is wired to that input. There is nothing else to
     read: the input number is the identity, so there is no separate list of
     names to keep in step with it and no way for the two to disagree.
     """
+    # Same rule as the SMTP and device passwords: the stored one is never sent
+    # to the browser, so an empty box means unchanged rather than cleared.
+    password = optional_text(form, "inputs_password")
+    if password is None and existing is not None and not checkbox(form, "inputs_clear_password"):
+        password = existing.password
+
     channels = [
         ChannelMap(
             channel=number_,
@@ -123,14 +129,17 @@ def waveshare_from(form: FormData) -> WaveshareSettings:
         )
         for number_ in range(1, 9)
     ]
-    return WaveshareSettings(
-        enabled=checkbox(form, "waveshare_enabled"),
-        host=text(form, "waveshare_host"),
-        port=integer(form, "waveshare_port", 502),
-        unit_id=integer(form, "waveshare_unit_id", 1),
-        poll_ms=integer(form, "waveshare_poll_ms", 200),
-        timeout_s=number(form, "waveshare_timeout_s", 3.0),
-        debounce_ms=integer(form, "waveshare_debounce_ms", 500),
+    return InputsSettings(
+        enabled=checkbox(form, "inputs_enabled"),
+        host=text(form, "inputs_host"),
+        port=integer(form, "inputs_port", 1883),
+        username=text(form, "inputs_username"),
+        password=password or "",
+        encrypted=checkbox(form, "inputs_encrypted"),
+        topic=text(form, "inputs_topic", "pitwatch/inputs") or "pitwatch/inputs",
+        status_topic=text(form, "inputs_status_topic", "pitwatch/status") or "pitwatch/status",
+        client_id=text(form, "inputs_client_id", "pitwatch") or "pitwatch",
+        debounce_ms=integer(form, "inputs_debounce_ms", 500),
         channels=channels,
     )
 

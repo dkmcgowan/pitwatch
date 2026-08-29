@@ -59,7 +59,7 @@ async def setup_page(request: Request, admin: auth.IsAdmin):
         _context(
             request,
             shelly=store.shelly,
-            waveshare=store.waveshare,
+            inputs=store.inputs,
             pumps=store.pumps,
             error=None,
         ),
@@ -74,7 +74,7 @@ async def setup_submit(request: Request, admin: auth.IsAdmin):
     try:
         site = forms.site_from(form)
         shelly = forms.shelly_from(form, store.shelly)
-        waveshare = forms.waveshare_from(form)
+        inputs = forms.inputs_from(form, store.inputs)
         pumps = forms.pumps_from(form)
     except (ValueError, ValidationError) as error:
         return _templates(request).TemplateResponse(
@@ -83,14 +83,14 @@ async def setup_submit(request: Request, admin: auth.IsAdmin):
             _context(
                 request,
                 shelly=store.shelly,
-                waveshare=store.waveshare,
+                inputs=store.inputs,
                 pumps=store.pumps,
                 error=_readable(error),
             ),
             status_code=400,
         )
 
-    for value in (site, shelly, waveshare, pumps):
+    for value in (site, shelly, inputs, pumps):
         await store.put(value)
 
     # The person doing the setup is the first person alerts should reach, and
@@ -114,7 +114,7 @@ async def settings_page(request: Request, admin: auth.IsAdmin, saved: str | None
         _context(
             request,
             shelly=store.shelly,
-            waveshare=store.waveshare,
+            inputs=store.inputs,
             pumps=store.pumps,
             smtp=store.smtp,
             sms=store.sms,
@@ -187,8 +187,8 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
                 await store.put(forms.site_from(form))
             case "shelly":
                 await store.put(forms.shelly_from(form, store.shelly))
-            case "waveshare":
-                await store.put(forms.waveshare_from(form))
+            case "inputs":
+                await store.put(forms.inputs_from(form, store.inputs))
             case "pumps":
                 await store.put(forms.pumps_from(form))
             case "smtp":
@@ -206,7 +206,7 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
             _context(
                 request,
                 shelly=store.shelly,
-                waveshare=store.waveshare,
+                inputs=store.inputs,
                 pumps=store.pumps,
                 smtp=store.smtp,
                 sms=store.sms,

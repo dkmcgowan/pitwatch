@@ -22,12 +22,12 @@ from pitwatch.domain.history import (
     SignalHistory,
     Typical,
 )
+from pitwatch.ingest import inputs as inputs_ingest
 from pitwatch.ingest import shelly as shelly_ingest
-from pitwatch.ingest import waveshare as waveshare_ingest
 from pitwatch.ingest.sink import LiveIo, LiveState
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
-from pitwatch.schemas import DASHBOARD_ROLES, DashboardSettings, WaveshareSettings
+from pitwatch.schemas import DASHBOARD_ROLES, DashboardSettings, InputsSettings
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -109,7 +109,7 @@ def lead_and_lag(dashboard: DashboardSettings, live_io: LiveIo) -> tuple[str, st
 
 def panel_state(
     dashboard: DashboardSettings,
-    waveshare: WaveshareSettings,
+    inputs: InputsSettings,
     live_io: LiveIo,
     closings: dict[int, Closings] | None = None,
 ) -> dict:
@@ -124,7 +124,7 @@ def panel_state(
             "channel": channel,
             # What the input is called, so the dashboard shows the panel's own
             # word for it rather than ours when somebody has typed one.
-            "label": waveshare.label_for(channel) if channel else None,
+            "label": inputs.label_for(channel) if channel else None,
             # None covers both nothing assigned and nothing read yet. Neither
             # is off, and a lamp that reads off when it means unknown is the
             # lamp that gets believed.
@@ -176,7 +176,7 @@ async def build_state(app) -> dict:
     # fault on the page for a device nobody has configured yet.
     configured = {
         "shelly": bool(shelly.enabled and shelly.host),
-        "waveshare": bool(store.waveshare.enabled and store.waveshare.host),
+        "inputs": bool(store.inputs.enabled and store.inputs.host),
     }
     devices = {
         row["device"]: {
@@ -244,7 +244,7 @@ async def build_state(app) -> dict:
             "recent": _with_live_rise(recent[number], live.rose_at(channel)),
         }
 
-    waveshare = store.waveshare
+    inputs = store.inputs
     assigned = {channel for channel in store.dashboard.assignments.values() if channel}
 
     signals: SignalHistory | None = getattr(app.state, "signal_history", None)
@@ -265,13 +265,11 @@ async def build_state(app) -> dict:
     return {
         "site": store.site.model_dump(mode="json"),
         "pumps": {"1": pump_state(1), "2": pump_state(2)},
-        "panel": panel_state(store.dashboard, waveshare, live_io, closings),
+        "panel": panel_state(store.dashboard, inputs, live_io, closings),
         # Named inputs that no lamp is showing. Nothing should go missing just
         # because the dashboard has no place built for it.
         "inputs": [
-            input_state(mapped)
-            for mapped in waveshare.used_channels
-            if mapped.channel not in assigned
+            input_state(mapped) for mapped in inputs.used_channels if mapped.channel not in assigned
         ],
         "devices": devices,
         "updated_at": live.updated_at.isoformat() if live.updated_at else None,
@@ -300,7 +298,7 @@ async def test_shelly(request: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": str(error)}, status_code=400)
 
     if not settings.host:
-        return JSONResponse({"ok": False, "error": "Enter an address first"}, status_code=400)
+        return JSONResponse({"ok": False, "error": "Enter a broker address first"}, status_code=400)
 
     try:
         return JSONResponse(await shelly_ingest.probe(settings))
@@ -312,25 +310,29 @@ async def test_shelly(request: Request) -> JSONResponse:
         )
 
 
-@router.post("/test/waveshare", include_in_schema=False)
-async def test_waveshare(request: Request) -> JSONResponse:
-    """Read the eight inputs once and report them, raw and interpreted.
+@router.post("/test/inputs", include_in_schema=False)
+async def test_inputs(request: Request) -> JSONResponse:
+    """Listen for one published body and report it, raw and interpreted.
 
-    The setup page calls this on a short timer while the channel map is open,
-    so someone at the panel can lift a float by hand and watch a row change.
-    That is by far the fastest way to get the mapping right, and reading the
-    wire labels is how it ends up wrong.
+    The setup page calls this while the channel map is open, so someone at the
+    panel can lift a float by hand and watch a row change. That is by far the
+    fastest way to get the mapping right, and reading the wire labels is how it
+    ends up wrong.
+
+    It waits rather than asks, because there is nothing to ask: the module
+    publishes on change, so if nothing moves there is nothing to hear.
     """
     form = await request.form()
+    store: SettingsStore = request.app.state.settings
     try:
-        settings = forms.waveshare_from(form)
+        settings = forms.inputs_from(form, store.inputs)
     except (ValueError, ValidationError) as error:
         return JSONResponse({"ok": False, "error": str(error)}, status_code=400)
 
     if not settings.host:
-        return JSONResponse({"ok": False, "error": "Enter an address first"}, status_code=400)
+        return JSONResponse({"ok": False, "error": "Enter a broker address first"}, status_code=400)
 
-    result = await waveshare_ingest.probe(settings)
+    result = await inputs_ingest.probe(settings)
     return JSONResponse(result)
 
 

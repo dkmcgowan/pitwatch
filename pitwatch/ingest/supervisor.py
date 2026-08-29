@@ -18,10 +18,10 @@ import logging
 
 import asyncpg
 
+from pitwatch.ingest.inputs import InputsReader
 from pitwatch.ingest.shelly import ShellyReader
 from pitwatch.ingest.sink import IoSink, LiveIo, LiveState, SampleSink, record_device_status
-from pitwatch.ingest.waveshare import WaveshareReader
-from pitwatch.schemas import ShellySettings, WaveshareSettings
+from pitwatch.schemas import InputsSettings, ShellySettings
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 # Which settings key each reader cares about. Saving an SMTP password should
 # not drop the connection to the meter, so anything not listed here is ignored.
 SHELLY_KEYS = {ShellySettings.KEY}
-WAVESHARE_KEYS = {WaveshareSettings.KEY}
+INPUT_KEYS = {InputsSettings.KEY}
 
 
 class Supervisor:
@@ -52,7 +52,7 @@ class Supervisor:
         await self.sink.prime()
         self._spawn("sink", self.sink.run)
         await self._start_shelly()
-        await self._start_waveshare()
+        await self._start_inputs()
 
         self._queue = self._store.subscribe()
         self._watcher = asyncio.create_task(self._watch_settings(), name="pitwatch-settings-watch")
@@ -89,20 +89,20 @@ class Supervisor:
         self._spawn("shelly", reader.run)
         log.info("Shelly ingest started for %s", settings.host)
 
-    async def _start_waveshare(self) -> None:
-        settings = self._store.waveshare
+    async def _start_inputs(self) -> None:
+        settings = self._store.inputs
         if not settings.enabled or not settings.host:
-            log.info("Waveshare ingest is off: no address configured")
-            await record_device_status(self._pool, "waveshare", False, "Not configured")
+            log.info("panel module ingest is off: no address configured")
+            await record_device_status(self._pool, "inputs", False, "Not configured")
             return
 
         async def on_status(online: bool, error: str | None) -> None:
-            await record_device_status(self._pool, "waveshare", online, error)
+            await record_device_status(self._pool, "inputs", online, error)
 
         known = await self.io_sink.prime()
-        reader = WaveshareReader(settings, self.io_sink.submit, on_status, initial_state=known)
-        self._spawn("waveshare", reader.run)
-        log.info("Waveshare ingest started for %s:%d", settings.host, settings.port)
+        reader = InputsReader(settings, self.io_sink.submit, on_status, initial_state=known)
+        self._spawn("inputs", reader.run)
+        log.info("panel module ingest started for %s:%d", settings.host, settings.port)
 
     # -- task plumbing ------------------------------------------------------
 
@@ -148,10 +148,10 @@ class Supervisor:
                 log.info("Shelly settings changed, restarting ingest")
                 await self._kill("shelly")
                 await self._start_shelly()
-            if keys & WAVESHARE_KEYS:
-                log.info("Waveshare settings changed, restarting ingest")
-                await self._kill("waveshare")
-                await self._start_waveshare()
+            if keys & INPUT_KEYS:
+                log.info("panel module settings changed, restarting ingest")
+                await self._kill("inputs")
+                await self._start_inputs()
 
 
 async def _supervised(name: str, coro_factory, stop: asyncio.Event) -> None:

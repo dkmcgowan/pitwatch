@@ -40,26 +40,26 @@ Next, in order:
    the motor overloads. The reference installation is a Magnus controller.
 2. **A [Shelly EM Gen3](https://www.shelly.com/products/shelly-em-gen3)** with
    two current transformer clamps, one on each motor.
-3. **A Waveshare 8 channel Ethernet I/O module**, Modbus TCP, on the same
-   network.
+3. **A [ControlByWeb X-408](https://www.controlbyweb.com/x408/)**, on the same
+   network. Eight optically isolated inputs, 4 to 26 V DC, which is what a 24 V
+   panel gives you. Firmware 3.12 or newer, for MQTT.
 4. **Somewhere to run Docker.** A NAS, a small server, a Raspberry Pi. It needs
    about 200 MB of memory and very little else.
 
-The Shelly is read over a websocket it pushes on, so a reading appears the
-moment it changes.
+Nothing here is polled. The Shelly is read over a websocket it pushes on. The
+X-408 publishes to an MQTT broker when an input changes, and the broker comes up
+alongside PitWatch in the same compose file. So a float lifting and a reading
+changing both arrive the moment they happen, and there is no poll interval to
+pick between a fast alarm and a busy network.
 
-The Waveshare is polled, five times a second by default. That is not a shortcut
-taken to save effort: Modbus is a master and slave protocol and a slave is never
-allowed to speak first, in RTU or in TCP. The connection is held open, which
-saves the handshake and nothing else. The module's MQTT mode does not help
-either; it carries Modbus frames rather than publishing events, so it would be
-the same poll with a broker added to the alarm path. Eight bits at five times a
-second is about a hundred bytes a second, and the worst case delay in noticing a
-float is one poll interval.
+That is also why the X-408 opens the connection rather than answering one. The
+only thing that has to be reachable on your network is the broker, and it is
+running on the same machine as the dashboard.
 
-Both devices need a fixed address, either static or a DHCP reservation. PitWatch
-holds a connection open to the Shelly and reconnects when it drops, but it does
-not go looking for a device that has moved.
+The Shelly needs a fixed address, either static or a DHCP reservation: PitWatch
+holds a connection open to it and reconnects when it drops, but it does not go
+looking for a device that has moved. The X-408 does not, because it dials in;
+give it whatever address your network hands out.
 
 ## Install
 
@@ -70,8 +70,9 @@ curl -O https://raw.githubusercontent.com/dkmcgowan/pitwatch/main/.env.example
 mv .env.example .env
 ```
 
-Put a password in `.env`. That is the only setting without a sensible default;
-everything else is in `docker-compose.yml` with a comment next to it.
+Put a database password and a broker password in `.env`. Those are the only
+two settings without a sensible default; everything else is in
+`docker-compose.yml` with a comment next to it.
 
 ```sh
 docker compose up -d
@@ -81,9 +82,10 @@ Then open `http://<your-host>:8080` and sign in as **`admin`** with the password
 **`pitwatch`**. It will make you change it before anything else opens, and then
 walk you through setup.
 
-The application runs on the host's network, so your Shelly and Waveshare are
-reachable at their own addresses with nothing in the way. If you would rather it
-did not, the compose file says in a comment what to change.
+The application and the broker run on the host's network, so your Shelly is
+reachable at its own address with nothing in the way, and the X-408 can reach
+the broker at this machine's address. If you would rather they did not, the
+compose file says in a comment what to change.
 
 If a device will not connect, check the host can reach it first, then that the
 address is an IP rather than an mDNS name: `.local` names resolve on your
@@ -210,16 +212,17 @@ clamps are identical and the device has no idea which motor it is measuring, so
 this is the one thing it cannot work out for itself. If you get it backwards,
 pump 1 will show pump 2's current; swap it in the settings page.
 
-**The Waveshare.** Its address, a name for each of the eight inputs, and
-whether each one is on when voltage is **present** or when it is **missing**.
-Get that second one backwards and an alarm reads as permanently on, then goes
-quiet at the moment it matters, so check it against the panel rather than
-guessing. See [Wiring the I/O module](#wiring-the-io-module) below.
+**The panel inputs.** The broker to listen to, a name for each of the eight
+inputs, and whether each one is on when voltage is **present** or when it is
+**missing**. Get that second one backwards and an alarm reads as permanently on,
+then goes quiet at the moment it matters, so check it against the panel rather
+than guessing. The broker fields arrive already filled in from your `.env`.
+See [Setting up the X-408](#setting-up-the-x-408) and
+[Wiring the I/O module](#wiring-the-io-module) below.
 
-**You can skip the Waveshare entirely to start with.** Leave its box unticked
-and its address empty. The clamps go on in ten minutes; the I/O module needs the
-panel opened up, so starting with current only is the normal way in rather than
-an edge case. You get live amps, per pump running state and the history straight
+**You can skip the panel inputs entirely to start with.** Untick the box. The
+clamps go on in ten minutes; the I/O module needs the panel opened up, so
+starting with current only is the normal way in rather than an edge case. You get live amps, per pump running state and the history straight
 away. The contacts show as **not wired** and the module shows as **not set up**
 rather than as a fault, and no rule that depends on a contact will fire on
 nothing.
@@ -347,50 +350,125 @@ should not be the only thing standing between you and a flooded basement.
 
 It sends through the email settings, so those have to work first.
 
+## Setting up the X-408
+
+The module talks to PitWatch and PitWatch never talks to the module, so all of
+this is typed into the X-408's own web page. Find it at its IP address and open
+**Setup**.
+
+### Point it at the broker
+
+**General Settings**, then the **MQTT** tab at the bottom, then add a broker:
+
+| Field | What to put |
+| --- | --- |
+| Hostname | The IP address of the machine running PitWatch |
+| Port | `1883`, or whatever `MQTT_PORT` is in your `.env` |
+| Client ID | `x408` |
+| Username | `MQTT_USERNAME` from your `.env` |
+| Password | `MQTT_PASSWORD` from your `.env` |
+| Encrypted | Off |
+| Keep Alive | `30` |
+| Clean Session | On |
+| Birth Topic | `pitwatch/status` |
+| Birth Message | `online` |
+| Last Will Topic | `pitwatch/status` |
+| Last Will Message | `offline` |
+
+The birth and last will pair is what makes the module going offline something
+PitWatch is told about rather than something it has to notice. The module says
+`online` when it connects, and it hands the broker the `offline` message to
+publish on its behalf if the connection drops. Keep Alive is how long the
+broker waits before deciding that has happened, so 30 seconds is the worst case
+for hearing that the panel has lost power.
+
+Type these two topics exactly. They also appear on the PitWatch settings page,
+and the two have to agree; nothing will warn you if they do not, because a
+topic nobody publishes to looks exactly like a device that has nothing to say.
+
+### Tell it what to publish
+
+Still under **MQTT**, add a publication:
+
+| Field | What to put |
+| --- | --- |
+| Publication Name | `inputs` |
+| Broker | the one you just added |
+| Publish on Change | **On** |
+| Publish Interval | leave empty |
+| Topic | `pitwatch/inputs` |
+| QoS | `1` |
+| Retain | On |
+
+and for **Payload**, all eight inputs in one line:
+
+```
+{"1":${digitalInput1},"2":${digitalInput2},"3":${digitalInput3},"4":${digitalInput4},"5":${digitalInput5},"6":${digitalInput6},"7":${digitalInput7},"8":${digitalInput8}}
+```
+
+Every message carries all eight, which matters more than it looks. One message
+per changed input would mean PitWatch holding a picture assembled from
+fragments, and a fragment lost across a reconnect would leave that picture
+quietly wrong. This way any message that arrives is the whole truth, and a
+message that does not arrive costs nothing but the next one.
+
+**Publish on Change** is the setting that makes an alarm arrive in the time it
+takes to cross the network. Leave the interval empty: there is nothing to say
+on a timer that has not already been said. **Retain** means the broker keeps
+the last message, so PitWatch reconnecting gets the current state at once
+instead of waiting for the next float to move.
+
 ## Wiring the I/O module
 
 > Turn the panel off first, and if you are not comfortable working inside a pump
 > control panel, have an electrician do it. PitWatch only reads; nothing here
 > should change how the panel behaves, and if it does, something is wired wrong.
 
-The Waveshare has `DI1` to `DI8` for the eight signals, plus two common
-terminals, `DICOM` and `DGND`. What you connect `DICOM` to is what decides how
-the inputs behave, and it is the single decision to get right:
+The X-408's inputs are optically isolated and want **applied voltage**, 4 to
+26 V DC. They do not supply their own sensing current, so a free dry contact
+has to be given something to switch. On a 24 V panel that is the control supply
+it is already sitting next to.
 
-| `DICOM` | Input type | Reads as on when |
-| --- | --- | --- |
-| Left floating | Dry contact, passive | The contact closes |
-| To the supply negative | PNP, high level trigger | Voltage is present on `DIn` |
-| To the supply positive | NPN, low level trigger | `DIn` is pulled down |
+The eight inputs share four negative terminals, a pair of inputs to each. So
+inputs 1 and 2 return through one terminal, 3 and 4 through the next, and so
+on. Two signals on a pair have to reference the same common, which on a panel
+with one control transformer they all do anyway. It is worth knowing before you
+plan the wiring rather than after.
 
-**If your panel signals voltage** (a control circuit where a live line means the
-thing is happening), tie `DICOM` to that control supply's **common or negative**
-and run each signal to its own `DIn`. This is the PNP row: voltage present reads
-as on, which is what you want. Tie the common to the **panel's** common, not to
-the Waveshare's own power ground, or the optocoupler isolation you are paying
-for stops isolating anything.
+**For a signal the panel already energizes** (a control circuit where a live
+line means the thing is happening), run the line to its input and the panel's
+control common to that input's negative terminal. Use the **panel's** common,
+not the X-408's own `Gnd`, or the isolation you are paying for stops isolating
+anything.
 
-**If your panel gives you free dry contacts**, leave `DICOM` disconnected and
-run each contact between `DIn` and `DGND`. The module supplies its own sensing
-current and stays isolated from whatever else the contact is doing.
+**For a free dry contact**, put the contact in series between the control
+supply and its input, with the negative terminal on the control common. The
+contact closing puts voltage across the input, which is what it reads.
 
-The inputs accept **5 to 36 V**, and the wet contact modes are specified for
-**DC**. If your control circuit is AC, the bidirectional optocoupler still
-conducts, but it drops out briefly at every zero crossing, 120 times a second on
-60 Hz mains. A poll can land in one of those gaps and read a live signal as off.
-The hold on the Waveshare settings, half a second by default, discards that:
-the next poll disagrees and the change is abandoned. Leave it well above the
-read interval on an AC circuit.
+The inputs are specified for **DC**. If your control circuit is AC, the
+optocoupler still conducts, but it drops out briefly at every zero crossing,
+120 times a second on 60 Hz mains. The module's own 20 ms minimum hold covers
+most of that, and the hold on the PitWatch settings page, half a second by
+default, covers the rest: a gap that short never lasts long enough to count as
+a change.
 
-Each input draws a few milliamps from whatever supplies it, so eight of them is
-a few tens of milliamps on the panel's control transformer. That is usually
-nothing, but it is worth a thought if you are tapping a circuit that is already
-close to its limit or is current limited for a reason.
+Each input draws between about 1 and 8.5 mA depending on the voltage, so eight
+of them is a few tens of milliamps on the panel's control transformer. That is
+usually nothing, but it is worth a thought if you are tapping a circuit that is
+already close to its limit or is current limited for a reason.
+
+The module itself takes 9 to 28 V DC on `+Vin` and `Gnd`, or Power over
+Ethernet. PoE is the better answer here: one cable, and the module's power
+comes from the same place as the network rather than from the panel it is
+watching. A module fed by the panel goes quiet exactly when the panel loses
+power, which is one of the things you want to be told about.
 
 **Which way round is each input?** Use the live view on the settings page
-rather than reasoning about it. It reads the module twice a second and shows
+rather than reasoning about it. It listens for the module to publish and shows
 each input both raw and as it will be recorded. Lift a float by hand, or run a
-pump, and watch which row changes and which way. Check the alarm and overload
+pump, and watch which row changes and which way. Nothing appearing means
+nothing moved: the module speaks only when something changes, so silence there
+is an answer rather than a failure. Check the alarm and overload
 contacts in particular: many panels hold those energized while everything is
 fine and drop them on the fault, so that a cut wire reads as a fault rather than
 as silence. Those are the inputs to set to **on when voltage is missing**.
@@ -422,8 +500,8 @@ of a report as the absence of an event is a mistake this made once, and the
 operator standing in front of the panel is the reason it did not survive.
 
 Run length, an exact count, and anything else that needs to see every
-transition comes from the panel's run contact through the I/O module, which is
-polled five times a second.
+transition comes from the panel's run contact through the I/O module, which
+publishes the moment the contact moves.
 
 **Inrush is discarded, not smoothed** (designed, not yet built). A motor pulls
 several times its running current as it comes up to speed. At the rate readings

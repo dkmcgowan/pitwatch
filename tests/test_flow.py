@@ -64,13 +64,15 @@ SETUP_FORM = {
     "shelly_pump1_channel": "1",
     "shelly_pump2_channel": "0",
     "shelly_heartbeat_s": "30",
-    "waveshare_enabled": "on",
-    "waveshare_host": "192.168.1.51",
-    "waveshare_port": "502",
-    "waveshare_unit_id": "1",
-    "waveshare_poll_ms": "200",
-    "waveshare_debounce_ms": "500",
-    "waveshare_timeout_s": "3",
+    "inputs_enabled": "on",
+    "inputs_host": "192.168.1.51",
+    "inputs_port": "1883",
+    "inputs_username": "pitwatch",
+    "inputs_password": "broker-secret",
+    "inputs_topic": "pitwatch/inputs",
+    "inputs_status_topic": "pitwatch/status",
+    "inputs_client_id": "pitwatch",
+    "inputs_debounce_ms": "500",
     "channel_1_label": "Lead float",
     "channel_2_label": "Lag float",
     "channel_3_label": "High water alarm float",
@@ -141,7 +143,7 @@ def test_two_inputs_may_carry_the_same_name(client):
     )
 
     assert response.status_code == 303
-    channels = client.app.state.settings.waveshare.channels
+    channels = client.app.state.settings.inputs.channels
     assert channels[0].label == "Lead float"
     assert channels[1].label == "Lead float"
 
@@ -331,13 +333,13 @@ def test_the_shelly_password_never_reaches_the_browser(client):
     assert "the-device-password" not in client.get("/settings").text
 
 
-def test_the_waveshare_test_button_reports_a_module_it_cannot_reach(client):
+def test_the_inputs_test_button_reports_a_broker_it_cannot_reach(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     response = client.post(
-        "/api/test/waveshare",
-        data={"waveshare_host": "192.0.2.1", "waveshare_timeout_s": "1"},
+        "/api/test/inputs",
+        data={"inputs_host": "192.0.2.1", "inputs_port": "1883"},
     )
 
     assert response.status_code == 200
@@ -357,7 +359,7 @@ def test_the_state_endpoint_reports_both_devices(client):
 
     state = client.get("/api/state").json()
 
-    assert set(state["devices"]) == {"shelly", "waveshare"}
+    assert set(state["devices"]) == {"shelly", "inputs"}
     assert state["site"]["name"] == "Basement pit"
 
 
@@ -454,14 +456,14 @@ def test_an_input_with_no_name_is_left_off_the_dashboard(client):
 SHELLY_ONLY_FORM = {
     key: value
     for key, value in SETUP_FORM.items()
-    # Everything except the Waveshare section, which is how you set this up
+    # Everything except the panel module section, which is how you set this up
     # while the I/O module is still in the post.
-    if not key.startswith(("waveshare_", "channel_"))
+    if not key.startswith(("inputs_", "channel_"))
 }
 
 
 def test_setup_works_with_only_the_clamps_configured(client):
-    """The Waveshare is optional, and starting without it is a normal path.
+    """The panel module is optional, and starting without it is a normal path.
 
     Waiting on hardware is the usual case, not an edge case: the clamps go on
     in ten minutes and the I/O module needs the panel opened up.
@@ -486,11 +488,11 @@ def test_an_unconfigured_device_is_not_reported_as_a_fault(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SHELLY_ONLY_FORM)
 
-    waveshare = client.get("/api/state").json()["devices"]["waveshare"]
+    inputs = client.get("/api/state").json()["devices"]["inputs"]
 
-    assert waveshare["configured"] is False
-    assert waveshare["online"] is False
-    assert waveshare["last_error"] is None
+    assert inputs["configured"] is False
+    assert inputs["online"] is False
+    assert inputs["last_error"] is None
 
 
 def test_every_contact_reads_as_unknown_without_the_io_module(client):
@@ -513,16 +515,16 @@ def test_adding_the_io_module_later_does_not_need_a_restart(client):
     """
     sign_in_as_admin(client)
     client.post("/setup", data=SHELLY_ONLY_FORM)
-    assert client.get("/api/state").json()["devices"]["waveshare"]["configured"] is False
+    assert client.get("/api/state").json()["devices"]["inputs"]["configured"] is False
 
     client.post(
-        "/settings/waveshare",
+        "/settings/inputs",
         data={key: value for key, value in SETUP_FORM.items() if key != "shelly_host"},
     )
 
     state = client.get("/api/state").json()
-    assert state["devices"]["waveshare"]["configured"] is True
-    assert client.app.state.settings.waveshare.host == "192.168.1.51"
+    assert state["devices"]["inputs"]["configured"] is True
+    assert client.app.state.settings.inputs.host == "192.168.1.51"
 
 
 def test_the_dashboard_shows_amps_and_nothing_derived_from_voltage(client):
@@ -750,38 +752,38 @@ def test_naming_an_input_is_all_it_takes_to_watch_it(client):
     client.post("/setup", data=SETUP_FORM)
 
     client.post(
-        "/settings/waveshare",
+        "/settings/inputs",
         data={
-            "waveshare_enabled": "on",
-            "waveshare_host": "192.168.1.51",
+            "inputs_enabled": "on",
+            "inputs_host": "192.168.1.51",
             "channel_1_label": "Bottom float",
             "channel_2_label": "Seal failure",
             "channel_2_on_when": "absent",
         },
     )
 
-    channels = client.app.state.settings.waveshare.channels
+    channels = client.app.state.settings.inputs.channels
     assert channels[0].label == "Bottom float"
     assert channels[1].label == "Seal failure"
     assert channels[1].invert is True
     # Everything not named in that post is now unnamed, which is the only way
     # clearing a name can work when a form posts the whole section.
-    assert [c.channel for c in client.app.state.settings.waveshare.used_channels] == [1, 2]
+    assert [c.channel for c in client.app.state.settings.inputs.used_channels] == [1, 2]
 
 
 def test_clearing_a_name_stops_watching_that_input(client):
     """Which is the entire removal story. There is no delete to get wrong."""
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
-    assert len(client.app.state.settings.waveshare.used_channels) == 8
+    assert len(client.app.state.settings.inputs.used_channels) == 8
 
     client.post(
-        "/settings/waveshare",
+        "/settings/inputs",
         data={key: value for key, value in SETUP_FORM.items() if key != "channel_4_label"}
         | {"channel_4_label": "   "},
     )
 
-    used = client.app.state.settings.waveshare.used_channels
+    used = client.app.state.settings.inputs.used_channels
     assert [c.channel for c in used] == [1, 2, 3, 5, 6, 7, 8]
 
 
@@ -789,7 +791,7 @@ def test_a_renamed_input_is_shown_under_its_new_name(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
-    client.post("/settings/waveshare", data=SETUP_FORM | {"channel_3_label": "TOP FLOAT"})
+    client.post("/settings/inputs", data=SETUP_FORM | {"channel_3_label": "TOP FLOAT"})
 
     page = client.get("/settings").text
     assert 'value="TOP FLOAT"' in page

@@ -169,25 +169,30 @@ function csrfHeader(form) {
   });
 })();
 
-// The live input view on the Waveshare section.
+// The live input view on the panel inputs section.
 //
 // This is the wiring aid. Reading the labels on a panel's terminal strip is how
 // a channel map ends up wrong; lifting a float and watching a row change is how
-// it ends up right. It polls while it is open and stops when it is closed,
-// because there is no reason to keep asking a Modbus device for eight bits
-// after somebody has walked away from the page.
+// it ends up right.
+//
+// It listens rather than polls, because the module speaks only when something
+// changes and there is nothing to ask it. Each request waits at the broker for
+// a published body and the next one starts when that one comes back, so a float
+// lifted at the panel shows up here as fast as the wire carries it. A request
+// that waits out its time without hearing anything is not a failure and is not
+// drawn as one: it means nothing moved, and the answer is to keep listening.
 
 (function () {
   "use strict";
 
-  const button = document.querySelector("[data-test-waveshare]");
-  const output = document.querySelector("[data-waveshare-result]");
+  const button = document.querySelector("[data-test-inputs]");
+  const output = document.querySelector("[data-inputs-result]");
   if (!button || !output) {
     return;
   }
 
-  const POLL_MS = 500;
-  let timer = null;
+  let listening = false;
+  let inFlight = null;
 
   function escape(value) {
     const node = document.createElement("span");
@@ -196,20 +201,23 @@ function csrfHeader(form) {
   }
 
   function stop() {
-    if (timer !== null) {
-      clearInterval(timer);
-      timer = null;
+    listening = false;
+    if (inFlight !== null) {
+      inFlight.abort();
+      inFlight = null;
     }
-    button.textContent = "Watch the inputs live";
+    button.textContent = "Listen for a change";
     output.hidden = true;
   }
 
+  function waiting() {
+    output.className = "test-result";
+    output.innerHTML =
+      "Listening. Lift a float or push a contactor in by hand, and the row " +
+      "that changes is the input it is on.";
+  }
+
   function render(result) {
-    if (!result.ok) {
-      output.className = "test-result bad";
-      output.innerHTML = escape(result.error || "Could not read the module");
-      return;
-    }
     const rows = (result.channels || [])
       .map(function (channel) {
         // Both columns, always. The raw bit is what the wire says and the
@@ -241,48 +249,83 @@ function csrfHeader(form) {
       "</tbody></table>";
   }
 
-  async function poll() {
+  async function listen() {
     const form = button.closest("form");
     if (!form) {
       return;
     }
-    try {
-      const response = await fetch("/api/test/waveshare", {
-        method: "POST",
-        body: new FormData(form),
-        headers: csrfHeader(form),
-      });
-      const text = await response.text();
+
+    while (listening) {
+      inFlight = new AbortController();
+      let text;
+      let status;
       try {
-        render(JSON.parse(text));
+        const response = await fetch("/api/test/inputs", {
+          method: "POST",
+          body: new FormData(form),
+          headers: csrfHeader(form),
+          signal: inFlight.signal
+        });
+        status = response.status;
+        text = await response.text();
+      } catch (error) {
+        if (!listening) {
+          return;
+        }
+        output.className = "test-result bad";
+        output.innerHTML = "The request failed: " + escape(error.message);
+        stop();
+        return;
+      } finally {
+        inFlight = null;
+      }
+
+      if (!listening) {
+        return;
+      }
+
+      let result;
+      try {
+        result = JSON.parse(text);
       } catch (error) {
         output.className = "test-result bad";
         output.innerHTML =
-          response.status === 401
+          status === 401
             ? "Sign in first."
-            : "The server returned something unexpected (" + response.status + ").";
+            : "The server returned something unexpected (" + status + ").";
         stop();
+        return;
       }
-    } catch (error) {
-      output.className = "test-result bad";
-      output.innerHTML = "The request failed: " + escape(error.message);
+
+      if (result.ok) {
+        render(result);
+      } else if (result.waiting) {
+        // Nothing moved. The connection is fine, so go round again.
+        if (!output.innerHTML || output.className !== "test-result good") {
+          waiting();
+        }
+      } else {
+        output.className = "test-result bad";
+        output.innerHTML = escape(result.error || "Could not reach the broker");
+        stop();
+        return;
+      }
     }
   }
 
   button.addEventListener("click", function () {
-    if (timer !== null) {
+    if (listening) {
       stop();
       return;
     }
+    listening = true;
     output.hidden = false;
-    output.className = "test-result";
-    output.innerHTML = "Reading...";
-    button.textContent = "Stop watching";
-    poll();
-    timer = setInterval(poll, POLL_MS);
+    waiting();
+    button.textContent = "Stop listening";
+    listen();
   });
 
-  // Leaving the page with a timer running would keep polling a device for
+  // Leaving the page with a request open would hold a broker connection for
   // nothing, and on a phone that is somebody's battery.
   window.addEventListener("pagehide", stop);
 })();

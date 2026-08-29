@@ -30,10 +30,10 @@
 </section>
 
 <section class="card">
-  <h2>The Waveshare I/O module</h2>
-  <form method="post" action="/settings/waveshare">
+  <h2>The panel inputs</h2>
+  <form method="post" action="/settings/inputs">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    {{ fields.waveshare_fields(waveshare) }}
+    {{ fields.inputs_fields(inputs) }}
     <button type="submit" class="button">Save</button>
   </form>
 </section>
@@ -43,7 +43,7 @@
     <button type="button" class="info-mark" data-info="lamps"
             aria-label="What the display says">i</button></h2>
   <p class="hint">
-    Which input lights which lamp. The Waveshare settings above say what is
+    Which input lights which lamp. The panel inputs section above says what is
     wired to each input; this says where each one appears on the dashboard.
     Leave one blank and that lamp reads <strong>not set</strong> rather than
     off: not knowing is not the same as knowing it is fine.
@@ -58,7 +58,7 @@
       <label for="role_{{ role }}">{{ title }}</label>
       <select id="role_{{ role }}" name="role_{{ role }}">
         <option value="">Not set</option>
-        {% for channel in waveshare.channels %}
+        {% for channel in inputs.channels %}
         <option value="{{ channel.channel }}"
                 {% if dashboard.assignments[role] == channel.channel %}selected{% endif %}>
           {% if channel.label %}{{ channel.label }} (DI{{ channel.channel }}){% else %}DI{{ channel.channel }}{% endif %}

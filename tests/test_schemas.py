@@ -19,11 +19,11 @@ from pitwatch.schemas import (
     SETTING_MODELS,
     AlertsSettings,
     ChannelMap,
+    InputsSettings,
     PumpSettings,
     PumpsSettings,
     ShellySettings,
     ShortCyclingRule,
-    WaveshareSettings,
 )
 
 
@@ -330,7 +330,7 @@ def test_the_page_and_the_model_agree_about_which_rules_exist():
 def test_every_input_is_present_whether_or_not_it_is_wired():
     """The module has eight inputs regardless, and the settings page needs a row
     to configure the next one in."""
-    settings = WaveshareSettings(channels=[ChannelMap(channel=3, label="High water")])
+    settings = InputsSettings(channels=[ChannelMap(channel=3, label="High water")])
 
     assert [channel.channel for channel in settings.channels] == [1, 2, 3, 4, 5, 6, 7, 8]
     assert settings.channels[2].label == "High water"
@@ -338,7 +338,7 @@ def test_every_input_is_present_whether_or_not_it_is_wired():
 
 
 def test_an_input_with_no_name_is_not_wired():
-    settings = WaveshareSettings(channels=[ChannelMap(channel=3, label="High water")])
+    settings = InputsSettings(channels=[ChannelMap(channel=3, label="High water")])
 
     assert settings.channels[2].used is True
     assert settings.channels[0].used is False
@@ -356,7 +356,7 @@ def test_two_inputs_may_share_a_name():
     """Nothing keys on the name, so there is nothing to collide. Two contacts
     both marked "High water" in a panel is a real thing, and refusing it would
     be this application arguing with the label maker."""
-    settings = WaveshareSettings(
+    settings = InputsSettings(
         channels=[
             ChannelMap(channel=1, label="High water"),
             ChannelMap(channel=2, label="High water"),
@@ -369,7 +369,7 @@ def test_two_inputs_may_share_a_name():
 def test_an_input_always_has_something_to_call_it():
     """Including one nobody has named, because a reading from it still has to be
     describable. DI4 is what is printed on the module."""
-    settings = WaveshareSettings(channels=[ChannelMap(channel=3, label="High water")])
+    settings = InputsSettings(channels=[ChannelMap(channel=3, label="High water")])
 
     assert settings.label_for(3) == "High water"
     assert settings.label_for(4) == "DI4"

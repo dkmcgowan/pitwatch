@@ -3,9 +3,10 @@
 # Copy .env.example to .env, put a password in it, then `docker compose up -d`
 # and open http://<host>:8080.
 #
-# The application runs on the host's network, because its whole job is talking
-# to a meter and an I/O module on your LAN and that is the arrangement least
-# likely to be in the way. Everything is in this file; change what you need to.
+# The application and the broker run on the host's network, because the whole
+# job is talking to a meter and an I/O module on your LAN and that is the
+# arrangement least likely to be in the way. Everything is in this file; change
+# what you need to.
 
 name: pitwatch
 
@@ -38,21 +39,72 @@ services:
       retries: 10
       start_period: 30s
 
+  mqtt:
+    # The broker the panel module publishes to. The module opens the connection
+    # and speaks when an input changes, so nothing polls it and nothing has to
+    # reach into the panel; the one thing that has to be reachable is this.
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+
+    # On the host's network, so the module can reach the broker at this
+    # machine's own LAN address. Unlike the database, this one cannot be on
+    # loopback: the whole point is that something else connects to it.
+    network_mode: host
+
+    environment:
+      MQTT_PORT: ${MQTT_PORT:-1883}
+      MQTT_USERNAME: ${MQTT_USERNAME:-pitwatch}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:?set MQTT_PASSWORD in .env}
+
+    # Mosquitto is configured by a file and the file cannot read the
+    # environment, so the file is written here from the values above. That
+    # keeps the port and the password in .env with everything else, and means
+    # changing either is an edit and a restart rather than a second procedure
+    # with mosquitto_passwd.
+    #
+    # Anonymous connections are refused. A broker on the LAN with them allowed
+    # is a broker anyone on the LAN can publish a high water alarm to.
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        {
+          echo "listener $$MQTT_PORT"
+          echo "allow_anonymous false"
+          echo "password_file /mosquitto/data/passwd"
+          echo "persistence true"
+          echo "persistence_location /mosquitto/data/"
+        } > /mosquitto/data/pitwatch.conf
+        mosquitto_passwd -b -c /mosquitto/data/passwd "$$MQTT_USERNAME" "$$MQTT_PASSWORD"
+        # Mosquitto drops to its own user after reading the config, and refuses
+        # to start on a password file it cannot then read. These files are
+        # written after the image's entrypoint has done its own chown, so they
+        # are the two it would miss.
+        chown mosquitto:mosquitto /mosquitto/data/passwd /mosquitto/data/pitwatch.conf || true
+        chmod 0600 /mosquitto/data/passwd
+        exec mosquitto -c /mosquitto/data/pitwatch.conf
+
+    volumes:
+      - pitwatch-mqtt:/mosquitto/data
+
   app:
     # `latest` while you are setting this up, so a fix is one `pull` away. Pin a
     # version once it is watching a real pump.
     image: ghcr.io/dkmcgowan/pitwatch:latest
     restart: unless-stopped
 
-    # On the host's network, so the Shelly and the Waveshare are reachable at
-    # their own addresses with nothing in between. To run it on Docker's own
-    # network instead, drop this line, add `ports: ["8080:8080"]`, and change
-    # 127.0.0.1 in the database URL below to db.
+    # On the host's network, so the Shelly is reachable at its own address with
+    # nothing in between. To run it on Docker's own network instead, drop this
+    # line, add `ports: ["8080:8080"]`, and change the two 127.0.0.1 addresses
+    # below, in the database URL and the broker seed, to db and mqtt.
     network_mode: host
 
     depends_on:
       db:
         condition: service_healthy
+      mqtt:
+        condition: service_started
     environment:
       PITWATCH_DATABASE_URL: postgresql://pitwatch:${POSTGRES_PASSWORD}@127.0.0.1:5432/pitwatch
 
@@ -77,5 +129,15 @@ services:
       # defeats the sign in throttling.
       PITWATCH_TRUSTED_PROXIES: 127.0.0.1,::1
 
+      # Written into the settings table once, on a first boot with nothing
+      # saved, and ignored from then on. They are here so that a fresh install
+      # comes up already talking to the broker above instead of asking you to
+      # retype what is already in .env. Change them later in the settings page.
+      PITWATCH_SEED_BROKER_HOST: 127.0.0.1
+      PITWATCH_SEED_BROKER_PORT: ${MQTT_PORT:-1883}
+      PITWATCH_SEED_BROKER_USERNAME: ${MQTT_USERNAME:-pitwatch}
+      PITWATCH_SEED_BROKER_PASSWORD: ${MQTT_PASSWORD}
+
 volumes:
   pitwatch-db:
+  pitwatch-mqtt:

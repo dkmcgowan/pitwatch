@@ -167,37 +167,66 @@ def test_the_readme_does_not_carry_a_copy_of_the_compose_file():
     assert "docker-compose.yml" in install
 
 
-def test_only_the_database_password_is_required():
-    """Everything else has a default, so a first run is one edit.
+def test_only_the_passwords_are_required():
+    """Everything else has a default, so a first run is two edits.
 
     A compose file that refuses to start over a setting somebody has no opinion
-    about yet is a bad first five minutes.
+    about yet is a bad first five minutes. A password is the exception, and it
+    is the exception in both directions: there is no default worth having, and
+    a broker that started without one would be a broker anyone on the LAN could
+    publish a high water alarm to.
     """
     compose = (Path(__file__).parent.parent / "docker-compose.yml").read_text(encoding="utf-8")
 
-    assert set(re.findall(r"\$\{([A-Z_]+):\?", compose)) == {"POSTGRES_PASSWORD"}
+    required = set(re.findall(r"\$\{([A-Z_]+):\?", compose))
+    assert required == {"POSTGRES_PASSWORD", "MQTT_PASSWORD"}
 
 
 def test_env_holds_only_what_has_no_sensible_default():
-    """One file to edit, one line in it.
+    """One file to edit, and only what has to be in it.
 
     Everything else lives beside a comment in the compose file, where somebody
     changing it can see what it does. A .env full of settings nobody has an
-    opinion about is a longer first five minutes for no benefit.
+    opinion about is a longer first five minutes for no benefit. The broker's
+    user name and port are here only because they are typed into the panel
+    module as well, and a value that has to match something outside this
+    machine is worth having in one obvious place.
     """
     root = Path(__file__).parent.parent
     compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
     example = (root / ".env.example").read_text(encoding="utf-8")
 
-    substituted = set(re.findall(r"\$\{([A-Z_]+)", compose))
-    assert substituted == {"POSTGRES_PASSWORD"}
+    expected = {"POSTGRES_PASSWORD", "MQTT_PASSWORD", "MQTT_USERNAME", "MQTT_PORT"}
+    assert set(re.findall(r"\$\{([A-Z_]+)", compose)) == expected
 
     offered = {
         line.split("=", 1)[0].strip()
         for line in example.splitlines()
         if "=" in line and not line.strip().startswith("#")
     }
-    assert offered == {"POSTGRES_PASSWORD"}
+    assert offered == expected
+
+
+def test_the_broker_ships_with_the_application():
+    """The panel module has to publish somewhere, and asking somebody to stand
+    up a broker before they can see a float move is a worse first hour than
+    running one more container.
+
+    It is on the host's network for a reason that is easy to undo by accident:
+    unlike the database, something outside this machine has to connect to it.
+    A broker on loopback is a broker the module cannot reach.
+    """
+    compose = (Path(__file__).parent.parent / "docker-compose.yml").read_text(encoding="utf-8")
+
+    broker = compose[compose.index("  mqtt:") : compose.index("  app:")]
+    assert "eclipse-mosquitto" in broker
+    assert "network_mode: host" in broker
+    assert "127.0.0.1:" not in broker
+
+    # Anonymous access would let anyone on the LAN publish a high water alarm,
+    # or a quiet one over the top of a real one.
+    assert "allow_anonymous false" in broker
+    assert "mosquitto_passwd" in broker
 
 
 def test_there_is_one_compose_file():
@@ -220,9 +249,9 @@ def test_there_is_one_compose_file():
 def test_only_named_inputs_are_shown():
     """An unnamed input is one nothing is wired to. Eight rows of "not wired" is
     not a dashboard, it is a settings page nobody asked to see."""
-    from pitwatch.schemas import ChannelMap, WaveshareSettings
+    from pitwatch.schemas import ChannelMap, InputsSettings
 
-    settings = WaveshareSettings(
+    settings = InputsSettings(
         channels=[
             ChannelMap(channel=2, label="Lead float"),
             ChannelMap(channel=5, label="Seal failure"),
@@ -250,12 +279,12 @@ def render_settings(**overrides) -> str:
     from pitwatch.schemas import (
         DASHBOARD_ROLES,
         DashboardSettings,
+        InputsSettings,
         PumpsSettings,
         ShellySettings,
         SiteSettings,
         SmsSettings,
         SmtpSettings,
-        WaveshareSettings,
     )
 
     env = Environment(loader=FileSystemLoader("pitwatch/templates"), autoescape=True)
@@ -264,7 +293,7 @@ def render_settings(**overrides) -> str:
     context = {
         "site": SiteSettings(),
         "shelly": ShellySettings(),
-        "waveshare": WaveshareSettings(),
+        "inputs": InputsSettings(),
         "pumps": PumpsSettings(),
         "smtp": SmtpSettings(),
         "sms": SmsSettings(),
@@ -314,11 +343,11 @@ def test_saving_the_settings_page_unchanged_changes_nothing():
     from pitwatch.api import forms
     from pitwatch.schemas import (
         ChannelMap,
+        InputsSettings,
         PumpSettings,
         PumpsSettings,
         ShellySettings,
         SiteSettings,
-        WaveshareSettings,
     )
 
     site = SiteSettings(
@@ -331,12 +360,16 @@ def test_saving_the_settings_page_unchanged_changes_nothing():
         notify_cooldown_s=1234,
     )
     shelly = ShellySettings(enabled=True, host="10.0.0.5", pump1_channel=1, pump2_channel=0)
-    waveshare = WaveshareSettings(
+    inputs = InputsSettings(
         enabled=True,
         host="10.0.0.6",
-        port=5020,
-        unit_id=7,
-        poll_ms=350,
+        port=8883,
+        username="panel",
+        password="broker-secret",
+        encrypted=True,
+        topic="site/inputs",
+        status_topic="site/status",
+        client_id="pitwatch-822",
         debounce_ms=750,
         channels=[
             ChannelMap(channel=1, label="Bottom float"),
@@ -349,11 +382,14 @@ def test_saving_the_settings_page_unchanged_changes_nothing():
     )
 
     form = FormData(
-        submitted(render_settings(site=site, shelly=shelly, waveshare=waveshare, pumps=pumps))
+        submitted(render_settings(site=site, shelly=shelly, inputs=inputs, pumps=pumps))
     )
 
     assert forms.site_from(form) == site
-    assert forms.waveshare_from(form) == waveshare
+    # The stored password is never rendered, so the round trip is given the
+    # settings it is checking against, exactly as the route does. Everything
+    # else on the page has to survive on what the page itself carries.
+    assert forms.inputs_from(form, inputs) == inputs
     assert forms.pumps_from(form) == pumps
     # The Shelly password is never rendered back, so it is the one field that
     # cannot survive this on its own; everything else on that section must.
@@ -375,8 +411,8 @@ def io(*steps):
     """
     from datetime import UTC, datetime, timedelta
 
+    from pitwatch.ingest.inputs import IoEvent
     from pitwatch.ingest.sink import LiveIo
-    from pitwatch.ingest.waveshare import IoEvent
 
     live = LiveIo()
     base = datetime(2026, 8, 26, 3, 0, tzinfo=UTC)
@@ -471,12 +507,12 @@ def test_a_lamp_with_no_input_is_not_a_lamp_that_is_off():
     """Three states, and the middle one is the whole point. A lamp reading off
     when it means nobody wired it is a lamp that gets believed."""
     from pitwatch.api.live import panel_state
-    from pitwatch.schemas import ChannelMap, DashboardSettings, WaveshareSettings
+    from pitwatch.schemas import ChannelMap, DashboardSettings, InputsSettings
 
-    waveshare = WaveshareSettings(channels=[ChannelMap(channel=3, label="Top float")])
+    inputs = InputsSettings(channels=[ChannelMap(channel=3, label="Top float")])
     panel = panel_state(
         DashboardSettings(high_water=3, system_alert=4),
-        waveshare,
+        inputs,
         io((3, True)),
     )
 
@@ -496,7 +532,7 @@ def test_saving_the_lamps_unchanged_changes_nothing():
     from starlette.datastructures import FormData
 
     from pitwatch.api import forms
-    from pitwatch.schemas import ChannelMap, DashboardSettings, WaveshareSettings
+    from pitwatch.schemas import ChannelMap, DashboardSettings, InputsSettings
 
     dashboard = DashboardSettings(
         system_alert=4,
@@ -510,7 +546,7 @@ def test_saving_the_lamps_unchanged_changes_nothing():
     )
     page = render_settings(
         dashboard=dashboard,
-        waveshare=WaveshareSettings(channels=[ChannelMap(channel=3, label="Top float")]),
+        inputs=InputsSettings(channels=[ChannelMap(channel=3, label="Top float")]),
     )
 
     assert forms.dashboard_from(FormData(submitted(page))) == dashboard
@@ -1100,6 +1136,38 @@ def test_the_header_has_one_of_each_icon():
     links = re.findall(r'<a href="(/[a-z]*)" class="icon-link', base)
     assert links == ["/", "/users", "/alerts", "/settings", "/profile"], links
     assert len(links) == len(set(links))
+
+
+def test_the_settings_page_asks_for_a_broker_and_not_for_a_poll_interval():
+    """The device changed and the shape of the question changed with it.
+
+    A poll interval left on this page would be a setting that does nothing, and
+    a setting that does nothing is worse than a missing one: somebody tunes it
+    and believes they have changed something.
+    """
+    page = render_settings()
+
+    for name in ("inputs_host", "inputs_port", "inputs_username", "inputs_password"):
+        assert f'name="{name}"' in page, name
+    for name in ("inputs_topic", "inputs_status_topic", "inputs_client_id"):
+        assert f'name="{name}"' in page, name
+
+    for gone in ("inputs_poll_ms", "inputs_unit_id", "inputs_timeout_s"):
+        assert gone not in page, gone
+
+    # The one piece of processing that survived the change of protocol, because
+    # contacts bounce whatever is carrying the news of it.
+    assert 'name="inputs_debounce_ms"' in page
+
+
+def test_the_stored_broker_password_is_never_rendered():
+    from pitwatch.schemas import InputsSettings
+
+    page = render_settings(
+        inputs=InputsSettings(enabled=True, host="10.0.0.6", password="broker-secret")
+    )
+
+    assert "broker-secret" not in page
 
 
 def test_the_lamps_are_a_section_of_the_settings_page():

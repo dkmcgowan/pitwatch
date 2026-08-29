@@ -42,11 +42,11 @@ CREATE TABLE recipient (
 -- to us at 3:12" instead of quietly showing a stale current forever. A pump
 -- monitor that goes blind without saying so is worse than no pump monitor.
 CREATE TABLE device_status (
-    device       text PRIMARY KEY CHECK (device IN ('shelly', 'waveshare')),
+    device       text PRIMARY KEY CHECK (device IN ('shelly', 'inputs')),
     online       boolean NOT NULL DEFAULT false,
     last_seen    timestamptz,
     last_error   text,
     updated_at   timestamptz NOT NULL DEFAULT now()
 );
 
-INSERT INTO device_status (device) VALUES ('shelly'), ('waveshare');
+INSERT INTO device_status (device) VALUES ('shelly'), ('inputs');

@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ChannelMap(BaseModel):
-    """One Waveshare digital input.
+    """One digital input on the panel module.
 
     The input number is the identity. Everything else about a channel is
     description: what it is called is a label somebody types, and a blank label
@@ -66,29 +66,61 @@ class ChannelMap(BaseModel):
         return bool(self.label)
 
 
-class WaveshareSettings(BaseModel):
-    KEY: ClassVar[str] = "waveshare"
+class InputsSettings(BaseModel):
+    """The panel contacts, which arrive over MQTT.
+
+    The device is a ControlByWeb X-408: eight optically isolated inputs, 4 to
+    26 V DC, which suits a 24 V panel. It publishes when an input changes
+    rather than answering when asked, so there is no polling loop here and no
+    poll interval to tune. That is the whole reason for the change: Modbus is
+    master and slave by design and a slave may never speak first, so watching
+    it meant asking five times a second forever and still being up to a poll
+    late.
+
+    **Everything arrives on one topic.** The device is configured to publish
+    all eight inputs together in one JSON body whenever any of them changes, so
+    every message carries the complete state. A message that carried only the
+    input that changed would leave this holding a picture assembled from
+    fragments, and a fragment lost on a reconnect would leave that picture
+    quietly wrong.
+
+    **Online and offline come from the broker.** The device sets a birth
+    message when it connects and a last will that the broker publishes for it
+    when it stops, so a device that loses power says so through the broker
+    rather than being noticed missing after a timeout.
+    """
+
+    KEY: ClassVar[str] = "inputs"
 
     enabled: bool = False
-    host: str = ""
-    port: int = Field(default=502, ge=1, le=65535)
-    unit_id: int = Field(default=1, ge=0, le=247)
-    # Modbus is request and response, so the inputs have to be asked for. Eight
-    # bits at five times a second is nothing on the wire, and it is the
-    # difference between catching a two second lag float call and missing it.
-    poll_ms: int = Field(default=200, ge=50, le=10_000)
-    timeout_s: float = Field(default=3.0, gt=0, le=60)
 
-    # How long a reading has to hold before it counts as a change. One number
-    # for all eight inputs, not one each: contacts bounce, floats bounce
-    # longest because a float bobs, and without this one call for water writes
-    # a dozen events and the run detector sees a dozen starts.
+    # The broker. Bundled alongside this application by default, on the host's
+    # own network, which is why the default is a loopback address: the device
+    # dials in from the LAN and this reads from the same machine.
+    host: str = "127.0.0.1"
+    port: int = Field(default=1883, ge=1, le=65535)
+    username: str = ""
+    password: str = ""
+    # Off by default because the bundled broker listens on loopback. Turn it on
+    # for a broker somewhere else, and set the port to 8883.
+    encrypted: bool = False
+
+    # What the device publishes to, and what the broker publishes for it when
+    # the device stops talking. Both are typed into the device as well; the
+    # instructions in the README give the exact words.
+    topic: str = Field(default="pitwatch/inputs", min_length=1, max_length=200)
+    status_topic: str = Field(default="pitwatch/status", min_length=1, max_length=200)
+
+    # How this client identifies itself to the broker. Two clients sharing an
+    # id knock each other off, so it is worth being able to change.
+    client_id: str = Field(default="pitwatch", min_length=1, max_length=64)
+
+    # How long a state has to hold before it counts as a change.
     #
-    # This also covers an AC control circuit, where a bidirectional optocoupler
-    # drops out at every zero crossing, 120 times a second on 60 Hz, so a poll
-    # can land in a gap and read a live signal as off. Anything longer than a
-    # couple of poll intervals discards that, because the next poll disagrees
-    # and the candidate change is abandoned. Hence a default that is not zero.
+    # Still needed, and for the same reason as ever: contacts bounce, and
+    # floats bounce longest because a float bobs on the water. What changed is
+    # that a bounce now arrives as a burst of messages rather than as a run of
+    # disagreeing polls, so this waits after a change to see whether it lasts.
     #
     # The cost is that every transition is reported this much later than it
     # happened, which against a run of a few seconds is invisible: the start
@@ -98,7 +130,7 @@ class WaveshareSettings(BaseModel):
     channels: list[ChannelMap] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def fill_in_every_channel(self) -> WaveshareSettings:
+    def fill_in_every_channel(self) -> InputsSettings:
         """Always eight, in order, whatever was saved.
 
         The module has eight inputs whether or not anything is wired to them,
@@ -120,7 +152,7 @@ class WaveshareSettings(BaseModel):
         """What to call an input, falling back to its terminal marking.
 
         Never empty. A reading from an input whose name has since been cleared
-        still has to be describable, and "DI4" is what is printed on the module.
+        still has to be describable, and DI4 is what is printed on the module.
         """
         for mapped in self.channels:
             if mapped.channel == channel and mapped.used:
@@ -608,7 +640,7 @@ SETTING_MODELS: tuple[type[BaseModel], ...] = (
     SiteSettings,
     AlertsSettings,
     ShellySettings,
-    WaveshareSettings,
+    InputsSettings,
     PumpsSettings,
     DashboardSettings,
     SmtpSettings,

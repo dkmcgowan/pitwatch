@@ -55,7 +55,7 @@ CREATE TABLE pump_run (
     -- computed on read, so later corrections to the inference do not silently
     -- rewrite what the dashboard said at the time.
     role        text NOT NULL DEFAULT 'unknown' CHECK (role IN ('lead', 'lag', 'unknown')),
-    -- 'contact' when the Waveshare run signal started it, 'current' when only
+    -- 'contact' when the panel module run signal started it, 'current' when only
     -- the clamp saw it. A run seen by one and not the other is a fault worth
     -- alerting on, so the source is kept.
     started_by  text NOT NULL CHECK (started_by IN ('contact', 'current', 'both')),

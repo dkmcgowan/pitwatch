@@ -23,12 +23,12 @@ from pitwatch.schemas import (
     AlertsSettings,
     ChannelMap,
     DashboardSettings,
+    InputsSettings,
     PumpsSettings,
     ShellySettings,
     SiteSettings,
     SmsSettings,
     SmtpSettings,
-    WaveshareSettings,
 )
 
 log = logging.getLogger(__name__)
@@ -139,8 +139,8 @@ class SettingsStore:
         return self.get(ShellySettings)
 
     @property
-    def waveshare(self) -> WaveshareSettings:
-        return self.get(WaveshareSettings)
+    def inputs(self) -> InputsSettings:
+        return self.get(InputsSettings)
 
     @property
     def pumps(self) -> PumpsSettings:
@@ -217,15 +217,18 @@ async def seed_from_environment(store: SettingsStore, config: Config) -> None:
         await store.put(ShellySettings(enabled=True, host=config.seed_shelly_host.strip()))
         log.info("Seeded the Shelly address from the environment")
 
-    if config.seed_waveshare_host and not store.waveshare.host:
+    if config.seed_broker_host:
         await store.put(
-            WaveshareSettings(
+            InputsSettings(
                 enabled=True,
-                host=config.seed_waveshare_host.strip(),
+                host=config.seed_broker_host.strip(),
+                port=config.seed_broker_port or 1883,
+                username=(config.seed_broker_username or "").strip(),
+                password=config.seed_broker_password or "",
                 channels=[
                     ChannelMap(channel=number, label=label)
                     for number, label in enumerate(DEFAULT_CHANNEL_LABELS, start=1)
                 ],
             )
         )
-        log.info("Seeded the Waveshare address and the default input labels")
+        log.info("Seeded the broker and the default input labels")

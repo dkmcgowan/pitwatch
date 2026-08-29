@@ -84,41 +84,91 @@
 {% endmacro %}
 
 
-{% macro waveshare_fields(waveshare) %}
+{% macro inputs_fields(inputs) %}
 <div class="field">
   <label>
-    <input type="checkbox" name="waveshare_enabled" {% if waveshare.enabled %}checked{% endif %}>
-    Read the panel contacts from a Waveshare I/O module
+    <input type="checkbox" name="inputs_enabled" {% if inputs.enabled %}checked{% endif %}>
+    Read the panel contacts from an X-408
   </label>
+  <p class="hint">The module publishes when an input changes, so nothing here
+    asks it anything and there is nothing to poll. Point it at the broker
+    below; the README has the exact words to type into it.</p>
 </div>
+
+<h3>The broker</h3>
 
 <div class="grid">
   <div class="field">
-    <label for="waveshare_host">Address</label>
-    <input type="text" id="waveshare_host" name="waveshare_host" value="{{ waveshare.host }}"
-           placeholder="192.168.1.51" autocomplete="off">
+    <label for="inputs_host">Address</label>
+    <input type="text" id="inputs_host" name="inputs_host" value="{{ inputs.host }}"
+           placeholder="127.0.0.1" autocomplete="off">
+    <p class="hint">The broker that comes with PitWatch runs on this machine,
+      which is why this is a loopback address. The module reaches it at the
+      host's own address on your network.</p>
   </div>
   <div class="field">
-    <label for="waveshare_port">Modbus TCP port</label>
-    <input type="number" id="waveshare_port" name="waveshare_port" value="{{ waveshare.port }}" min="1" max="65535">
+    <label for="inputs_port">Port</label>
+    <input type="number" id="inputs_port" name="inputs_port" value="{{ inputs.port }}" min="1" max="65535">
+    <p class="hint">1883 plain, 8883 encrypted.</p>
   </div>
   <div class="field">
-    <label for="waveshare_unit_id">Unit address</label>
-    <input type="number" id="waveshare_unit_id" name="waveshare_unit_id" value="{{ waveshare.unit_id }}" min="0" max="247">
+    <label for="inputs_username">User name</label>
+    <input type="text" id="inputs_username" name="inputs_username"
+           value="{{ inputs.username }}" autocomplete="off">
   </div>
   <div class="field">
-    <label for="waveshare_poll_ms">Read every (ms)</label>
-    <input type="number" id="waveshare_poll_ms" name="waveshare_poll_ms" value="{{ waveshare.poll_ms }}" min="50" max="10000">
-    <p class="hint">Modbus has to be asked, so this one polls. Five times a
-      second is nothing on the wire.</p>
+    <label for="inputs_password">Password</label>
+    <input type="password" id="inputs_password" name="inputs_password" autocomplete="new-password"
+           placeholder="{% if inputs.password %}unchanged{% else %}none set{% endif %}">
+    {% if inputs.password %}
+    <label class="hint">
+      <input type="checkbox" name="inputs_clear_password"> Clear the stored password
+    </label>
+    {% endif %}
   </div>
   <div class="field">
-    <label for="waveshare_debounce_ms">Ignore changes shorter than (ms)</label>
-    <input type="number" id="waveshare_debounce_ms" name="waveshare_debounce_ms"
-           value="{{ waveshare.debounce_ms }}" min="0" max="30000" step="50">
-    <p class="hint">Contacts bounce, and a float bobs on the water, so a
-      reading has to hold this long before it counts. Without it one call for
-      water is recorded as a dozen. Applies to all eight inputs.</p>
+    <label>
+      <input type="checkbox" name="inputs_encrypted" {% if inputs.encrypted %}checked{% endif %}>
+      Encrypted
+    </label>
+    <p class="hint">For a broker somewhere else. The bundled one listens on
+      this machine only.</p>
+  </div>
+  <div class="field">
+    <label for="inputs_client_id">Client name</label>
+    <input type="text" id="inputs_client_id" name="inputs_client_id"
+           value="{{ inputs.client_id }}" autocomplete="off">
+    <p class="hint">How PitWatch identifies itself. Two clients sharing a name
+      knock each other off.</p>
+  </div>
+</div>
+
+<h3>Topics</h3>
+
+<div class="grid">
+  <div class="field">
+    <label for="inputs_topic">Inputs</label>
+    <input type="text" id="inputs_topic" name="inputs_topic" value="{{ inputs.topic }}"
+           autocomplete="off">
+    <p class="hint">Where the module publishes all eight inputs together. Every
+      message carries the whole state, so nothing is assembled from fragments
+      and a message lost on a reconnect cannot leave this quietly wrong.</p>
+  </div>
+  <div class="field">
+    <label for="inputs_status_topic">Online or offline</label>
+    <input type="text" id="inputs_status_topic" name="inputs_status_topic"
+           value="{{ inputs.status_topic }}" autocomplete="off">
+    <p class="hint">The module says <code>online</code> here when it connects,
+      and the broker says <code>offline</code> on its behalf when it stops. A
+      module that loses power announces it rather than being noticed missing
+      after a timeout.</p>
+  </div>
+  <div class="field">
+    <label for="inputs_debounce_ms">Ignore changes shorter than (ms)</label>
+    <input type="number" id="inputs_debounce_ms" name="inputs_debounce_ms"
+           value="{{ inputs.debounce_ms }}" min="0" max="30000" step="50">
+    <p class="hint">Contacts bounce, and a float bobs on the water, so a change
+      has to last this long before it counts. Applies to all eight inputs.</p>
   </div>
 </div>
 
@@ -145,7 +195,7 @@
     </tr>
   </thead>
   <tbody>
-  {% for channel in waveshare.channels %}
+  {% for channel in inputs.channels %}
     <tr>
       <th scope="row">DI{{ channel.channel }}</th>
       <td>
@@ -167,10 +217,11 @@
 </div>
 
 <div class="field">
-  <button type="button" class="button secondary" data-test-waveshare>Watch the inputs live</button>
-  <p class="hint">Lift a float or push a contactor in by hand and watch which
-    row changes. That is the input it is on.</p>
-  <div class="test-result" data-waveshare-result hidden></div>
+  <button type="button" class="button secondary" data-test-inputs>Listen for a change</button>
+  <p class="hint">Waits for the module to publish. It only publishes when
+    something changes, so lift a float or push a contactor in while this is
+    listening; silence here means nothing moved, not that nothing works.</p>
+  <div class="test-result" data-inputs-result hidden></div>
 </div>
 {% endmacro %}
 

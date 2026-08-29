@@ -17,7 +17,7 @@ from pitwatch.auth import DEFAULT_PASSWORD, DEFAULT_USERNAME, authenticate, ensu
 from pitwatch.db import migrate, migration_files
 from pitwatch.ingest.shelly import EmSample
 from pitwatch.ingest.sink import LiveState, SampleSink, record_device_status
-from pitwatch.schemas import ChannelMap, ShellySettings, WaveshareSettings
+from pitwatch.schemas import ChannelMap, InputsSettings, ShellySettings
 
 
 async def test_migrations_apply_to_an_empty_database(pool):
@@ -115,14 +115,14 @@ async def test_one_email_address_belongs_to_one_person(pool):
 
 
 async def test_settings_round_trip(store):
-    saved = WaveshareSettings(
+    saved = InputsSettings(
         enabled=True,
         host="192.168.1.51",
         channels=[ChannelMap(channel=3, label="High water", invert=True)],
     )
 
     await store.put(saved)
-    read_back = store.waveshare
+    read_back = store.inputs
 
     assert read_back.host == "192.168.1.51"
     assert read_back.channels[2].label == "High water"

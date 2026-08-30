@@ -106,27 +106,39 @@
     </div>
     {% endif %}
 
+    {% if person and person.email %}
+    <h3>Password</h3>
+    <p class="hint">
+      Sends a link that works once and expires in three days. If email is not
+      working yet the link is shown here instead.
+    </p>
+    {# In the section it belongs to rather than a card of its own below the
+       save button, and in a field so that the rule which puts air between a
+       hint and the thing it explains applies to it. It used to be a bare form,
+       which that rule does not cover, so the button sat against the last line
+       of the paragraph. #}
+    <div class="field">
+      <button type="submit" class="button secondary" form="password-link">
+        {% if person.has_password %}Send a reset link{% else %}Send an invitation{% endif %}
+      </button>
+    </div>
+    {% endif %}
+
     <div class="row-actions">
       <button type="submit" class="button">Save</button>
       <a class="button secondary" href="/users">Cancel</a>
     </div>
   </form>
-</section>
 
-{% if person and person.email %}
-<section class="card">
-  <h2>Password</h2>
-  <p class="hint">
-    Sends a link that works once and expires in three days. If email is not
-    working yet the link is shown here instead.
-  </p>
-  <form method="post" action="/users/{{ person.id }}/invite">
+  {% if person and person.email %}
+  {# Posts somewhere else, and forms do not nest, so it lives out here with
+     nothing in it and the button above points at it by id. That is what the
+     form attribute is for, and it is why the button can sit where it reads
+     rather than where the markup would otherwise force it. #}
+  <form id="password-link" method="post" action="/users/{{ person.id }}/invite" hidden>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <button type="submit" class="button secondary">
-      {% if person.has_password %}Send a reset link{% else %}Send an invitation{% endif %}
-    </button>
   </form>
+  {% endif %}
 </section>
-{% endif %}
 
 {% endblock %}

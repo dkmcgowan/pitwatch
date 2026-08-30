@@ -683,3 +683,40 @@ def test_the_admin_box_works_without_scripting(client):
 
     assert "data-autosubmit-go" in page, "a real submit button in the markup"
     assert "button.hidden = true;" in js, "hidden once the script is running"
+
+
+def test_the_password_link_button_sits_in_the_form_it_belongs_to(client):
+    """It was a card of its own below the save button, which read as a second
+    thing to do rather than part of editing this person.
+
+    It cannot be a nested form, because forms do not nest and it posts
+    somewhere else. So the button lives in the section and points at an empty
+    form by id. Worth a test: if that id ever stops matching, the button
+    silently submits the edit form instead and quietly saves the person rather
+    than sending them a link.
+    """
+    sign_in_as_admin(client)
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
+    user_id = user_id_of(client, "super")
+
+    page = client.get(f"/users/{user_id}/edit").text
+
+    assert page.count('<section class="card"') == 1, "one card, not two"
+    assert 'form="password-link"' in page
+    assert 'id="password-link"' in page
+    assert f'action="/users/{user_id}/invite"' in page
+    # In the section rather than after it.
+    assert page.index("Send an invitation") < page.index(">Save<")
+
+
+def test_the_password_link_still_sends_from_its_new_home(client):
+    """Moving where a button is drawn is exactly the kind of change that can
+    leave it pointing at nothing."""
+    sign_in_as_admin(client)
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
+    user_id = user_id_of(client, "super")
+
+    sent = client.post(f"/users/{user_id}/invite")
+
+    assert sent.status_code == 200
+    assert "/set-password?token=" in sent.text

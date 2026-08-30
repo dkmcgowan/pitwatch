@@ -185,6 +185,7 @@ class SettingsStore:
 # somebody who has not opened the settings page yet, and nothing more: these are
 # labels, so anything here is wrong only in the sense of being unhelpful.
 
+
 async def seed_from_environment(store: SettingsStore, config: Config) -> None:
     """Write the PITWATCH_SEED_* values, once, into an empty settings table.
 

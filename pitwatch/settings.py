@@ -22,7 +22,6 @@ from pitwatch.config import Config
 from pitwatch.schemas import (
     AlertsSettings,
     ChannelMap,
-    DashboardSettings,
     InputsSettings,
     PumpsSettings,
     ShellySettings,
@@ -149,10 +148,6 @@ class SettingsStore:
     @property
     def alerts(self) -> AlertsSettings:
         return self.get(AlertsSettings)
-
-    @property
-    def dashboard(self) -> DashboardSettings:
-        return self.get(DashboardSettings)
 
     @property
     def smtp(self) -> SmtpSettings:

@@ -21,7 +21,7 @@ def _settings(**overrides) -> InputsSettings:
         "enabled": True,
         "host": "127.0.0.1",
         "debounce_ms": 0,
-        "channels": [ChannelMap(channel=number, label=f"In {number}") for number in range(1, 9)],
+        "channels": [ChannelMap(channel=number) for number in range(1, 9)],
     }
     base.update(overrides)
     return InputsSettings(**base)
@@ -194,8 +194,8 @@ def test_a_fail_safe_contact_is_recorded_as_the_signal_not_as_the_bit():
     """The panel alarm contact is live when nothing is wrong and drops on the
     fault. Recording the bit would leave the alarm permanently on, and silent
     at the moment it fires."""
-    channels = [ChannelMap(channel=number, label=f"In {number}") for number in range(1, 9)]
-    channels[3] = ChannelMap(channel=4, label="Panel alarm", invert=True)
+    channels = [ChannelMap(channel=number) for number in range(1, 9)]
+    channels[3] = ChannelMap(channel=4, role="system_alert", invert=True)
 
     async def run():
         reader = InputsReader(_settings(channels=channels), _nothing)
@@ -210,14 +210,21 @@ def test_a_fail_safe_contact_is_recorded_as_the_signal_not_as_the_bit():
 
 
 def test_the_label_travels_with_the_event():
-    """The channel is the identity; the name is recorded alongside so history
-    still reads after somebody relabels an input."""
+    """The channel is the identity; what it was called is recorded alongside so
+    old history still reads after somebody moves a role to another input."""
+    channels = [ChannelMap(channel=number) for number in range(1, 9)]
+    channels[5] = ChannelMap(channel=6, role="pump2_run")
 
     async def run():
-        reader = InputsReader(_settings(), _nothing)
-        return reader._apply(parse('{"6": 1}'))
+        reader = InputsReader(_settings(channels=channels), _nothing)
+        return reader._apply(parse('{"6": 1, "7": 1}'))
 
-    assert asyncio.run(run())[0].label == "In 6"
+    events = asyncio.run(run())
+    by_channel = {event.channel: event.label for event in events}
+    assert by_channel[6] == "Pump 2 running"
+    # An input carrying nothing is still read and still recorded. It just has
+    # no name but the one printed on the module.
+    assert by_channel[7] == "DI7"
 
 
 def test_a_body_missing_an_input_says_nothing_about_it():

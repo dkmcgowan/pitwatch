@@ -87,11 +87,6 @@
       lamp.title = pump.running ? "Running" : "Not running";
     }
 
-    setFact(
-      card.querySelector("[data-nameplate]"),
-      pump.nameplate_amps === null ? null : pump.nameplate_amps + " A"
-    );
-
     renderTypical(card, pump.typical || {});
     renderRecent(card, pump);
   }

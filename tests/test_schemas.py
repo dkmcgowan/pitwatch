@@ -172,10 +172,14 @@ def test_the_thresholds_live_with_the_alerts_they_raise():
     what happened when it was crossed. Beside its own message, the same number
     tells you everything.
 
-    What is left on a pump is what a pump is: its name, what counts as running,
-    and what its plate says.
+    What is left on a pump is its name, and even that is not asked for any
+    more. What counts as running became a constant, because eleven hours of
+    readings said every threshold from 0.2 A to 10 A found the same 73 runs, so
+    there was no judgement to put on a page. The plate rating went because
+    nothing was computed from it.
     """
-    assert set(PumpSettings.model_fields) == {"name", "running_amps", "nameplate_amps"}
+    assert set(PumpSettings.model_fields) == {"name"}
+    assert domain.RUNNING_AMPS > 0, "there still has to be a line between off and running"
     assert set(PumpsSettings.model_fields) == {"pump1", "pump2"}
 
 
@@ -327,49 +331,65 @@ def test_the_page_and_the_model_agree_about_which_rules_exist():
 # on is what everything is keyed by.
 
 
-def test_every_input_is_present_whether_or_not_it_is_wired():
+def test_every_input_is_present_whether_or_not_it_carries_anything():
     """The module has eight inputs regardless, and the settings page needs a row
     to configure the next one in."""
-    settings = InputsSettings(channels=[ChannelMap(channel=3, label="High water")])
+    settings = InputsSettings(channels=[ChannelMap(channel=3, role="high_water")])
 
     assert [channel.channel for channel in settings.channels] == [1, 2, 3, 4, 5, 6, 7, 8]
-    assert settings.channels[2].label == "High water"
-    assert settings.channels[0].label == ""
+    assert settings.channels[2].role == "high_water"
+    assert settings.channels[0].role == ""
 
 
-def test_an_input_with_no_name_is_not_wired():
-    settings = InputsSettings(channels=[ChannelMap(channel=3, label="High water")])
+def test_an_input_with_no_role_still_reads_it_just_does_not_light_a_lamp():
+    """This is the part the old wording got wrong. A name was doing two jobs,
+    caption and on switch, and it was never the on switch: every input is read
+    and recorded whatever it is called. The role only decides whether it
+    appears on the dashboard."""
+    settings = InputsSettings(channels=[ChannelMap(channel=3, role="high_water")])
 
     assert settings.channels[2].used is True
     assert settings.channels[0].used is False
     assert [channel.channel for channel in settings.used_channels] == [3]
 
 
-def test_a_name_that_is_only_spaces_is_no_name_at_all():
-    """Otherwise an input somebody cleared by holding the space bar stays
-    watched, shows a blank row on the dashboard, and looks like a bug."""
-    assert ChannelMap(channel=1, label="   ").used is False
-    assert ChannelMap(channel=1, label="  Lead float  ").label == "Lead float"
+def test_a_role_has_to_be_one_the_dashboard_can_draw():
+    """A free text name could say anything and mean nothing. This cannot."""
+    with pytest.raises(ValidationError):
+        ChannelMap(channel=1, role="whatever I feel like")
 
 
-def test_two_inputs_may_share_a_name():
-    """Nothing keys on the name, so there is nothing to collide. Two contacts
-    both marked "High water" in a panel is a real thing, and refusing it would
-    be this application arguing with the label maker."""
+def test_a_role_belongs_to_one_input():
+    """Two lamps off one contact was allowed while the mapping ran the other
+    way round. With the meaning chosen on the input there is nowhere to write
+    it down, and quietly keeping one of the two would be worse than saying so.
+    """
+    with pytest.raises(ValidationError):
+        InputsSettings(
+            channels=[
+                ChannelMap(channel=1, role="high_water"),
+                ChannelMap(channel=2, role="high_water"),
+            ]
+        )
+
+
+def test_the_dashboard_can_find_the_input_carrying_a_role():
     settings = InputsSettings(
         channels=[
-            ChannelMap(channel=1, label="High water"),
-            ChannelMap(channel=2, label="High water"),
+            ChannelMap(channel=3, role="high_water"),
+            ChannelMap(channel=5, role="pump1_run"),
         ]
     )
 
-    assert len(settings.used_channels) == 2
+    assert settings.channel_for("high_water") == 3
+    assert settings.channel_for("pump1_run") == 5
+    assert settings.channel_for("lag_float") is None
 
 
 def test_an_input_always_has_something_to_call_it():
-    """Including one nobody has named, because a reading from it still has to be
-    describable. DI4 is what is printed on the module."""
-    settings = InputsSettings(channels=[ChannelMap(channel=3, label="High water")])
+    """Including one carrying nothing, because a reading from it still has to
+    be describable. DI4 is what is printed on the module."""
+    settings = InputsSettings(channels=[ChannelMap(channel=3, role="high_water")])
 
     assert settings.label_for(3) == "High water"
     assert settings.label_for(4) == "DI4"

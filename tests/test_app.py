@@ -246,20 +246,21 @@ def test_there_is_one_compose_file():
 # -- what the panel card is asked to show -----------------------------------
 
 
-def test_only_named_inputs_are_shown():
-    """An unnamed input is one nothing is wired to. Eight rows of "not wired" is
-    not a dashboard, it is a settings page nobody asked to see."""
+def test_only_inputs_carrying_something_are_shown():
+    """Eight rows of "nothing" is not a dashboard, it is a settings page nobody
+    asked to see. An input with no role is still read and still recorded; it
+    just has no lamp to appear in."""
     from pitwatch.schemas import ChannelMap, InputsSettings
 
     settings = InputsSettings(
         channels=[
-            ChannelMap(channel=2, label="Lead float"),
-            ChannelMap(channel=5, label="Seal failure"),
+            ChannelMap(channel=2, role="lead_float"),
+            ChannelMap(channel=5, role="pump1_run"),
         ]
     )
 
     assert [c.channel for c in settings.used_channels] == [2, 5]
-    assert [c.label for c in settings.used_channels] == ["Lead float", "Seal failure"]
+    assert [c.title for c in settings.used_channels] == ["Lead float", "Pump 1 running"]
 
 
 # -- the page and the parser have to agree ----------------------------------
@@ -278,7 +279,6 @@ def render_settings(**overrides) -> str:
 
     from pitwatch.schemas import (
         DASHBOARD_ROLES,
-        DashboardSettings,
         InputsSettings,
         PumpsSettings,
         ShellySettings,
@@ -297,7 +297,6 @@ def render_settings(**overrides) -> str:
         "pumps": PumpsSettings(),
         "smtp": SmtpSettings(),
         "sms": SmsSettings(),
-        "dashboard": DashboardSettings(),
         "roles": DASHBOARD_ROLES,
         "user": None,
         "error": None,
@@ -344,8 +343,6 @@ def test_saving_the_settings_page_unchanged_changes_nothing():
     from pitwatch.schemas import (
         ChannelMap,
         InputsSettings,
-        PumpSettings,
-        PumpsSettings,
         ShellySettings,
         SiteSettings,
     )
@@ -374,25 +371,17 @@ def test_saving_the_settings_page_unchanged_changes_nothing():
         client_id="pitwatch-822",
         debounce_ms=750,
         channels=[
-            ChannelMap(channel=1, label="Bottom float"),
-            ChannelMap(channel=7, label="Pump 1 overload", invert=True),
+            ChannelMap(channel=1, role="lead_float"),
+            ChannelMap(channel=7, role="pump1_fault", invert=True),
         ],
     )
-    pumps = PumpsSettings(
-        pump1=PumpSettings(name="North", running_amps=1.5, nameplate_amps=9.6),
-        pump2=PumpSettings(name="South", running_amps=1.6),
-    )
-
-    form = FormData(
-        submitted(render_settings(site=site, shelly=shelly, inputs=inputs, pumps=pumps))
-    )
+    form = FormData(submitted(render_settings(site=site, shelly=shelly, inputs=inputs)))
 
     assert forms.site_from(form) == site
     # The stored password is never rendered, so the round trip is given the
     # settings it is checking against, exactly as the route does. Everything
     # else on the page has to survive on what the page itself carries.
     assert forms.inputs_from(form, inputs) == inputs
-    assert forms.pumps_from(form) == pumps
     # The Shelly password is never rendered back, so it is the one field that
     # cannot survive this on its own; everything else on that section must.
     assert forms.shelly_from(form, shelly) == shelly
@@ -431,20 +420,26 @@ def io(*steps):
     return live
 
 
-WIRED = {
-    "pump1_run": 5,
-    "pump2_run": 6,
-    "pump1_fault": 7,
-    "pump2_fault": 8,
-}
 P1, P2, F1, F2 = 5, 6, 7, 8
+
+
+def wired():
+    from pitwatch.schemas import ChannelMap, InputsSettings
+
+    return InputsSettings(
+        channels=[
+            ChannelMap(channel=P1, role="pump1_run"),
+            ChannelMap(channel=P2, role="pump2_run"),
+            ChannelMap(channel=F1, role="pump1_fault"),
+            ChannelMap(channel=F2, role="pump2_fault"),
+        ]
+    )
 
 
 def words(live):
     from pitwatch.api.live import lead_and_lag
-    from pitwatch.schemas import DashboardSettings
 
-    return lead_and_lag(DashboardSettings(**WIRED), live)
+    return lead_and_lag(wired(), live)
 
 
 def test_the_display_waits_rather_than_guessing_which_pump_is_lead():
@@ -500,26 +495,27 @@ def test_unassigned_run_inputs_answer_nothing():
     """Rather than reading as "neither has ever run", which looks the same on
     screen and means something entirely different."""
     from pitwatch.api.live import lead_and_lag
-    from pitwatch.schemas import DashboardSettings
+    from pitwatch.schemas import InputsSettings
 
-    assert lead_and_lag(DashboardSettings(), io((P1, True))) == ("--", "--")
+    assert lead_and_lag(InputsSettings(), io((P1, True))) == ("--", "--")
 
 
 def test_a_lamp_with_no_input_is_not_a_lamp_that_is_off():
     """Three states, and the middle one is the whole point. A lamp reading off
     when it means nobody wired it is a lamp that gets believed."""
     from pitwatch.api.live import panel_state
-    from pitwatch.schemas import ChannelMap, DashboardSettings, InputsSettings
+    from pitwatch.schemas import ChannelMap, InputsSettings
 
-    inputs = InputsSettings(channels=[ChannelMap(channel=3, label="Top float")])
-    panel = panel_state(
-        DashboardSettings(high_water=3, system_alert=4),
-        inputs,
-        io((3, True)),
+    inputs = InputsSettings(
+        channels=[
+            ChannelMap(channel=3, role="high_water"),
+            ChannelMap(channel=4, role="system_alert"),
+        ]
     )
+    panel = panel_state(inputs, io((3, True)))
 
     assert panel["high_water"]["state"] is True
-    assert panel["high_water"]["label"] == "Top float"
+    assert panel["high_water"]["label"] == "High water"
     # Assigned, but nothing has ever read it.
     assert panel["system_alert"]["state"] is None
     assert panel["system_alert"]["channel"] == 4
@@ -528,30 +524,32 @@ def test_a_lamp_with_no_input_is_not_a_lamp_that_is_off():
     assert panel["lead_float"]["state"] is None
 
 
-def test_saving_the_lamps_unchanged_changes_nothing():
-    """They are a section of the settings page now rather than a page of their
-    own, so they make the same round trip everything else there makes."""
+def test_the_lamp_mapping_makes_the_round_trip_with_the_inputs():
+    """It has no page of its own now. Choosing what an input carries is what
+    lights the lamp, so it rides along with the rest of the input settings and
+    makes the same round trip everything else on that page makes."""
     from starlette.datastructures import FormData
 
     from pitwatch.api import forms
-    from pitwatch.schemas import ChannelMap, DashboardSettings, InputsSettings
+    from pitwatch.schemas import ChannelMap, InputsSettings
 
-    dashboard = DashboardSettings(
-        system_alert=4,
-        high_water=3,
-        lead_float=1,
-        lag_float=2,
-        pump1_run=5,
-        pump2_run=6,
-        pump1_fault=7,
-        pump2_fault=8,
+    inputs = InputsSettings(
+        enabled=True,
+        host="10.0.0.6",
+        channels=[
+            ChannelMap(channel=1, role="lead_float"),
+            ChannelMap(channel=2, role="lag_float"),
+            ChannelMap(channel=3, role="high_water"),
+            ChannelMap(channel=4, role="system_alert", invert=True),
+            ChannelMap(channel=5, role="pump1_run"),
+            ChannelMap(channel=6, role="pump2_run"),
+            ChannelMap(channel=7, role="pump1_fault", invert=True),
+            ChannelMap(channel=8, role="pump2_fault", invert=True),
+        ],
     )
-    page = render_settings(
-        dashboard=dashboard,
-        inputs=InputsSettings(channels=[ChannelMap(channel=3, label="Top float")]),
-    )
+    page = render_settings(inputs=inputs)
 
-    assert forms.dashboard_from(FormData(submitted(page))) == dashboard
+    assert forms.inputs_from(FormData(submitted(page)), inputs) == inputs
 
 
 # -- what a pump has been drawing --------------------------------------------
@@ -793,9 +791,9 @@ def test_every_missing_pump_fact_reads_the_same_way():
     assert "function setFact(" in js
     for phrase in ("not enough runs yet", "not in 24 h", '"not set"'):
         assert phrase not in card, phrase
-    # Every one of the four goes through it, so there is nowhere for a fifth
-    # spelling to appear.
-    assert card.count("setFact(") >= 5
+    # Every fact goes through it, so there is nowhere for another spelling of
+    # "no data yet" to appear.
+    assert card.count("setFact(") >= 4
 
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
     assert ".detail dd.none {" in css
@@ -836,7 +834,9 @@ def test_the_pump_facts_are_two_by_two():
 
     page = render_dashboard()
     card = page.split('data-pump="1"', 1)[1].split("</article>", 1)[0]
-    assert card.count("<dt>") == 4
+    # Three since the plate rating went. An odd one in a two column grid sits
+    # alone on the second row, which is what a grid is for.
+    assert card.count("<dt>") == 3
 
 
 def test_a_pump_card_carries_everything_about_that_pump():
@@ -849,7 +849,6 @@ def test_a_pump_card_carries_everything_about_that_pump():
         "data-fact-last",
         "data-fact-runs",
         "data-typical",
-        "data-nameplate",
         "data-drift",
     ):
         assert page.count(marker) == 2, marker
@@ -884,7 +883,7 @@ def test_every_long_note_is_a_dialog_opened_from_beside_its_heading():
         assert 'id="note-' + key + '"' in page, key
 
     # And the words are still there, just not on the card.
-    assert "full load amps printed on the motor" in page
+    assert "middle reading of every one" in page
     assert "How often the pit has filled" in page
 
 
@@ -1172,14 +1171,18 @@ def test_the_stored_broker_password_is_never_rendered():
     assert "broker-secret" not in page
 
 
-def test_the_lamps_are_a_section_of_the_settings_page():
-    """Not a page of their own that the settings page points at. A settings
-    page whose job is to send you somewhere else is a menu pretending to be a
-    page."""
+def test_the_lamps_are_chosen_on_the_input_that_carries_them():
+    """There is no lamp section any more, and no lamp page before that. An
+    input row says what the panel put on it, and that is what lights the lamp.
+    Two lists to keep in step was the thing worth deleting."""
     page = render_settings()
 
-    assert 'action="/settings/dashboard"' in page, "the form itself is here"
-    assert "role_high_water" in page, "and it carries the lamp fields"
-    # And nothing left behind that only points elsewhere.
-    assert "Set the lamps" not in page
+    assert "channel_3_role" in page, "the choice is on the input row"
+    for role, _ in [("high_water", 0), ("pump1_run", 0), ("system_alert", 0)]:
+        assert f'value="{role}"' in page, role
+
+    # Nothing left of the second list, nor of a page that only pointed at one.
+    assert 'action="/settings/dashboard"' not in page
+    assert "role_high_water" not in page
+    assert "Dashboard lamps" not in page
     assert 'href="/settings/alerts"' not in page

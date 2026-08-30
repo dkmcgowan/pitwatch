@@ -84,15 +84,12 @@
 {% endmacro %}
 
 
-{% macro inputs_fields(inputs) %}
+{% macro inputs_fields(inputs, roles) %}
 <div class="field">
   <label>
     <input type="checkbox" name="inputs_enabled" {% if inputs.enabled %}checked{% endif %}>
     Read the panel contacts from an X-408
   </label>
-  <p class="hint">The module publishes when an input changes, so nothing here
-    asks it anything and there is nothing to poll. Point it at the broker
-    below; the README has the exact words to type into it.</p>
 </div>
 
 <h3>The broker</h3>
@@ -173,24 +170,13 @@
 </div>
 
 <h3>What each input is wired to</h3>
-<p class="hint">
-  Name an input and it is watched. Leave it blank and it is ignored. Name them
-  after what the panel calls them.
-</p>
-<p class="hint">
-  <strong>On when</strong> is which way round the wire works. Most contacts
-  send voltage when the thing happens. Alarm and overload contacts are often the
-  other way, holding voltage while healthy so a cut wire reads as a fault. Set
-  backwards, an alarm reads as on forever and goes quiet when it matters, so
-  check each one with the live view below.
-</p>
 
 <div class="table-scroll">
 <table class="channels">
   <thead>
     <tr>
       <th>Input</th>
-      <th>Name</th>
+      <th>Carries</th>
       <th>On when</th>
     </tr>
   </thead>
@@ -199,9 +185,16 @@
     <tr>
       <th scope="row">DI{{ channel.channel }}</th>
       <td>
-        <input type="text" name="channel_{{ channel.channel }}_label" maxlength="60"
-               value="{{ channel.label }}" placeholder="not wired"
-               aria-label="Name for input {{ channel.channel }}">
+        {# The dashboard's own list rather than a name to type. Picking the
+           meaning here is what lights the lamp; there is no second page to
+           keep in step with this one. #}
+        <select name="channel_{{ channel.channel }}_role"
+                aria-label="Input {{ channel.channel }} carries">
+          <option value="">Nothing</option>
+          {% for role, title in roles %}
+          <option value="{{ role }}" {% if channel.role == role %}selected{% endif %}>{{ title }}</option>
+          {% endfor %}
+        </select>
       </td>
       <td>
         <select name="channel_{{ channel.channel }}_on_when"
@@ -226,38 +219,6 @@
 {% endmacro %}
 
 
-{% macro pump_fields(pumps) %}
-<p class="hint">
-  What each motor is. When to complain about it lives with the complaint, on
-  the <a href="/alerts">alerts</a> page: a threshold here would tell
-  you nothing about what happens when it is crossed.
-</p>
-
-<div class="grid">
-  {% for number, pump in [(1, pumps.pump1), (2, pumps.pump2)] %}
-  <fieldset class="field">
-    <legend>Pump {{ number }}</legend>
-
-    <label for="pump{{ number }}_name">Name</label>
-    <input type="text" id="pump{{ number }}_name" name="pump{{ number }}_name" value="{{ pump.name }}">
-
-    <label for="pump{{ number }}_running_amps">Counts as running above (A)</label>
-    <input type="number" step="0.1" min="0" id="pump{{ number }}_running_amps"
-           name="pump{{ number }}_running_amps" value="{{ pump.running_amps }}">
-    <p class="hint">Margin, not precision. Anything from a fraction of an amp to
-      most of the running current finds the same runs.</p>
-
-    <label for="pump{{ number }}_nameplate_amps">FLA (A)</label>
-    <input type="number" step="0.1" min="0" id="pump{{ number }}_nameplate_amps"
-           name="pump{{ number }}_nameplate_amps"
-           value="{{ pump.nameplate_amps if pump.nameplate_amps is not none else '' }}">
-    <p class="hint">Full load amps off the motor plate. Nothing is calculated
-      from it; it is what the typical load on the dashboard gets judged
-      against.</p>
-  </fieldset>
-  {% endfor %}
-</div>
-{% endmacro %}
 
 
 {% macro site_fields(site) %}
@@ -316,16 +277,6 @@
            value="{{ site.contact_phone }}">
   </div>
 </div>
-
-<p class="hint">
-  Anyone can read these without signing in, on the home page, the contact page
-  and the policies. <strong>Not where your alerts go</strong>; that is your own
-  email and mobile, on your profile.
-</p>
-<p class="hint">
-  Both optional; replying STOP is what actually stops messages. Prefer a role
-  address, because a number on a public page is public forever.
-</p>
 
 <h3>When alerts go out</h3>
 

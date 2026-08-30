@@ -15,10 +15,8 @@ from starlette.datastructures import FormData
 
 from pitwatch.schemas import (
     ALERT_ORDER,
-    DASHBOARD_ROLES,
     AlertsSettings,
     ChannelMap,
-    DashboardSettings,
     InputsSettings,
     PumpSettings,
     PumpsSettings,
@@ -124,7 +122,10 @@ def inputs_from(form: FormData, existing: InputsSettings | None = None) -> Input
     channels = [
         ChannelMap(
             channel=number_,
-            label=text(form, f"channel_{number_}_label"),
+            # What the panel put on this input, chosen from what the dashboard
+            # can draw. Blank means nothing has said, which is not the same as
+            # nothing being wired: the input is read and recorded either way.
+            role=text(form, f"channel_{number_}_role"),
             # A select rather than a checkbox, because "invert" asks you to
             # think backwards and this asks you what the panel does.
             invert=text(form, f"channel_{number_}_on_when") == "absent",
@@ -146,19 +147,8 @@ def inputs_from(form: FormData, existing: InputsSettings | None = None) -> Input
     )
 
 
-def dashboard_from(form: FormData) -> DashboardSettings:
-    """Which input drives which lamp. An empty box means that lamp is unassigned."""
-    return DashboardSettings(
-        **{role: optional_integer(form, f"role_{role}") for role, _ in DASHBOARD_ROLES}
-    )
-
-
 def _pump_from(form: FormData, prefix: str, fallback_name: str) -> PumpSettings:
-    return PumpSettings(
-        name=text(form, f"{prefix}_name", fallback_name) or fallback_name,
-        running_amps=number(form, f"{prefix}_running_amps", 1.0),
-        nameplate_amps=optional_number(form, f"{prefix}_nameplate_amps"),
-    )
+    return PumpSettings(name=text(form, f"{prefix}_name", fallback_name) or fallback_name)
 
 
 def pumps_from(form: FormData) -> PumpsSettings:

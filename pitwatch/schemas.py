@@ -500,13 +500,22 @@ class AlertsSettings(BaseModel):
             ),
         )
     )
+    # The two rules that need a number typed in before they can do anything.
+    #
+    # Off, therefore, rather than on: a rule with no threshold behind it cannot
+    # fire, so shipping it ticked meant a page that said it was raising an
+    # alert while it sat there unable to. The ticked box was the wrong half to
+    # believe. Set the threshold and tick it, in that order, and the box means
+    # what it says from then on.
     over_current: OverCurrentRule = Field(
         default_factory=lambda: OverCurrentRule(
+            enabled=False,
             message=("{pump} at {site} drew {amps} A, over its {threshold} A limit. Time {time}."),
         )
     )
     run_too_long: RunTooLongRule = Field(
         default_factory=lambda: RunTooLongRule(
+            enabled=False,
             message="{pump} at {site} ran for {duration} without stopping. Time {time}.",
         )
     )

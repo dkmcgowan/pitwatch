@@ -145,6 +145,14 @@ main {
 }
 
 .card h1 { margin-top: 0; font-size: 1.4rem; }
+
+/* A heading that is not inside a card, for a page that is a list of cards
+   rather than one card. Sized to match the ones that are, so that losing the
+   box around it does not turn it into a different size of heading. */
+.page-title {
+  margin: 0 0 var(--gap);
+  font-size: 1.4rem;
+}
 .card h2 { margin-top: 0; font-size: 1.15rem; }
 
 .notice { border-left: 4px solid var(--accent); }
@@ -959,11 +967,11 @@ dialog.confirm .row-actions { margin-top: 1.25rem; }
 
 .bad { color: var(--crit); }
 
-/* Floats and devices ------------------------------------------------------ */
+/* Floats ------------------------------------------------------------------ */
 
-.floats, .devices { display: grid; gap: 0.5rem; }
+.floats { display: grid; gap: 0.5rem; }
 
-.float, .device {
+.float {
   display: grid;
   grid-template-columns: 1fr auto auto;
   align-items: center;
@@ -976,8 +984,42 @@ dialog.confirm .row-actions { margin-top: 1.25rem; }
 
 .float.wet { border-color: color-mix(in srgb, var(--crit) 50%, transparent); }
 
-.float-name, .device-name { font-weight: 550; }
-.float-since, .device-detail { font-size: 0.82rem; }
+.float-name { font-weight: 550; }
+.float-since { font-size: 0.82rem; }
+
+/* Whether the monitoring is connected -------------------------------------
+ *
+ * One line, right aligned, above everything. Quiet when it is fine, which is
+ * almost always, and loud in the one case worth interrupting somebody for. The
+ * detail that used to be two rows of pills at the foot of the page is in the
+ * tooltip and in a visually hidden span beside it. */
+
+.link {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.link-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex: none;
+}
+
+.link-ok { background: var(--ok); }
+.link-idle { background: var(--text-muted); }
+.link-crit {
+  background: var(--crit);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--crit) 25%, transparent);
+}
+
+.link-word { color: var(--crit); font-weight: 550; }
 
 /* Banner ------------------------------------------------------------------ */
 

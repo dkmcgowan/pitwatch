@@ -12,6 +12,22 @@
 
 <div class="banner" data-banner hidden></div>
 
+{# Whether the two devices are talking, as one indicator rather than as two
+   rows of pills at the foot of the page.
+
+   The rows said "Shelly EM: Connected" and "Panel inputs: Connected", which is
+   plumbing. Somebody looking at this wants to know whether their pumps are
+   fine, and the fact that the answer is assembled from a meter and an I/O
+   module is not their problem. It is an administrator's problem, so the detail
+   is still here, in the tooltip, and the dot goes red and grows a word when a
+   device stops reporting, which is the one moment any of this is worth
+   anybody's attention. #}
+<div class="link" data-link title="Waiting for the first reading">
+  <span class="link-dot link-idle" aria-hidden="true"></span>
+  <span class="link-word" data-link-word></span>
+  <span class="visually-hidden" data-link-said>Connection status unknown</span>
+</div>
+
 {# The panel door, near enough.
 
    Four blocks across: alerts, overloads, floats, and the controller's own
@@ -315,22 +331,6 @@
      settings, so the rows are built from the state rather than written out
      here. Shown in input order, which is the order they are wired in. #}
   <div class="floats" data-inputs></div>
-</section>
-
-<section class="card">
-  <h2>Devices</h2>
-  <div class="devices">
-    <div class="device" data-device="shelly">
-      <span class="device-name">Shelly EM</span>
-      <span class="pill pill-idle" data-device-pill>Unknown</span>
-      <span class="muted" data-device-detail></span>
-    </div>
-    <div class="device" data-device="inputs">
-      <span class="device-name">Panel inputs</span>
-      <span class="pill pill-idle" data-device-pill>Unknown</span>
-      <span class="muted" data-device-detail></span>
-    </div>
-  </div>
 </section>
 
 {% endblock %}

@@ -335,36 +335,71 @@
     });
   }
 
-  function renderDevices(devices) {
-    document.querySelectorAll("[data-device]").forEach(function (row) {
-      const name = row.getAttribute("data-device");
-      const device = (devices || {})[name];
-      const pill = row.querySelector("[data-device-pill]");
-      const detail = row.querySelector("[data-device-detail]");
+  // The two devices as one indicator.
+  //
+  // Named after what it is telling you rather than after what it is made of:
+  // whether the monitoring is connected. The words that used to be in two rows
+  // of pills are still here, in the tooltip, for whoever wants them.
+  //
+  // Deliberately not set up is not a fault. Starting with only the clamps
+  // wired is a normal way to run, and painting that red would train somebody
+  // to ignore the one thing on this page that goes red when it matters.
+  const DEVICE_NAMES = { shelly: "Shelly EM", inputs: "Panel inputs" };
 
-      if (!device) {
-        setPill(pill, "Unknown", "idle");
-        detail.textContent = "";
-        return;
-      }
-      // Deliberately not set up is not a fault. Starting with only the clamps
-      // wired is a normal way to run, and painting that red would train
-      // somebody to ignore the one place that goes red when it matters.
-      if (!device.configured) {
-        setPill(pill, "Not set up", "idle");
-        detail.textContent = "";
-        return;
-      }
-      if (device.online) {
-        setPill(pill, "Connected", "ok");
-        detail.textContent = "";
-      } else {
-        setPill(pill, "Offline", "crit");
-        detail.textContent =
-          (device.last_error || "not reachable") +
-          (device.last_seen ? ", last heard from " + since(device.last_seen) : "");
-      }
+  function renderLink(devices) {
+    const box = document.querySelector("[data-link]");
+    if (!box) {
+      return;
+    }
+    const dot = box.querySelector(".link-dot");
+    const word = box.querySelector("[data-link-word]");
+    const said = box.querySelector("[data-link-said]");
+
+    const known = devices || {};
+    const configured = Object.keys(DEVICE_NAMES).filter(function (name) {
+      return known[name] && known[name].configured;
     });
+    const down = configured.filter(function (name) {
+      return !known[name].online;
+    });
+
+    const detail = Object.keys(DEVICE_NAMES)
+      .map(function (name) {
+        const device = known[name];
+        if (!device || !device.configured) {
+          return DEVICE_NAMES[name] + ": not set up";
+        }
+        if (device.online) {
+          return DEVICE_NAMES[name] + ": connected";
+        }
+        return (
+          DEVICE_NAMES[name] +
+          ": offline, " +
+          (device.last_error || "not reachable") +
+          (device.last_seen ? ", last heard from " + since(device.last_seen) : "")
+        );
+      })
+      .join(". ");
+
+    let state = "ok";
+    let label = "";
+    if (!configured.length) {
+      state = "idle";
+    } else if (down.length === 1) {
+      state = "crit";
+      label = DEVICE_NAMES[down[0]] + " offline";
+    } else if (down.length > 1) {
+      state = "crit";
+      label = "Both devices offline";
+    }
+
+    dot.className = "link-dot link-" + state;
+    word.textContent = label;
+    box.title = detail;
+    // The tooltip is a title attribute, which a screen reader may or may not
+    // announce and a phone cannot hover over at all. This is the same words
+    // where they will always be read.
+    said.textContent = detail;
   }
 
   function renderBanner(state) {
@@ -399,7 +434,7 @@
     renderPanel(state.panel);
     renderHistory(state.panel);
     renderInputs(state.inputs);
-    renderDevices(state.devices);
+    renderLink(state.devices);
     renderBanner(state);
     document.body.classList.remove("stale");
   }

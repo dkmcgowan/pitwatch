@@ -21,6 +21,20 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Every static asset is fetched with the version on the end of it, so a
+      # release built from a tree that still says an older number serves new
+      # CSS behind an old cache key and browsers keep the old one. That is not
+      # hypothetical: 0.19 through 0.23 all shipped calling themselves 0.18.0.
+      - name: The tag and the version agree
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tagged="${GITHUB_REF_NAME#v}"
+          declared=$(sed -n "s/^__version__ = \"\(.*\)\"$/\1/p" pitwatch/__init__.py)
+          if [ "$tagged" != "$declared" ]; then
+            echo "Tagged $GITHUB_REF_NAME but __version__ says $declared" >&2
+            exit 1
+          fi
+
       - uses: docker/setup-buildx-action@v3
 
       # Pull requests build to prove the Dockerfile still works, but nothing

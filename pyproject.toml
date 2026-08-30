@@ -1,6 +1,6 @@
 [project]
 name = "pitwatch"
-version = "0.18.0"
+dynamic = ["version"]
 description = "Monitoring and alerting for a duplex ejector pump panel"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -10,6 +10,11 @@ authors = [{ name = "David McGowan" }]
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+# One place to change, so the footer, the image tag and the query string
+# that busts a stale stylesheet cannot disagree.
+[tool.setuptools.dynamic]
+version = { attr = "pitwatch.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["pitwatch*"]

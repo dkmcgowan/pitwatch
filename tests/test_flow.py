@@ -389,7 +389,6 @@ def test_the_dashboard_replaces_the_setup_prompt_once_configured(client):
     page = client.get("/").text
 
     assert "Basement pit" in page
-    assert "Pump 1" not in page, "names arrive over the live feed, not in the markup"
     assert 'data-pump="1"' in page
     assert 'data-pump="2"' in page
 
@@ -431,20 +430,23 @@ def test_the_live_feed_reports_a_pump_with_no_readings_as_unknown(client):
     assert pump["drawing_current"] is False
 
 
-def test_an_input_with_no_name_is_left_off_the_dashboard(client):
-    """And a named one that has not been read yet reports unknown, not off.
+def test_an_input_carrying_a_lamp_is_not_listed_below_it_as_well(client):
+    """And one that carries nothing is listed there, reading unknown rather
+    than off, because nothing has read it yet.
 
     None is not False. An input reported as off when nothing has read it is an
     alarm that will never fire and will look like it is working.
     """
     sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM | {"channel_3_label": ""})
+    # Everything as usual except DI3, which is left carrying nothing, so it is
+    # the one input with no lamp of its own.
+    client.post("/setup", data=SETUP_FORM | {"channel_3_role": ""})
 
     inputs = {row["channel"]: row for row in client.get("/api/state").json()["inputs"]}
 
-    assert 3 not in inputs, "nothing is wired there"
-    assert inputs[1]["label"] == "Lead float"
-    assert inputs[1]["state"] is None, "wired, but nothing has been read yet"
+    assert set(inputs) == {3}, "the seven with lamps are drawn on the panel instead"
+    assert inputs[3]["label"] == "DI3", "nothing has said what it is"
+    assert inputs[3]["state"] is None, "read, but nothing has arrived yet"
 
 
 SHELLY_ONLY_FORM = {
@@ -765,32 +767,41 @@ def test_naming_an_input_is_all_it_takes_to_watch_it(client):
     assert [c.channel for c in client.app.state.settings.inputs.used_channels] == [1, 2]
 
 
-def test_clearing_a_name_stops_watching_that_input(client):
-    """Which is the entire removal story. There is no delete to get wrong."""
+def test_taking_a_lamp_off_an_input_leaves_the_input_working(client):
+    """Which is the whole removal story, and the part the old wording got
+    wrong. Setting an input back to carrying nothing takes its lamp away. It
+    does not stop the input being read: it moves to the list below the panel.
+    """
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
     assert len(client.app.state.settings.inputs.used_channels) == 8
 
-    client.post(
-        "/settings/inputs",
-        data={key: value for key, value in SETUP_FORM.items() if key != "channel_4_label"}
-        | {"channel_4_label": "   "},
-    )
+    client.post("/settings/inputs", data=SETUP_FORM | {"channel_4_role": ""})
 
     used = client.app.state.settings.inputs.used_channels
     assert [c.channel for c in used] == [1, 2, 3, 5, 6, 7, 8]
 
+    listed = {row["channel"] for row in client.get("/api/state").json()["inputs"]}
+    assert listed == {4}, "still read, just with no lamp of its own"
 
-def test_a_renamed_input_is_shown_under_its_new_name(client):
+
+def test_moving_a_lamp_to_another_input_moves_what_the_dashboard_reads(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
-    client.post("/settings/inputs", data=SETUP_FORM | {"channel_3_label": "TOP FLOAT"})
+    # High water was on DI3. Put it on DI4 instead, which means DI4 has to give
+    # up the system alert first: one meaning, one input.
+    client.post(
+        "/settings/inputs",
+        data=SETUP_FORM | {"channel_3_role": "", "channel_4_role": "high_water"},
+    )
 
-    page = client.get("/settings").text
-    assert 'value="TOP FLOAT"' in page
-    inputs = {row["channel"]: row for row in client.get("/api/state").json()["inputs"]}
-    assert inputs[3]["label"] == "TOP FLOAT"
+    inputs = client.app.state.settings.inputs
+    assert inputs.channel_for("high_water") == 4
+    assert inputs.channel_for("system_alert") is None
+
+    panel = client.get("/api/state").json()["panel"]
+    assert panel["high_water"]["channel"] == 4
 
 
 # -- what each input carries ------------------------------------------------

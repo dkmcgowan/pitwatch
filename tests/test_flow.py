@@ -1075,3 +1075,31 @@ def test_signing_in_still_takes_over_the_root(client):
 
     assert signed_in.status_code == 200
     assert "ejector pit sits below the sewer line" not in signed_in.text
+
+
+def test_each_device_gets_its_own_indicator(client):
+    """One dot for both of them meant a green Shelly hid an X-408 that was not
+    set up, which is exactly the state somebody needs to see on a fresh
+    install. They also fail for entirely different reasons, so which one is
+    down is the useful half of the answer."""
+    sign_in_as_admin(client)
+    client.post("/setup", data=SHELLY_ONLY_FORM)
+
+    page = client.get("/").text
+    assert 'data-link="shelly"' in page
+    assert 'data-link="inputs"' in page
+
+    devices = client.get("/api/state").json()["devices"]
+    assert devices["shelly"]["configured"] is True
+    assert devices["inputs"]["configured"] is False
+
+
+def test_a_seeded_device_is_not_a_device_that_is_there(client):
+    """The broker address is seeded from the environment because it is known
+    before anybody types anything. Whether a module is plugged into it is not,
+    and seeding it on meant a fresh install opened reporting a fault about
+    hardware still in its box."""
+    inputs = client.app.state.settings.inputs
+
+    assert inputs.enabled is False
+    assert client.app.state.settings.shelly.enabled is False

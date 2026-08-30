@@ -21,7 +21,6 @@ from pydantic import BaseModel
 from pitwatch.config import Config
 from pitwatch.schemas import (
     AlertsSettings,
-    ChannelMap,
     InputsSettings,
     PumpsSettings,
     ShellySettings,
@@ -185,17 +184,6 @@ class SettingsStore:
 # order a duplex ejector panel usually brings them out. A starting point for
 # somebody who has not opened the settings page yet, and nothing more: these are
 # labels, so anything here is wrong only in the sense of being unhelpful.
-DEFAULT_CHANNEL_LABELS: tuple[str, ...] = (
-    "Lead float",
-    "Lag float",
-    "High water alarm float",
-    "Panel alarm contact",
-    "Pump 1 running",
-    "Pump 2 running",
-    "Pump 1 overload tripped",
-    "Pump 2 overload tripped",
-)
-
 
 async def seed_from_environment(store: SettingsStore, config: Config) -> None:
     """Write the PITWATCH_SEED_* values, once, into an empty settings table.
@@ -208,22 +196,26 @@ async def seed_from_environment(store: SettingsStore, config: Config) -> None:
     if await store.is_setup_complete():
         return
 
+    # Both of these seed an address and leave the device switched off.
+    #
+    # Knowing where something would be is not the same as knowing it is there.
+    # A device seeded on means a fresh install starts by reporting a fault
+    # about hardware that is still in its box, and the first thing anybody
+    # learns is that the red light does not mean anything.
     if config.seed_shelly_host and not store.shelly.host:
-        await store.put(ShellySettings(enabled=True, host=config.seed_shelly_host.strip()))
+        await store.put(ShellySettings(host=config.seed_shelly_host.strip()))
         log.info("Seeded the Shelly address from the environment")
 
     if config.seed_broker_host:
+        # The connection only. What each input carries is a claim about how
+        # somebody wired a panel, and guessing that would put eight lamps on
+        # the dashboard describing a module nobody has connected yet.
         await store.put(
             InputsSettings(
-                enabled=True,
                 host=config.seed_broker_host.strip(),
                 port=config.seed_broker_port or 1883,
                 username=(config.seed_broker_username or "").strip(),
                 password=config.seed_broker_password or "",
-                channels=[
-                    ChannelMap(channel=number, label=label)
-                    for number, label in enumerate(DEFAULT_CHANNEL_LABELS, start=1)
-                ],
             )
         )
-        log.info("Seeded the broker and the default input labels")
+        log.info("Seeded the broker connection from the environment")

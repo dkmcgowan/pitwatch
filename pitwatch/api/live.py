@@ -12,7 +12,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from pitwatch import auth
+from pitwatch import auth, domain
 from pitwatch.api import forms
 from pitwatch.domain.history import (
     Closings,
@@ -27,7 +27,7 @@ from pitwatch.ingest import shelly as shelly_ingest
 from pitwatch.ingest.sink import LiveIo, LiveState
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
-from pitwatch.schemas import DASHBOARD_ROLES, DashboardSettings, InputsSettings
+from pitwatch.schemas import DASHBOARD_ROLES, InputsSettings
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ ON_WORD = "ON"
 OFF_WORD = "Off"
 
 
-def lead_and_lag(dashboard: DashboardSettings, live_io: LiveIo) -> tuple[str, str]:
+def lead_and_lag(inputs: InputsSettings, live_io: LiveIo) -> tuple[str, str]:
     """The two words in the middle of the panel, in pump order.
 
     Written to match the controller on the wall, because the point of this
@@ -70,13 +70,18 @@ def lead_and_lag(dashboard: DashboardSettings, live_io: LiveIo) -> tuple[str, st
     left. Both tripped is the display in the photograph that nobody wants to be
     looking at.
     """
-    faulted_1 = live_io.state_of(dashboard.pump1_fault) if dashboard.pump1_fault else None
-    faulted_2 = live_io.state_of(dashboard.pump2_fault) if dashboard.pump2_fault else None
+    fault_1 = inputs.channel_for("pump1_fault")
+    fault_2 = inputs.channel_for("pump2_fault")
+    run_1 = inputs.channel_for("pump1_run")
+    run_2 = inputs.channel_for("pump2_run")
+
+    faulted_1 = live_io.state_of(fault_1) if fault_1 else None
+    faulted_2 = live_io.state_of(fault_2) if fault_2 else None
     if faulted_1 and faulted_2:
         return ("FAIL", "FAIL")
 
-    running_1 = live_io.state_of(dashboard.pump1_run) if dashboard.pump1_run else None
-    running_2 = live_io.state_of(dashboard.pump2_run) if dashboard.pump2_run else None
+    running_1 = live_io.state_of(run_1) if run_1 else None
+    running_2 = live_io.state_of(run_2) if run_2 else None
 
     if faulted_1:
         return ("FAIL", "LEAD")
@@ -95,8 +100,8 @@ def lead_and_lag(dashboard: DashboardSettings, live_io: LiveIo) -> tuple[str, st
     # close, which outlives the run itself; changed_at would only say when it
     # dropped out and would be the same answer for a pump that has not run in a
     # month as for one that stopped a second ago.
-    last_1 = live_io.came_on_at(dashboard.pump1_run)
-    last_2 = live_io.came_on_at(dashboard.pump2_run)
+    last_1 = live_io.came_on_at(run_1)
+    last_2 = live_io.came_on_at(run_2)
     if last_1 is None and last_2 is None:
         # Nothing has run since this was wired up. Which pump is lead is the
         # controller's business and it does not tell us, so this waits rather
@@ -108,7 +113,6 @@ def lead_and_lag(dashboard: DashboardSettings, live_io: LiveIo) -> tuple[str, st
 
 
 def panel_state(
-    dashboard: DashboardSettings,
     inputs: InputsSettings,
     live_io: LiveIo,
     closings: dict[int, Closings] | None = None,
@@ -117,13 +121,12 @@ def panel_state(
     closings = closings or {}
     lamps = {}
     for role, title in DASHBOARD_ROLES:
-        channel = getattr(dashboard, role)
+        channel = inputs.channel_for(role)
         history = closings.get(channel) if channel else None
         lamps[role] = {
             "title": title,
             "channel": channel,
-            # What the input is called, so the dashboard shows the panel's own
-            # word for it rather than ours when somebody has typed one.
+            # Which terminal this came off, for anybody standing at the panel.
             "label": inputs.label_for(channel) if channel else None,
             # None covers both nothing assigned and nothing read yet. Neither
             # is off, and a lamp that reads off when it means unknown is the
@@ -135,7 +138,7 @@ def panel_state(
             "history": (history or Closings()).as_json(),
         }
 
-    first, second = lead_and_lag(dashboard, live_io)
+    first, second = lead_and_lag(inputs, live_io)
     lamps["display"] = {"1": first, "2": second}
     return lamps
 
@@ -198,16 +201,16 @@ async def build_state(app) -> dict:
     counter: RecentRuns | None = getattr(app.state, "recent_runs", None)
     typical: dict[int, Typical] = {}
     recent: dict[int, Recent] = {}
-    for number, settings in pump_settings.items():
+    for number in pump_settings:
         typical[number] = (
             Typical()
             if history is None
-            else await history.typical(pool, clamp[number], settings.running_amps)
+            else await history.typical(pool, clamp[number], domain.RUNNING_AMPS)
         )
         recent[number] = (
             Recent()
             if counter is None
-            else await counter.recent(pool, clamp[number], settings.running_amps)
+            else await counter.recent(pool, clamp[number], domain.RUNNING_AMPS)
         )
 
     def pump_state(number: int) -> dict:
@@ -215,7 +218,7 @@ async def build_state(app) -> dict:
         sample = live.samples.get(channel)
         settings = pump_settings[number]
         current = sample.current if sample else None
-        drawing = current is not None and current >= settings.running_amps
+        drawing = current is not None and current >= domain.RUNNING_AMPS
         # Amps only. The device reports voltage, power and power factor as
         # well, and they are still recorded, but they are not reported here
         # because in this installation they are not measurements of the motor:
@@ -228,15 +231,15 @@ async def build_state(app) -> dict:
             "channel": channel,
             "current": current,
             "reading_at": sample.ts.isoformat() if sample else None,
-            # Only the clamp now. The panel's run contact used to be reported
-            # beside this, and the disagreement between them was the
+            # Still only the clamp. The panel's run contact used to be
+            # reported beside this, and the disagreement between them is the
             # interesting part: a closed contactor drawing nothing is a motor
-            # that is not turning. Saying which input carries that contact
-            # needs a way to point at one, and inputs are labels now, so there
-            # is nothing here to point with. See NOTES.md.
+            # that is not turning. That needed a way to point at the input
+            # carrying the run contact, which did not exist while inputs were
+            # free text. It does now, as inputs.channel_for("pump1_run"), so
+            # this is buildable whenever the detector wants it. See NOTES.md.
             "drawing_current": drawing,
             "running": drawing,
-            "nameplate_amps": settings.nameplate_amps,
             "typical": typical[number].as_json(),
             # The query behind this is cached for a minute, which is right for
             # a count and wrong for a clock. The live state knows exactly when
@@ -245,7 +248,7 @@ async def build_state(app) -> dict:
         }
 
     inputs = store.inputs
-    assigned = {channel for channel in store.dashboard.assignments.values() if channel}
+    assigned = {mapped.channel for mapped in inputs.used_channels}
 
     signals: SignalHistory | None = getattr(app.state, "signal_history", None)
     closings = await signals.closings(pool, sorted(assigned)) if signals else {}
@@ -265,7 +268,7 @@ async def build_state(app) -> dict:
     return {
         "site": store.site.model_dump(mode="json"),
         "pumps": {"1": pump_state(1), "2": pump_state(2)},
-        "panel": panel_state(store.dashboard, inputs, live_io, closings),
+        "panel": panel_state(inputs, live_io, closings),
         # Named inputs that no lamp is showing. Nothing should go missing just
         # because the dashboard has no place built for it.
         "inputs": [

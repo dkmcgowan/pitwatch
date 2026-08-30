@@ -73,22 +73,16 @@ SETUP_FORM = {
     "inputs_status_topic": "pitwatch/status",
     "inputs_client_id": "pitwatch",
     "inputs_debounce_ms": "500",
-    "channel_1_label": "Lead float",
-    "channel_2_label": "Lag float",
-    "channel_3_label": "High water alarm float",
-    "channel_4_label": "Panel alarm contact",
-    "channel_5_label": "Pump 1 running",
-    "channel_6_label": "Pump 2 running",
-    "channel_7_label": "Pump 1 overload tripped",
+    "channel_1_role": "lead_float",
+    "channel_2_role": "lag_float",
+    "channel_3_role": "high_water",
+    "channel_4_role": "system_alert",
+    "channel_5_role": "pump1_run",
+    "channel_6_role": "pump2_run",
+    "channel_7_role": "pump1_fault",
     "channel_7_on_when": "absent",
-    "channel_8_label": "Pump 2 overload tripped",
+    "channel_8_role": "pump2_fault",
     "channel_8_on_when": "absent",
-    "pump1_name": "North pump",
-    "pump1_running_amps": "1.5",
-    "pump1_nameplate_amps": "9.6",
-    "pump2_name": "South pump",
-    "pump2_running_amps": "1.5",
-    "pump2_nameplate_amps": "9.6",
 }
 
 
@@ -114,7 +108,7 @@ def test_setup_saves_everything(client):
     settings = client.get("/settings")
     assert settings.status_code == 200
     assert "192.168.1.51" in settings.text
-    assert "North pump" in settings.text
+    assert "The panel inputs" in settings.text
 
 
 def test_setup_sends_you_to_settings_once_it_has_been_used(client):
@@ -139,13 +133,14 @@ def test_two_inputs_may_carry_the_same_name(client):
     """
     sign_in_as_admin(client)
     response = client.post(
-        "/setup", data=SETUP_FORM | {"channel_2_label": "Lead float"}, follow_redirects=False
+        "/setup", data=SETUP_FORM | {"channel_2_role": "lead_float"}, follow_redirects=False
     )
 
-    assert response.status_code == 303
-    channels = client.app.state.settings.inputs.channels
-    assert channels[0].label == "Lead float"
-    assert channels[1].label == "Lead float"
+    # Both inputs claiming to be the lead float has nowhere to be written down
+    # now that the meaning lives on the input, so it is refused rather than one
+    # of the two being quietly dropped.
+    assert response.status_code == 400
+    assert "single input" in response.text
 
 
 def test_the_clamp_choice_is_stored_the_way_it_was_made(client):
@@ -156,7 +151,7 @@ def test_the_clamp_choice_is_stored_the_way_it_was_made(client):
 
     assert state["pumps"]["1"]["channel"] == 1
     assert state["pumps"]["2"]["channel"] == 0
-    assert state["pumps"]["1"]["name"] == "North pump"
+    assert state["pumps"]["1"]["name"] == "Pump 1"
 
     stored = client.app.state.settings.shelly
     assert stored.pump1_channel == 1
@@ -225,7 +220,6 @@ def test_saving_one_section_leaves_the_others_alone(client):
     page = client.get("/settings").text
     assert "Renamed" in page
     assert "192.168.1.51" in page
-    assert "North pump" in page
 
 
 def test_an_smtp_password_is_kept_when_the_box_is_left_empty(client):
@@ -395,7 +389,7 @@ def test_the_dashboard_replaces_the_setup_prompt_once_configured(client):
     page = client.get("/").text
 
     assert "Basement pit" in page
-    assert "North pump" not in page, "names arrive over the live feed, not in the markup"
+    assert "Pump 1" not in page, "names arrive over the live feed, not in the markup"
     assert 'data-pump="1"' in page
     assert 'data-pump="2"' in page
 
@@ -475,7 +469,7 @@ def test_setup_works_with_only_the_clamps_configured(client):
     assert client.get("/").status_code == 200
 
     state = client.get("/api/state").json()
-    assert state["pumps"]["1"]["name"] == "North pump"
+    assert state["pumps"]["1"]["name"] == "Pump 1"
     assert state["devices"]["shelly"]["configured"] is True
 
 
@@ -756,18 +750,18 @@ def test_naming_an_input_is_all_it_takes_to_watch_it(client):
         data={
             "inputs_enabled": "on",
             "inputs_host": "192.168.1.51",
-            "channel_1_label": "Bottom float",
-            "channel_2_label": "Seal failure",
+            "channel_1_role": "lead_float",
+            "channel_2_role": "high_water",
             "channel_2_on_when": "absent",
         },
     )
 
     channels = client.app.state.settings.inputs.channels
-    assert channels[0].label == "Bottom float"
-    assert channels[1].label == "Seal failure"
+    assert channels[0].role == "lead_float"
+    assert channels[1].role == "high_water"
     assert channels[1].invert is True
-    # Everything not named in that post is now unnamed, which is the only way
-    # clearing a name can work when a form posts the whole section.
+    # Everything not named in that post now carries nothing, which is the only
+    # way clearing one can work when a form posts the whole section.
     assert [c.channel for c in client.app.state.settings.inputs.used_channels] == [1, 2]
 
 
@@ -799,46 +793,33 @@ def test_a_renamed_input_is_shown_under_its_new_name(client):
     assert inputs[3]["label"] == "TOP FLOAT"
 
 
-# -- the dashboard lamps -----------------------------------------------------
+# -- what each input carries ------------------------------------------------
 
 
-def test_assigning_a_lamp_shows_the_input_by_its_name(client):
+def test_choosing_what_an_input_carries_lights_its_lamp(client):
+    """One choice, on the input row, rather than a name here and a second list
+    on another page saying which name goes with which lamp."""
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
-    save = client.post(
-        "/settings/dashboard",
-        data={
-            "role_system_alert": "4",
-            "role_high_water": "3",
-            "role_lead_float": "1",
-            "role_lag_float": "2",
-            "role_pump1_run": "5",
-            "role_pump2_run": "6",
-            "role_pump1_fault": "7",
-            "role_pump2_fault": "8",
-        },
-        follow_redirects=False,
-    )
-    assert save.status_code == 303
-
-    dashboard = client.app.state.settings.dashboard
-    assert dashboard.high_water == 3
-    assert dashboard.pump2_fault == 8
+    inputs = client.app.state.settings.inputs
+    assert inputs.channel_for("high_water") == 3
+    assert inputs.channel_for("pump2_fault") == 8
 
     panel = client.get("/api/state").json()["panel"]
     assert panel["high_water"]["channel"] == 3
-    assert panel["high_water"]["label"] == "High water alarm float"
+    assert panel["high_water"]["label"] == "High water"
     # Nothing has read the module, so every lamp is unknown rather than off.
     assert panel["high_water"]["state"] is None
     assert panel["display"] == {"1": "--", "2": "--"}
 
 
-def test_a_lamp_left_blank_stays_unassigned(client):
+def test_a_lamp_nothing_was_given_stays_unassigned(client):
     sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-
-    client.post("/settings/dashboard", data={"role_high_water": "3"})
+    client.post(
+        "/setup",
+        data=SETUP_FORM | {"channel_4_role": "", "channel_3_role": "high_water"},
+    )
 
     panel = client.get("/api/state").json()["panel"]
     assert panel["high_water"]["channel"] == 3
@@ -851,33 +832,34 @@ def test_an_input_a_lamp_is_showing_is_not_listed_again_below(client):
     be read twice and counted once."""
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
-    client.post(
-        "/settings/dashboard",
-        data={"role_lead_float": "1", "role_lag_float": "2", "role_high_water": "3"},
-    )
 
     state = client.get("/api/state").json()
     listed = {row["channel"] for row in state["inputs"]}
 
-    assert listed == {4, 5, 6, 7, 8}
+    assert listed == set(), "all eight carry a lamp in this setup"
 
 
-def test_two_lamps_may_share_one_input(client):
-    """A simple panel really can bring out one contact that is both its high
-    water float and its alarm."""
+def test_one_input_cannot_carry_two_lamps(client):
+    """It could while the mapping ran the other way round, and a simple panel
+    really can bring out one contact that is both its high water float and its
+    alarm. With the meaning chosen on the input there is nowhere to write that
+    down, so it is refused out loud rather than half applied."""
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     save = client.post(
-        "/settings/dashboard",
-        data={"role_high_water": "3", "role_system_alert": "3"},
+        "/settings/inputs",
+        data={
+            "inputs_enabled": "on",
+            "inputs_host": "192.168.1.51",
+            "channel_3_role": "high_water",
+            "channel_4_role": "high_water",
+        },
         follow_redirects=False,
     )
 
-    assert save.status_code == 303
-    panel = client.get("/api/state").json()["panel"]
-    assert panel["high_water"]["channel"] == 3
-    assert panel["system_alert"]["channel"] == 3
+    assert save.status_code == 400
+    assert "single input" in save.text
 
 
 # -- the alerts page ---------------------------------------------------------
@@ -923,9 +905,10 @@ def test_the_thresholds_moved_off_the_pumps_page(client):
     assert "short_cycling_restart_within_ms" in alerts
     assert "nothing_has_run_quiet_minutes" in alerts
     assert "run_too_long_longer_than_ms" in alerts
-    # What a pump is stays on the pumps page.
-    assert "pump1_running_amps" in pumps
-    assert "pump1_nameplate_amps" in pumps
+    # And a pump has nothing left to configure: what counts as running became
+    # a constant and the plate rating went entirely.
+    assert "pump1_running_amps" not in pumps
+    assert "pump1_nameplate_amps" not in pumps
 
 
 def test_saving_a_rule_keeps_it(client):

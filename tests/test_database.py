@@ -118,14 +118,14 @@ async def test_settings_round_trip(store):
     saved = InputsSettings(
         enabled=True,
         host="192.168.1.51",
-        channels=[ChannelMap(channel=3, label="High water", invert=True)],
+        channels=[ChannelMap(channel=3, role="high_water", invert=True)],
     )
 
     await store.put(saved)
     read_back = store.inputs
 
     assert read_back.host == "192.168.1.51"
-    assert read_back.channels[2].label == "High water"
+    assert read_back.channels[2].role == "high_water"
     assert read_back.channels[2].invert is True
 
 

@@ -223,8 +223,8 @@ clamps are identical and the device has no idea which motor it is measuring, so
 this is the one thing it cannot work out for itself. If you get it backwards,
 pump 1 will show pump 2's current; swap it in the settings page.
 
-**The panel inputs.** The broker to listen to, a name for each of the eight
-inputs, and whether each one is on when voltage is **present** or when it is
+**The panel inputs.** The broker to listen to, what each of the eight inputs
+carries, and whether each one is on when voltage is **present** or when it is
 **missing**. Get that second one backwards and an alarm reads as permanently on,
 then goes quiet at the moment it matters, so check it against the panel rather
 than guessing. The broker fields arrive already filled in from your `.env`.
@@ -233,42 +233,42 @@ See [Setting up the X-408](#setting-up-the-x-408) and
 
 **You can skip the panel inputs entirely to start with.** Untick the box. The
 clamps go on in ten minutes; the I/O module needs the panel opened up, so
-starting with current only is the normal way in rather than an edge case. You get live amps, per pump running state and the history straight
-away. The contacts show as **not wired** and the module shows as **not set up**
-rather than as a fault, and no rule that depends on a contact will fire on
-nothing.
+starting with current only is the normal way in rather than an edge case. You
+get live amps, per pump running state and the history straight away. The
+module shows as **not set up** rather than as a fault, and no rule that depends
+on a contact will fire on nothing.
 
 Add it later on the settings page. The reader starts on its own when you save,
 without restarting the container.
 
-**Name the inputs.** Each of the module's eight inputs gets a name you type,
-and that is all there is to it. Give one a name and it is watched, recorded and
-shown on the dashboard. Leave the name empty and nothing is wired there, so it
-is left alone.
-
-Name them after what is printed in the panel or on the wire. There is no list to
-pick from, so anything your panel brings out can go on an input: the usual
-floats and run contacts, or a seal failure, a phase monitor, a hand-off-auto
-position. What a new install suggests, in the order a duplex ejector panel
-usually brings them out:
+**Say what each input carries.** Each of the module's eight inputs gets one of
+the eight things the dashboard draws, picked from a list:
 
 | Input | Usually |
 | --- | --- |
 | DI1 | Lead float. The first float. The pump the controller calls lead starts on this. |
 | DI2 | Lag float. The second float, higher up. The other pump joins in. |
-| DI3 | High water alarm float. Higher still. Water is winning. |
-| DI4 | Panel alarm contact. The controller's own generic alarm. |
+| DI3 | High water. Higher still. Water is winning. |
+| DI4 | System alert. The controller's own generic alarm. |
 | DI5 | Pump 1 running. Contactor closed on pump 1. |
 | DI6 | Pump 2 running. Contactor closed on pump 2. |
-| DI7 | Pump 1 overload tripped. |
-| DI8 | Pump 2 overload tripped. |
+| DI7 | Pump 1 overload. |
+| DI8 | Pump 2 overload. |
 
-Those are suggestions, not meanings. PitWatch keys everything on the input
-number, so renaming one is safe at any time and changes only what you read.
+That order is what a duplex ejector panel usually brings out, not a rule. Wire
+them however your panel is wired and say so here; everything is keyed on the
+input number, so moving one is safe at any time.
 
-**Your pumps.** The nameplate full load amps off each motor, and the current
-above which a pump counts as running. That second number is not zero: a clamp on
-a live conductor reads a little noise even when the motor is off.
+An input can be left carrying **nothing**, and that does not turn it off. It is
+still read, still debounced, still recorded in the history. It simply has no
+lamp on the dashboard, and appears in the list below the panel instead. This
+used to be a name you typed, which was doing two jobs badly: it read as an on
+switch, which it never was, and it had to be matched by hand against a second
+list on another page before any lamp would light. One list, on the input, does
+both.
+
+Each of the eight belongs to one input. Two inputs both claiming to be the high
+water float is refused rather than half applied.
 
 ## Email and SMS with AWS
 

@@ -36,6 +36,10 @@ def _context(request: Request, **extra) -> dict:
     return {
         "site": store.site,
         "user": auth.current_user(request),
+        # The eight things the dashboard can draw, which is the list the input
+        # rows pick from. Here rather than passed by each caller, because every
+        # page that renders those rows needs it and forgetting it renders eight
+        # empty dropdowns rather than an error.
         "roles": DASHBOARD_ROLES,
         **extra,
     }
@@ -118,7 +122,6 @@ async def settings_page(request: Request, admin: auth.IsAdmin, saved: str | None
             pumps=store.pumps,
             smtp=store.smtp,
             sms=store.sms,
-            dashboard=store.dashboard,
             saved=saved,
             error=None,
         ),
@@ -193,8 +196,6 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
                 await store.put(forms.pumps_from(form))
             case "smtp":
                 await store.put(forms.smtp_from(form, store.smtp))
-            case "dashboard":
-                await store.put(forms.dashboard_from(form))
             case "sms":
                 await store.put(forms.sms_from(form, store.sms))
             case _:
@@ -210,7 +211,6 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
                 pumps=store.pumps,
                 smtp=store.smtp,
                 sms=store.sms,
-                dashboard=store.dashboard,
                 saved=None,
                 error=_readable(error),
             ),

@@ -33,80 +33,9 @@
   <h2>The panel inputs</h2>
   <form method="post" action="/settings/inputs">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    {{ fields.inputs_fields(inputs) }}
+    {{ fields.inputs_fields(inputs, roles) }}
     <button type="submit" class="button">Save</button>
   </form>
-</section>
-
-<section class="card">
-  <h2>Dashboard lamps
-    <button type="button" class="info-mark" data-info="lamps"
-            aria-label="What the display says">i</button></h2>
-  <p class="hint">
-    Which input lights which lamp. The panel inputs section above says what is
-    wired to each input; this says where each one appears on the dashboard.
-    Leave one blank and that lamp reads <strong>not set</strong> rather than
-    off: not knowing is not the same as knowing it is fine.
-  </p>
-  <form method="post" action="/settings/dashboard">
-
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-
-  <div class="grid">
-    {% for role, title in roles %}
-    <div class="field">
-      <label for="role_{{ role }}">{{ title }}</label>
-      <select id="role_{{ role }}" name="role_{{ role }}">
-        <option value="">Not set</option>
-        {% for channel in inputs.channels %}
-        <option value="{{ channel.channel }}"
-                {% if dashboard.assignments[role] == channel.channel %}selected{% endif %}>
-          {% if channel.label %}{{ channel.label }} (DI{{ channel.channel }}){% else %}DI{{ channel.channel }}{% endif %}
-        </option>
-        {% endfor %}
-      </select>
-    </div>
-    {% endfor %}
-  </div>
-
-  <button type="submit" class="button">Save</button>
-  </form>
-</section>
-
-<dialog class="note" id="note-lamps">
-  <h3 class="note-title">What the display says</h3>
-  <div class="hint">
-    <p>The two words in the middle of the dashboard read the way the controller
-      on the wall does. A running pump is <strong>LEAD</strong> and holds that
-      until its contact drops out, at which point it becomes
-      <strong>LAG</strong> and the other one is lead for the next call.</p>
-    <p>Both running is <strong>ON</strong> and <strong>ON</strong>. That is the
-      high water case, where the pit has come up past the lag float and the
-      controller has called both. Neither is leading anything at that point.</p>
-    <p>An overload outranks all of it. A tripped pump reads
-      <strong>FAIL</strong> and the other is lead whether or not it was next in
-      the rotation, because it is the only one left.</p>
-    <p>Until a run contact has been seen to close, both read
-      <strong>--</strong>. Which pump is lead is the controller's business and
-      it does not tell us, so this waits rather than guessing.</p>
-  </div>
-  <p class="note-close">Click anywhere to close</p>
-</dialog>
-
-<section class="card">
-  <h2>The pumps</h2>
-  <form method="post" action="/settings/pumps">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    {{ fields.pump_fields(pumps) }}
-    <button type="submit" class="button">Save</button>
-  </form>
-</section>
-
-<section class="card">
-  <h2>Who gets told</h2>
-  <p>Alerts go to the accounts on the <a href="/users">Users</a> page, using the
-    email address and mobile number recorded there.</p>
-  <p><a class="button secondary" href="/users">Manage users</a></p>
 </section>
 
 <section class="card">
@@ -124,9 +53,6 @@
         <label for="smtp_host">Server</label>
         <input type="text" id="smtp_host" name="smtp_host" value="{{ smtp.host }}"
                placeholder="email-smtp.us-east-1.amazonaws.com">
-        <p class="hint">For Amazon SES this is
-          <code>email-smtp.&lt;region&gt;.amazonaws.com</code>, in the region you
-          verified your domain in.</p>
       </div>
       <div class="field">
         <label for="smtp_port">Port</label>
@@ -135,7 +61,7 @@
       <div class="field">
         <label for="smtp_security">Security</label>
         <select id="smtp_security" name="smtp_security">
-          {% for value, label in [('starttls', 'STARTTLS (usually port 587)'), ('tls', 'TLS (usually port 465)'), ('none', 'None')] %}
+          {% for value, label in [('tls', 'TLS (usually port 465)'), ('starttls', 'STARTTLS (usually port 587)'), ('none', 'None')] %}
           <option value="{{ value }}" {% if smtp.security == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
@@ -143,11 +69,6 @@
       <div class="field">
         <label for="smtp_username">User name</label>
         <input type="text" id="smtp_username" name="smtp_username" value="{{ smtp.username }}" autocomplete="off">
-        <p class="hint">On SES the user name is an IAM access key id and the
-          password is <strong>derived</strong> from the matching secret access
-          key, not the secret key itself. The console does that for you when it
-          creates SMTP credentials; deriving it from an IAM key you already
-          have works just as well. The derivation includes the region.</p>
       </div>
       <div class="field">
         <label for="smtp_password">Password</label>
@@ -200,15 +121,6 @@
         <option value="sns" {% if sms.provider == 'sns' %}selected{% endif %}>Amazon SNS</option>
         <option value="email_gateway" {% if sms.provider == 'email_gateway' %}selected{% endif %}>The carrier's email gateway</option>
       </select>
-      <p class="hint">
-        <strong>Amazon SNS</strong> is the real one. Texting a US number needs a
-        registered 10DLC or toll-free number, which takes days and is a rule
-        about US messaging rather than about AWS.
-        <strong>The carrier gateway</strong> emails something like
-        <code>5551234567@vtext.com</code>. It costs nothing and arrives whenever
-        the carrier feels like it. Worth having as a second path to a phone, not
-        as the only one.
-      </p>
     </div>
 
     <div class="grid" data-sms-provider="sns">
@@ -272,13 +184,6 @@
     </div>
 
     <button type="submit" class="button">Save</button>
-  </form>
-</section>
-
-<section class="card">
-  <form method="post" action="/logout">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <button type="submit" class="button secondary">Sign out</button>
   </form>
 </section>
 

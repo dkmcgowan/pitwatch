@@ -19,51 +19,71 @@ from typing import ClassVar
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+DASHBOARD_ROLES: tuple[tuple[str, str], ...] = (
+    ("system_alert", "System alert"),
+    ("high_water", "High water"),
+    ("lead_float", "Lead float"),
+    ("lag_float", "Lag float"),
+    ("pump1_run", "Pump 1 running"),
+    ("pump2_run", "Pump 2 running"),
+    ("pump1_fault", "Pump 1 overload"),
+    ("pump2_fault", "Pump 2 overload"),
+)
+
 
 class ChannelMap(BaseModel):
-    """One digital input on the panel module.
+    """One digital input on the panel module, and what the panel put on it.
 
-    The input number is the identity. Everything else about a channel is
-    description: what it is called is a label somebody types, and a blank label
-    means nothing is wired there, so it is not watched and not shown.
+    The input number is the identity. The other two fields are the only things
+    worth saying about it, and they answer different questions:
 
-    There is no separate list of signals to pick from. There was, and it bought
-    nothing: a name that has to be defined somewhere before it can be used, a
-    key underneath the name so a rename was not a delete, a rule against two
-    inputs claiming the same name, and a refusal to remove a name still in use.
-    All of that existed to keep a second identity in step with the one the panel
-    already gives you, which is the terminal the wire lands on.
+    * ``role`` is what this input means, chosen from the eight the dashboard
+      can draw. It replaced a name somebody typed, which was two things badly:
+      a caption, and a way of saying an input was in use. It was neither. Every
+      input is read and recorded whatever it is called, so a blank name never
+      turned anything off, and the caption had to be matched by hand against a
+      second list on another page to make a lamp light. Picking the meaning
+      here does both jobs at once and there is no second list to disagree with.
 
-    ``invert`` is the setting that is easiest to get wrong and worst to get
-    wrong, and it covers two arrangements that look different on the wire and
-    mean the same thing here:
-
-    * A dry contact wired normally closed, which sits closed while nothing is
-      happening and opens on the event.
-    * A live signal wired fail safe, which holds voltage while all is well and
-      drops it on the event. Panel alarm and motor overload contacts are often
-      built this way on purpose, so that a cut wire reads the same as a fault.
-
-    Either way the raw reading means the opposite of the signal. Without this
-    flag such an alarm reads as on permanently and goes quiet at exactly the
-    moment it fires. Panels are not consistent, so it is per channel rather
-    than global, and it is worth checking each one against the panel rather
-    than assuming.
+    * ``invert`` is which way round the wire works, and it is the setting that
+      is easiest to get wrong and worst to get wrong. It covers two
+      arrangements that look different on the wire and mean the same thing
+      here: a dry contact wired normally closed, and a live signal wired fail
+      safe that holds voltage while all is well and drops it on the event.
+      Panel alarm and motor overload contacts are often built the second way on
+      purpose, so a cut wire reads the same as a fault. Either way the raw
+      reading means the opposite of the signal, and without this such an alarm
+      reads as on permanently and goes quiet at the moment it fires.
     """
 
     channel: int = Field(ge=1, le=8)
-    label: str = Field(default="", max_length=60)
+    role: str = Field(default="", max_length=40)
     invert: bool = False
 
-    @field_validator("label")
+    @field_validator("role")
     @classmethod
-    def tidy(cls, value: str) -> str:
-        return value.strip()
+    def known_role(cls, value: str) -> str:
+        value = value.strip()
+        if value and value not in {role for role, _ in DASHBOARD_ROLES}:
+            raise ValueError(f"{value} is not one of the roles the dashboard draws")
+        return value
 
     @property
     def used(self) -> bool:
-        """Whether anything is wired here, which is whether it has a name."""
-        return bool(self.label)
+        """Whether this input has been told what it means.
+
+        Not whether it is read. Every input is read and recorded either way;
+        this only decides whether it lights a lamp.
+        """
+        return bool(self.role)
+
+    @property
+    def title(self) -> str:
+        """What to call this input in prose. Never empty."""
+        for role, label in DASHBOARD_ROLES:
+            if role == self.role:
+                return label
+        return f"DI{self.channel}"
 
 
 class InputsSettings(BaseModel):
@@ -143,20 +163,50 @@ class InputsSettings(BaseModel):
         ]
         return self
 
+    @model_validator(mode="after")
+    def one_input_per_role(self) -> InputsSettings:
+        """A role belongs to one input.
+
+        Two lamps drawn from one contact was allowed while the mapping ran the
+        other way round, and a simple panel really can bring out one contact
+        that is both its high water float and its alarm. It is not worth the
+        confusion here: with the meaning chosen on the input, the same input
+        claiming two meanings has nowhere to be written down, and silently
+        keeping one of them would be worse than saying so.
+        """
+        seen: dict[str, int] = {}
+        for mapped in self.channels:
+            if not mapped.role:
+                continue
+            if mapped.role in seen:
+                raise ValueError(
+                    f"{mapped.title} is on DI{seen[mapped.role]} and DI{mapped.channel}. "
+                    "Each one belongs to a single input."
+                )
+            seen[mapped.role] = mapped.channel
+        return self
+
     @property
     def used_channels(self) -> list[ChannelMap]:
-        """The inputs something is wired to, in input order."""
+        """The inputs that have been told what they mean, in input order."""
         return [channel for channel in self.channels if channel.used]
+
+    def channel_for(self, role: str) -> int | None:
+        """Which input carries a role, or None if nothing has been given it."""
+        for mapped in self.channels:
+            if mapped.role == role:
+                return mapped.channel
+        return None
 
     def label_for(self, channel: int) -> str:
         """What to call an input, falling back to its terminal marking.
 
-        Never empty. A reading from an input whose name has since been cleared
+        Never empty. A reading from an input whose role has since been cleared
         still has to be describable, and DI4 is what is printed on the module.
         """
         for mapped in self.channels:
-            if mapped.channel == channel and mapped.used:
-                return mapped.label
+            if mapped.channel == channel:
+                return mapped.title
         return f"DI{channel}"
 
 
@@ -217,13 +267,11 @@ class PumpSettings(BaseModel):
     # hours. This is margin against a control transformer sharing the
     # conductor, and nothing finer matters: on the readings from the reference
     # panel every threshold from 0.2 A to 10 A found the same 73 runs.
-    running_amps: float = Field(default=1.0, ge=0)
 
     # Full load amps off the motor's own plate. Nothing is computed from it. It
     # is here so the typical load on the dashboard can be judged against
     # something real, and so a pump drawing more than its own rating is visible
     # for what it is, which on the reference panel it turned out to be.
-    nameplate_amps: float | None = Field(default=None, gt=0)
 
 
 class PumpsSettings(BaseModel):
@@ -243,12 +291,12 @@ class SmtpSettings(BaseModel):
 
     enabled: bool = False
     host: str = ""
-    port: int = Field(default=587, ge=1, le=65535)
+    port: int = Field(default=465, ge=1, le=65535)
     username: str = ""
     password: str = ""
     # 'starttls' upgrades a plain connection, 'tls' opens an encrypted one,
     # 'none' is for a relay on the same machine that does not want either.
-    security: str = Field(default="starttls", pattern="^(starttls|tls|none)$")
+    security: str = Field(default="tls", pattern="^(starttls|tls|none)$")
     from_address: str = ""
     from_name: str = "PitWatch"
 
@@ -282,63 +330,6 @@ class SmsSettings(BaseModel):
 
     # Only used by email_gateway, for example "vtext.com".
     gateway_domain: str = ""
-
-
-class DashboardSettings(BaseModel):
-    """Which input drives which lamp on the dashboard.
-
-    The settings above describe the wiring: input 3 is called High water. This
-    describes the display: the High water lamp is input 3. They are separate
-    because they are separate questions, and because a panel can bring out
-    things the dashboard has no lamp for and a lamp can go unassigned.
-
-    Every role is optional. Unassigned means that lamp reads "not set" rather
-    than reading off, which is the same distinction the inputs themselves make:
-    not knowing is not the same as knowing it is fine.
-
-    Two roles may share an input on purpose. A simple panel really can bring
-    out one contact that is both its high water float and its alarm, and
-    refusing that would be this application arguing with the panel.
-    """
-
-    KEY: ClassVar[str] = "dashboard"
-
-    # The red lamp on the panel door, and the one somebody wrote a plumber's
-    # number under.
-    system_alert: int | None = Field(default=None, ge=1, le=8)
-    high_water: int | None = Field(default=None, ge=1, le=8)
-
-    # The two the panel does not show at all. Worth having, because they are
-    # what the pumps are answering.
-    lead_float: int | None = Field(default=None, ge=1, le=8)
-    lag_float: int | None = Field(default=None, ge=1, le=8)
-
-    # The two lit selector switches along the bottom.
-    pump1_run: int | None = Field(default=None, ge=1, le=8)
-    pump2_run: int | None = Field(default=None, ge=1, le=8)
-
-    # Overload relays. These are what turn a pump's word on the display from
-    # LEAD or LAG into FAIL.
-    pump1_fault: int | None = Field(default=None, ge=1, le=8)
-    pump2_fault: int | None = Field(default=None, ge=1, le=8)
-
-    @property
-    def assignments(self) -> dict[str, int | None]:
-        return {role: getattr(self, role) for role, _ in DASHBOARD_ROLES}
-
-
-# Role to what the dashboard calls it, in the order the settings page asks.
-# Grouped the way the panel is: alarms, then floats, then pumps.
-DASHBOARD_ROLES: tuple[tuple[str, str], ...] = (
-    ("system_alert", "System alert"),
-    ("high_water", "High water"),
-    ("lead_float", "Lead float"),
-    ("lag_float", "Lag float"),
-    ("pump1_run", "Pump 1 running"),
-    ("pump2_run", "Pump 2 running"),
-    ("pump1_fault", "Pump 1 overload"),
-    ("pump2_fault", "Pump 2 overload"),
-)
 
 
 class Severity(StrEnum):
@@ -679,7 +670,6 @@ SETTING_MODELS: tuple[type[BaseModel], ...] = (
     ShellySettings,
     InputsSettings,
     PumpsSettings,
-    DashboardSettings,
     SmtpSettings,
     SmsSettings,
 )

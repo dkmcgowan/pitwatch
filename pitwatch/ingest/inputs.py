@@ -340,19 +340,18 @@ class InputsReader:
                 IoEvent(
                     ts=stamp,
                     channel=number,
-                    label=settings.label,
+                    label=settings.title,
                     state=state,
                     raw=raw,
                 )
             )
-            if settings.used:
-                log.info(
-                    "%s went %s (DI%d reads %s)",
-                    settings.label,
-                    "on" if state else "off",
-                    number,
-                    "closed" if raw else "open",
-                )
+            log.info(
+                "%s went %s (DI%d reads %s)",
+                settings.title,
+                "on" if state else "off",
+                number,
+                "closed" if raw else "open",
+            )
 
         self._first = False
         return events

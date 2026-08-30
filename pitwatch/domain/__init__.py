@@ -43,3 +43,18 @@ RUN_STOP_HOLD_MS = 1000
 # The peak is still recorded, separately and including the surge, because a
 # starting surge climbing month over month is a bearing on its way out.
 DISCARD_FIRST_READING = True
+
+
+# The line between a pump that is off and a pump that is running, in amps.
+#
+# This was a setting, and it should not have been. The test at the top of this
+# file is whether a number describes the building or the measurement, and this
+# one turned out to describe neither: on eleven hours of real readings an idle
+# clamp reads 0.000 exactly, a running one reads about 15, and every threshold
+# from 0.2 A to 10 A found the same 73 runs. There is no judgement to make, so
+# there is no reason to ask anybody to make it.
+#
+# Not zero, though. That is margin against a control transformer sharing the
+# conductor, which would put a small standing current on a clamp that is
+# otherwise reading nothing.
+RUNNING_AMPS = 1.0

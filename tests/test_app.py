@@ -228,6 +228,12 @@ def test_the_broker_ships_with_the_application():
     assert "allow_anonymous false" in broker
     assert "mosquitto_passwd" in broker
 
+    # The password file is regenerated from .env on every start, and it lives
+    # in a volume, so it is there on the second one. mosquitto_passwd will not
+    # create over an existing file, so the first restart failed to start the
+    # broker at all until this removed it first.
+    assert broker.index("rm -f /mosquitto/data/passwd") < broker.index("mosquitto_passwd -b")
+
 
 def test_there_is_one_compose_file():
     """Two of them meant two things to keep in step, and they did not stay in

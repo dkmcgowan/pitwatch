@@ -10,12 +10,13 @@
 <p class="saved" role="status">Saved.</p>
 {% endif %}
 
-{# No preamble. The rules name themselves, each one carries its own
-   description, and this page is only ever read by an administrator who
-   configured it. Three paragraphs explaining a list is three paragraphs
-   between somebody and the list. #}
-<h1 class="page-title">Alerts</h1>
+{# No preamble and no heading, the same as the settings page.
 
+   The rules name themselves and each one carries its own description, so three
+   paragraphs explaining the list were three paragraphs between somebody and
+   the list. The heading went with them: the navigation shows which page this
+   is and the browser tab says Alerts, so a word at the top of a page you
+   reached by clicking Alerts is telling you what you already know. #}
 <form method="post" action="/alerts">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 

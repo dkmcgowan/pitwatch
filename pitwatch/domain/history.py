@@ -43,8 +43,19 @@ RECENT = timedelta(days=7)
 EARLIER = timedelta(days=35)
 
 # Below this many readings the median is describing two runs and a coincidence.
-# A pump running four seconds twenty times a day gives several hundred a week,
-# so this only excludes an install that genuinely has no history yet.
+#
+# Read it as runs, not as readings, which is the part that surprised somebody
+# watching a fresh install fill up. This counts readings that survive the
+# filter below, and the filter drops the first reading of every run. The meter
+# reports every fifteen to thirty seconds and these runs last seconds, so a run
+# yields about two readings and one of them is the first: call it 1.3 usable
+# readings per run on the reference panel, where 73 runs produced 97.
+#
+# So 30 is roughly 30 runs, which at that panel's rate is half a day of
+# ordinary weather and rather longer in a dry spell. That is the intended
+# behavior, and the number is deliberately not lower: a median over ten values
+# from a pump nobody has measured before is a number that moves every time it
+# is looked at, and this exists to be compared against itself a month later.
 MIN_SAMPLES = 30
 
 # These move over weeks. Recomputing per websocket frame would run a scan a

@@ -248,6 +248,9 @@ async def build_state(app) -> dict:
         }
 
     inputs = store.inputs
+    # The inputs a lamp is drawn from, which is now simply the ones that have
+    # been told what they carry. It used to be the set named on a second page,
+    # and the two could disagree.
     assigned = {mapped.channel for mapped in inputs.used_channels}
 
     signals: SignalHistory | None = getattr(app.state, "signal_history", None)
@@ -257,7 +260,7 @@ async def build_state(app) -> dict:
         changed = live_io.changed_at(mapped.channel)
         return {
             "channel": mapped.channel,
-            "label": mapped.label,
+            "label": mapped.title,
             # None means nothing has read it yet, which is not the same as off.
             "state": live_io.state_of(mapped.channel),
             "on_word": ON_WORD,
@@ -269,10 +272,12 @@ async def build_state(app) -> dict:
         "site": store.site.model_dump(mode="json"),
         "pumps": {"1": pump_state(1), "2": pump_state(2)},
         "panel": panel_state(inputs, live_io, closings),
-        # Named inputs that no lamp is showing. Nothing should go missing just
-        # because the dashboard has no place built for it.
+        # The inputs no lamp is showing, which is the complement of the set
+        # above rather than a subset of it. Nothing should go missing just
+        # because the dashboard has no place built for it, and an input
+        # carrying nothing is still read, still debounced and still recorded.
         "inputs": [
-            input_state(mapped) for mapped in inputs.used_channels if mapped.channel not in assigned
+            input_state(mapped) for mapped in inputs.channels if mapped.channel not in assigned
         ],
         "devices": devices,
         "updated_at": live.updated_at.isoformat() if live.updated_at else None,

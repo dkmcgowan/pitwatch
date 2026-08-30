@@ -145,14 +145,6 @@ main {
 }
 
 .card h1 { margin-top: 0; font-size: 1.4rem; }
-
-/* A heading that is not inside a card, for a page that is a list of cards
-   rather than one card. Sized to match the ones that are, so that losing the
-   box around it does not turn it into a different size of heading. */
-.page-title {
-  margin: 0 0 var(--gap);
-  font-size: 1.4rem;
-}
 .card h2 { margin-top: 0; font-size: 1.15rem; }
 
 .notice { border-left: 4px solid var(--accent); }

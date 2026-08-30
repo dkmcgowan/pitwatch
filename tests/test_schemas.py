@@ -373,3 +373,27 @@ def test_an_input_always_has_something_to_call_it():
 
     assert settings.label_for(3) == "High water"
     assert settings.label_for(4) == "DI4"
+
+
+def test_a_rule_that_cannot_fire_yet_does_not_ship_ticked():
+    """The box said one thing and the rule did another.
+
+    Two rules need a number typed in before they can do anything: over current
+    wants amps, ran too long wants a duration. Both shipped enabled with no
+    threshold behind them, so the alerts page showed a ticked "raise this
+    alert" next to a description explaining it was off. The description was the
+    honest half. A rule that cannot fire and says it will is worse than one
+    that is plainly off, because the first one gets believed.
+
+    Written against every rule rather than against those two, so that a rule
+    added later with a threshold and no default cannot repeat it.
+    """
+    from pitwatch.domain.alerts import BY_KEY
+
+    alerts = AlertsSettings()
+    for key in ALERT_ORDER:
+        rule = getattr(alerts, key)
+        spec = BY_KEY[key]
+        unset = [t.field for t in spec.thresholds if getattr(rule, t.field, 0) is None]
+        if unset:
+            assert not rule.enabled, f"{key} is ticked but {unset} would stop it firing"

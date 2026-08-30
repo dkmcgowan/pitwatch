@@ -10,27 +10,11 @@
 <p class="saved" role="status">Saved.</p>
 {% endif %}
 
-<section class="card">
-  <h1>Alerts</h1>
-  <p class="hint">
-    Every rule PitWatch can raise, what it says, and who hears it. The list is
-    fixed: eight contacts and two clamps only answer so many questions, and a
-    builder for arbitrary conditions is a query language nobody asked to learn.
-  </p>
-  <p class="hint">
-    <strong>One message, two lengths.</strong> The line you write is what a
-    text message says, so keep it short enough to read on a lock screen. An
-    email sends the same line and then the readings behind it, and adds a link
-    to the dashboard for anybody who has a password. You never write it twice.
-  </p>
-  <p class="hint">
-    <strong>Who hears it.</strong> Everyone whose own setting is at or below
-    the level here, on the <a href="/users">Users</a> page. Marking a rule for
-    administrators only is a separate question from how loud it is: the Shelly
-    going quiet is worth waking somebody who can fix it and is noise to
-    everybody else.
-  </p>
-</section>
+{# No preamble. The rules name themselves, each one carries its own
+   description, and this page is only ever read by an administrator who
+   configured it. Three paragraphs explaining a list is three paragraphs
+   between somebody and the list. #}
+<h1 class="page-title">Alerts</h1>
 
 <form method="post" action="/alerts">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

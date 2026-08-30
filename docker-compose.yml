@@ -76,6 +76,11 @@ services:
           echo "persistence true"
           echo "persistence_location /mosquitto/data/"
         } > /mosquitto/data/pitwatch.conf
+        # Removed first. The password file lives in the volume, so it is still
+        # there on the second start, and mosquitto_passwd refuses to create one
+        # over a file that exists rather than replacing it. Regenerating from
+        # .env every start is the whole point, so the old one is never wanted.
+        rm -f /mosquitto/data/passwd /mosquitto/data/passwd.tmp
         mosquitto_passwd -b -c /mosquitto/data/passwd "$$MQTT_USERNAME" "$$MQTT_PASSWORD"
         # Mosquitto drops to its own user after reading the config, and refuses
         # to start on a password file it cannot then read. These files are

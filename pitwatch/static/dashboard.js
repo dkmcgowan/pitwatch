@@ -330,71 +330,54 @@
     });
   }
 
-  // The two devices as one indicator.
+  // One indicator per device, named.
   //
-  // Named after what it is telling you rather than after what it is made of:
-  // whether the monitoring is connected. The words that used to be in two rows
-  // of pills are still here, in the tooltip, for whoever wants them.
+  // "Something is offline" and "the meter is offline" are different amounts of
+  // use to somebody standing in a basement, and the two fail for entirely
+  // different reasons: the Shelly drops off wifi, the X-408 stops being able
+  // to reach the broker.
   //
-  // Deliberately not set up is not a fault. Starting with only the clamps
-  // wired is a normal way to run, and painting that red would train somebody
-  // to ignore the one thing on this page that goes red when it matters.
-  const DEVICE_NAMES = { shelly: "Shelly EM", inputs: "Panel inputs" };
+  // Three states rather than two. Deliberately not set up is not a fault, and
+  // it is the reason a device that is off is hollow rather than red: running
+  // on the clamps alone is a normal way to run, and a permanent red for it
+  // would teach whoever reads this page that red means nothing.
+  const DEVICE_NAMES = { shelly: "Shelly EM", inputs: "The X-408" };
 
-  function renderLink(devices) {
-    const box = document.querySelector("[data-link]");
-    if (!box) {
-      return;
-    }
-    const dot = box.querySelector(".link-dot");
-    const word = box.querySelector("[data-link-word]");
-    const said = box.querySelector("[data-link-said]");
-
+  function renderLinks(devices) {
     const known = devices || {};
-    const configured = Object.keys(DEVICE_NAMES).filter(function (name) {
-      return known[name] && known[name].configured;
-    });
-    const down = configured.filter(function (name) {
-      return !known[name].online;
-    });
 
-    const detail = Object.keys(DEVICE_NAMES)
-      .map(function (name) {
-        const device = known[name];
-        if (!device || !device.configured) {
-          return DEVICE_NAMES[name] + ": not set up";
-        }
+    document.querySelectorAll("[data-link]").forEach(function (box) {
+      const name = box.getAttribute("data-link");
+      const device = known[name];
+      const dot = box.querySelector(".link-dot");
+      const said = box.querySelector("[data-link-said]");
+      const label = DEVICE_NAMES[name] || name;
+
+      let state = "idle";
+      let words = label + " is not set up";
+
+      if (device && device.configured) {
         if (device.online) {
-          return DEVICE_NAMES[name] + ": connected";
+          state = "ok";
+          words = label + " is connected";
+        } else {
+          state = "crit";
+          words =
+            label +
+            " is offline: " +
+            (device.last_error || "not reachable") +
+            (device.last_seen ? ", last heard from " + since(device.last_seen) : "");
         }
-        return (
-          DEVICE_NAMES[name] +
-          ": offline, " +
-          (device.last_error || "not reachable") +
-          (device.last_seen ? ", last heard from " + since(device.last_seen) : "")
-        );
-      })
-      .join(". ");
+      }
 
-    let state = "ok";
-    let label = "";
-    if (!configured.length) {
-      state = "idle";
-    } else if (down.length === 1) {
-      state = "crit";
-      label = DEVICE_NAMES[down[0]] + " offline";
-    } else if (down.length > 1) {
-      state = "crit";
-      label = "Both devices offline";
-    }
-
-    dot.className = "link-dot link-" + state;
-    word.textContent = label;
-    box.title = detail;
-    // The tooltip is a title attribute, which a screen reader may or may not
-    // announce and a phone cannot hover over at all. This is the same words
-    // where they will always be read.
-    said.textContent = detail;
+      dot.className = "link-dot link-" + state;
+      box.classList.toggle("link-off", state === "idle");
+      // A title is a tooltip, which a phone cannot hover over and a screen
+      // reader may or may not read. The hidden span is the same words where
+      // they will always be found.
+      box.title = words;
+      said.textContent = words;
+    });
   }
 
   function renderBanner(state) {
@@ -429,7 +412,7 @@
     renderPanel(state.panel);
     renderHistory(state.panel);
     renderInputs(state.inputs);
-    renderLink(state.devices);
+    renderLinks(state.devices);
     renderBanner(state);
     document.body.classList.remove("stale");
   }

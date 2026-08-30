@@ -979,22 +979,29 @@ dialog.confirm .row-actions { margin-top: 1.25rem; }
 .float-name { font-weight: 550; }
 .float-since { font-size: 0.82rem; }
 
-/* Whether the monitoring is connected -------------------------------------
+/* Whether each device is talking -------------------------------------------
  *
- * One line, right aligned, above everything. Quiet when it is fine, which is
- * almost always, and loud in the one case worth interrupting somebody for. The
- * detail that used to be two rows of pills at the foot of the page is in the
- * tooltip and in a visually hidden span beside it. */
+ * Two small named indicators, right aligned above everything. Quiet when both
+ * are green, which is almost always. Hollow rather than red for a device that
+ * is not set up: running on the clamps alone is a normal way to run. */
 
-.link {
+.links {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.4rem;
+  gap: 1rem;
   margin-bottom: 0.5rem;
   font-size: 0.82rem;
   color: var(--text-muted);
 }
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.link-off { opacity: 0.55; }
 
 .link-dot {
   width: 0.55rem;
@@ -1005,13 +1012,17 @@ dialog.confirm .row-actions { margin-top: 1.25rem; }
 }
 
 .link-ok { background: var(--ok); }
-.link-idle { background: var(--text-muted); }
+
+/* Hollow, so that not set up cannot be mistaken for either answer. */
+.link-idle {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--text-muted);
+}
+
 .link-crit {
   background: var(--crit);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--crit) 25%, transparent);
 }
-
-.link-word { color: var(--crit); font-weight: 550; }
 
 /* Banner ------------------------------------------------------------------ */
 

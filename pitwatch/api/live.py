@@ -276,9 +276,16 @@ async def build_state(app) -> dict:
         # above rather than a subset of it. Nothing should go missing just
         # because the dashboard has no place built for it, and an input
         # carrying nothing is still read, still debounced and still recorded.
-        "inputs": [
-            input_state(mapped) for mapped in inputs.channels if mapped.channel not in assigned
-        ],
+        #
+        # Empty while the module is not set up, rather than eight rows reading
+        # DI1 to DI8 and Unknown. That is not a dashboard, and starting with
+        # only the clamps wired is a normal way to run rather than a state to
+        # nag somebody about.
+        "inputs": (
+            [input_state(mapped) for mapped in inputs.channels if mapped.channel not in assigned]
+            if configured["inputs"]
+            else []
+        ),
         "devices": devices,
         "updated_at": live.updated_at.isoformat() if live.updated_at else None,
     }

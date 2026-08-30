@@ -497,10 +497,31 @@ def test_every_contact_reads_as_unknown_without_the_io_module(client):
 
     state = client.get("/api/state").json()
 
-    assert state["inputs"] == [], "no module, so nothing is named"
+    assert state["inputs"] == [], "no module, so there is nothing to list"
     for pump in state["pumps"].values():
         assert pump["current"] is None
         assert pump["running"] is False
+
+
+def test_the_leftovers_list_is_empty_until_the_module_is_set_up(client):
+    """Rather than eight rows reading DI1 to DI8 and Unknown.
+
+    Every input has a row in it once the module is real, including the ones
+    carrying nothing, because those are still read and recorded. None of them
+    do while there is no module, which is a normal way to start rather than a
+    state worth nagging about.
+    """
+    sign_in_as_admin(client)
+    client.post("/setup", data=SHELLY_ONLY_FORM)
+    assert client.get("/api/state").json()["inputs"] == []
+
+    client.post(
+        "/settings/inputs",
+        data={"inputs_enabled": "on", "inputs_host": "192.168.1.51"},
+    )
+
+    listed = {row["channel"] for row in client.get("/api/state").json()["inputs"]}
+    assert listed == {1, 2, 3, 4, 5, 6, 7, 8}, "nothing carries a lamp yet"
 
 
 def test_adding_the_io_module_later_does_not_need_a_restart(client):

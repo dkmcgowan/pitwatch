@@ -10,18 +10,10 @@
 <p class="saved" role="status">Saved.</p>
 {% endif %}
 
+{# No heading and no preamble on the page itself, the same as settings and
+   alerts. Three cards named after what they do is the whole page. #}
 <section class="card">
-  <h1>{{ user.display_name }}</h1>
-  <p class="hint">
-    Signs in as <code>{{ user.username }}</code>{% if user.is_admin %},
-    and is an administrator{% endif %}. The sign in name cannot be changed;
-    the name above is what alerts are addressed to and is yours to edit.
-  </p>
-</section>
-
-<section class="card">
-  <h2>How to reach you</h2>
-  <p class="hint">Where your alerts go, for you only.</p>
+  <h2>Profile</h2>
   <form method="post" action="/profile">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="grid">

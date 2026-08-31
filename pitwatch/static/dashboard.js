@@ -251,6 +251,56 @@
     });
   }
 
+  // One indicator per device, named.
+  //
+  // "Something is offline" and "the meter is offline" are different amounts of
+  // use to somebody standing in a basement, and the two fail for entirely
+  // different reasons: the Shelly drops off wifi, the X-408 stops being able
+  // to reach the broker.
+  //
+  // Three states rather than two. Deliberately not set up is not a fault, and
+  // it is the reason a device that is off is hollow rather than red: running
+  // on the clamps alone is a normal way to run, and a permanent red for it
+  // would teach whoever reads this page that red means nothing.
+  const DEVICE_NAMES = { shelly: "Shelly EM", inputs: "The X-408" };
+
+  function renderLinks(devices) {
+    const known = devices || {};
+
+    document.querySelectorAll("[data-link]").forEach(function (box) {
+      const name = box.getAttribute("data-link");
+      const device = known[name];
+      const dot = box.querySelector(".link-dot");
+      const said = box.querySelector("[data-link-said]");
+      const label = DEVICE_NAMES[name] || name;
+
+      let state = "idle";
+      let words = label + " is not set up";
+
+      if (device && device.configured) {
+        if (device.online) {
+          state = "ok";
+          words = label + " is connected";
+        } else {
+          state = "crit";
+          words =
+            label +
+            " is offline: " +
+            (device.last_error || "not reachable") +
+            (device.last_seen ? ", last heard from " + since(device.last_seen) : "");
+        }
+      }
+
+      dot.className = "link-dot link-" + state;
+      box.classList.toggle("link-off", state === "idle");
+      // A title is a tooltip, which a phone cannot hover over and a screen
+      // reader may or may not read. The hidden span is the same words where
+      // they will always be found.
+      box.title = words;
+      said.textContent = words;
+    });
+  }
+
   function renderBanner(state) {
     const banner = document.querySelector("[data-banner]");
     if (!banner) {
@@ -325,12 +375,20 @@
     socket = new WebSocket(scheme + "//" + window.location.host + "/ws/state");
 
     socket.addEventListener("message", function (event) {
+      // Only the parse is forgiven. A malformed frame is not a reason to tear
+      // down a working socket, but a mistake in the renderer is not a
+      // malformed frame, and wrapping both in one catch is how a missing
+      // function went unnoticed through two releases: every frame threw, every
+      // throw was swallowed, and the page sat there saying it was not
+      // connected. Let that one reach the console.
+      let state;
       try {
-        render(JSON.parse(event.data));
-        reconnectDelay = RECONNECT_MIN_MS;
+        state = JSON.parse(event.data);
       } catch (error) {
-        // A malformed frame is not a reason to tear down a working socket.
+        return;
       }
+      render(state);
+      reconnectDelay = RECONNECT_MIN_MS;
     });
 
     socket.addEventListener("close", function () {
@@ -350,14 +408,18 @@
   }
 
   async function first() {
+    let state;
     try {
       const response = await fetch("/api/state");
-      if (response.ok) {
-        render(await response.json());
+      if (!response.ok) {
+        return;
       }
+      state = await response.json();
     } catch (error) {
       // The websocket is about to try anyway.
+      return;
     }
+    render(state);
   }
 
   first();

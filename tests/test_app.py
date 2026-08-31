@@ -940,6 +940,49 @@ def test_every_long_note_is_a_dialog_opened_from_beside_its_heading():
     assert "How often the pit has filled" in page
 
 
+def test_the_dashboard_calls_nothing_it_does_not_define():
+    """Every renderer the page calls has to exist. This is not hypothetical:
+    deleting the block that drew the list of leftover inputs took the two
+    device indicators out with it, because they sat between it and the next
+    function. The call to them stayed.
+
+    Nothing said a word. The websocket swallows an error from a frame on
+    purpose, so a bad one cannot tear down a working socket, which meant the
+    exception was caught and the whole render was abandoned every time: the
+    dots never moved off unknown and the page kept the banner saying it was not
+    connected. Both looked like the feed was down.
+    """
+    import re
+
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+    code = re.sub(r"//.*", "", js)
+
+    # Bare calls only. Anything reached through a dot belongs to the browser or
+    # to a value, and this file is not where it would be defined.
+    called = set(re.findall(r"(?<![.\w$])([a-z][\w$]*)\s*\(", code))
+    defined = set(re.findall(r"function\s+([\w$]+)\s*\(", code))
+    keywords = {"catch", "for", "function", "if", "return", "switch", "while"}
+    globals_ = {"fetch"}
+
+    assert called - defined - keywords - globals_ == set()
+
+
+def test_only_the_parse_is_forgiven():
+    """A malformed frame is not a reason to tear down a working socket. A
+    mistake in the renderer is not a malformed frame, and one catch around both
+    is how a missing function survived two releases: every frame threw, every
+    throw was swallowed, and the page sat there saying it was not connected."""
+    import re
+
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+    handler = js.split('socket.addEventListener("message"', 1)[1].split("});", 1)[0]
+    # Without the comment, which says catch several times over.
+    handler = re.sub(r"//.*", "", handler)
+
+    assert "JSON.parse" in handler.split("catch", 1)[0], "the parse is inside the try"
+    assert "render(state);" in handler.split("catch", 1)[1], "the render is not"
+
+
 def test_a_note_can_always_be_closed():
     """A note that needs a target found before it will go away is a note that
     gets left open. Clicking anywhere closes it, including inside: there is

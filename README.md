@@ -15,7 +15,8 @@ pumps are running*.
   Shelly pushes to, and keeps the history.
 - Reads the floats, the run contacts and the overload contacts from the panel's
   own dry contacts.
-- A live dashboard laid out like the panel door.
+- A live dashboard: both pumps, the controller's screen and the panel's own
+  lamps in one view, the same on a phone as on a desktop.
 - Email and SMS, with a test button on each that sends a real message, so you
   can prove the path works before you need it.
 

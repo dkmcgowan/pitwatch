@@ -212,101 +212,212 @@ input:focus, select:focus {
 
 code, .mono { font-family: var(--mono); font-size: 0.92em; }
 
-/* The panel door ---------------------------------------------------------- */
+/* The board --------------------------------------------------------------- */
 
-/* Three blocks across, with rules between them: what has gone wrong on the
-   left, the controller's own screen in the middle, where the water is on the
-   right. They answer different questions and the rules say so, which is
-   cheaper than making the eye work it out from spacing.
+/* One box for the whole panel, read top to bottom: the two pumps, the
+   controller's own screen, then the contacts.
+
+   It was six boxes. The panel door up top, a card each for the two pumps, and
+   three more underneath saying what the lamps had been doing. Every one of
+   them carried a border, a heading and its own padding, so a good part of the
+   page was the space between the things somebody came to read, and answering
+   one question took a scroll and a hunt.
+
+   Rules between the blocks rather than borders around them. A line says these
+   answer different questions just as well as a box does and costs a pixel of
+   height instead of a border, a radius and two paddings.
+
+   The same arrangement at every width. Two pump columns and three lists of
+   lamps fit a phone at this size, so there is one layout to keep right rather
+   than a wide one and a narrow one that drift apart.
 
    A lamp is dark unless it is on. That is the point of a lamp, and it is why
    an unassigned one is dark too rather than being drawn in some third color
    that has to be learned. */
 
-.door {
+.glance {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1.5rem 1.25rem;
+  padding: 1.1rem 1.25rem;
   margin-bottom: 1.25rem;
 }
 
-/* Alerts, overloads, floats, then the screen. The three lists read together
-   on the left, and the screen takes whatever they do not need: their words are
-   short, so sizing them to their contents and giving the rest to the screen is
-   simpler and better than guessing at fractions. */
-.door-grid {
+.glance > * + * {
+  margin-top: 0.95rem;
+  padding-top: 0.95rem;
+  border-top: 1px solid var(--border);
+}
+
+/* Two pumps, side by side, always. */
+.glance-pumps {
   display: grid;
-  grid-template-columns: auto auto auto minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+/* A rule between them, so a number under one heading cannot be read as the
+   other pump's. */
+.pump-col + .pump-col {
+  border-left: 1px solid var(--border);
+  padding-left: 0.9rem;
+}
+
+/* Every heading in the box is the same: small, quiet, and out of the way of
+   the numbers under it. They name the columns rather than announcing
+   themselves. */
+.glance-heading {
+  display: flex;
   align-items: center;
-  gap: 1.5rem;
-}
-
-
-/* Each side is only as wide as its own widest lamp and centered in its
-   column, so the two bulbs in a stack line up under each other and both
-   stacks sit at the same distance from the screen. */
-.door-side {
-  display: grid;
-  gap: 0.85rem;
-  width: max-content;
-  max-width: 100%;
-  margin: 0 auto;
-}
-
-/* A section label, with room under it. Sitting a heading directly on top of
-   the first bulb makes it read as that lamp's caption rather than as the name
-   of the group. */
-.door-side .door-heading { margin-bottom: 0.7rem; }
-
-/* Two lamps stacked, in every group. Three groups of the same shape read the
-   same at any width, which is what lets a phone put them side by side instead
-   of stacking the whole panel. */
-.lamp-pair {
-  display: grid;
-  gap: 0.8rem;
-}
-
-.door-heading {
-  margin: 0;
+  gap: 0.4rem;
+  margin: 0 0 0.5rem;
   font-size: 0.72rem;
   font-weight: 650;
   text-transform: uppercase;
   letter-spacing: 0.09em;
   color: var(--text-muted);
+  min-width: 0;
 }
 
-.door-middle {
-  /* Stretch, not center. A centered grid item shrinks to fit its contents, so
-     the screen's own width: 100% was resolving against the width of the text
-     inside it and the column it was given went unused. */
-  justify-self: stretch;
-  /* One rule, on the side the lamps are. The screen is last now, so a rule on
-     its right would sit against the edge of the card, separating it from
-     nothing. */
-  padding: 0 0 0 1.75rem;
+.glance-heading [data-name] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.glance-heading .info-mark { margin-left: 0; }
+
+/* Label on the left, answer on the right, four to a column. A definition list
+   rather than a table: these are four different facts about one motor, not
+   rows of the same kind of thing. */
+.facts { margin: 0; }
+
+.fact {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+}
+
+.fact dt {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.fact dd {
+  margin: 0;
+  text-align: right;
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Nothing to report, in every field that can have nothing to report. Dimmer
+   than a real reading, so a column with no data behind it looks different at a
+   glance from one that is working. */
+.fact .none { color: var(--text-muted); }
+
+/* The one number that changes by the second, so it is monospaced and a little
+   larger than the rest. Only a little: a reading that is zero almost all the
+   time has not earned the biggest type on the page, and what a pump has been
+   doing over weeks has more to say than what it is doing this second. */
+.amps {
+  font-family: var(--mono);
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+
+.unit { color: var(--text-muted); margin-left: 0.15rem; font-size: 0.8rem; }
+
+/* Green while it is running. The lamp beside the name says the same thing, and
+   this is the half of it somebody reads by accident on the way past. */
+.pump-col.running .amps { color: var(--ok); }
+
+/* The controller's own screen. Green on green, monospace and inset, because
+   that is roughly what is bolted to the door. Wide and shallow: it is one
+   short line, and every row of height it takes is a row the contacts below it
+   do not get. */
+.lcd {
+  width: 100%;
+  min-height: 3.3rem;
+  display: grid;
+  place-items: center;
+  background: #16301a;
+  border: 3px solid #0d1a10;
+  border-radius: 8px;
+  padding: 0.6rem;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.55);
+  text-align: center;
+}
+
+.lcd-text {
+  font-family: var(--mono);
+  font-size: clamp(1rem, 3.2vw, 1.3rem);
+  white-space: nowrap;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
+  color: #6ef08a;
+  text-shadow: 0 0 10px rgba(110, 240, 138, 0.45);
+}
+
+.lcd-text.lcd-fail { color: #ff8f6b; text-shadow: 0 0 10px rgba(255, 143, 107, 0.5); }
+
+/* Alerts, overloads, floats. Three lists of the same shape, so they read the
+   same at any width. */
+.glance-lamps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.lamp-group + .lamp-group {
   border-left: 1px solid var(--border);
+  padding-left: 0.9rem;
 }
 
-/* One row now. The line of text under a lamp saying "not set" or "no data"
-   was a sentence where an indicator should be; what a contact has been doing
-   is answered in the history cards, where there is room for it. */
+.lamp-pair {
+  display: grid;
+  gap: 0.65rem;
+}
+
 .lamp {
   display: flex;
-  align-items: center;
-  gap: 0.6rem;
+  align-items: flex-start;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.lamp-words {
+  display: grid;
+  min-width: 0;
 }
 
 .lamp-title {
   font-weight: 550;
-  white-space: nowrap;
+  font-size: 0.9rem;
+  line-height: 1.25;
 }
 
+/* What the contact has been doing, under what it is doing now. Quieter and
+   smaller, because the lamp is the answer and this is what it is missing: a
+   lamp that is off looks exactly the same whether it went twenty times today
+   or has never gone at all. */
+.lamp-last,
+.lamp-count {
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.lamp-last.none,
+.lamp-count.none { opacity: 0.6; }
 
 .bulb {
   flex: none;
-  width: 1.6rem;
-  height: 1.6rem;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-top: 0.1rem;
   border-radius: 50%;
   border: 2px solid var(--border);
   /* Unlit: the color of a bulb with nothing behind it, not the color of the
@@ -321,101 +432,59 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .lamp-red.on .bulb {
   background: var(--crit);
   border-color: var(--crit);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--crit) 22%, transparent),
-              0 0 22px color-mix(in srgb, var(--crit) 60%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--crit) 22%, transparent),
+              0 0 16px color-mix(in srgb, var(--crit) 60%, transparent);
 }
 
 .lamp-amber.on .bulb {
   background: var(--warn);
   border-color: var(--warn);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 22%, transparent),
-              0 0 22px color-mix(in srgb, var(--warn) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent),
+              0 0 16px color-mix(in srgb, var(--warn) 55%, transparent);
 }
 
 .lamp-green.on .bulb {
   background: var(--ok);
   border-color: var(--ok);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 22%, transparent),
-              0 0 22px color-mix(in srgb, var(--ok) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent),
+              0 0 16px color-mix(in srgb, var(--ok) 55%, transparent);
 }
 
-/* The controller's own screen. Green on green, monospace, inset, and square,
-   because that is roughly what is bolted to the door. */
-.lcd {
-  width: 100%;
-  max-width: 34rem;
-  min-height: 5.25rem;
-  margin: 0 auto;
-  display: grid;
-  place-items: center;
-  background: #16301a;
-  border: 3px solid #0d1a10;
-  border-radius: 8px;
-  padding: 1rem;
-  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.55);
-  text-align: center;
-}
-
-.lcd-text {
-  font-family: var(--mono);
-  font-size: clamp(1.1rem, 3.6vw, 1.55rem);
-  white-space: nowrap;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  line-height: 1.6;
-  color: #6ef08a;
-  text-shadow: 0 0 10px rgba(110, 240, 138, 0.45);
-}
-
-.lcd-text.lcd-fail { color: #ff8f6b; text-shadow: 0 0 10px rgba(255, 143, 107, 0.5); }
-
-.door-note {
-  margin: 1.25rem 0 0;
-  text-align: center;
+/* The one line in the box that is a sentence. An overload turns a pump's word
+   on the screen into FAIL, and this says which pump. */
+.glance-note {
+  margin: 0;
   color: var(--crit);
   font-weight: 550;
+  font-size: 0.9rem;
 }
 
-/* On a phone the two lists sit side by side and the screen goes full width
-   underneath them, which is the same shape as the wide view rather than a
-   different one. Stacking all three made a column three screens tall with a
-   green square in the middle of it. */
-/* On a phone the three lists sit side by side and the screen goes full width
-   underneath them, which is the same shape as the wide view rather than a
-   different one. Stacking everything made a column several screens tall. */
+/* Everything three columns of lamps and two of numbers can lose on a narrow
+   screen without losing the arrangement. The arrangement is what makes it
+   readable; a few pixels of type is not. */
 @media (max-width: 700px) {
-  .door { padding: 1.15rem 0.85rem; }
+  main { padding: 1.25rem 0.85rem; }
 
-  .door-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 1.25rem 0.5rem;
-    align-items: start;
-  }
+  .glance { padding: 0.9rem 0.8rem; }
 
-  .door-alerts { grid-area: 1 / 1; }
-  .door-overloads { grid-area: 1 / 2; }
-  .door-floats { grid-area: 1 / 3; }
-  .door-side { margin: 0; width: auto; }
+  .glance-pumps,
+  .glance-lamps { gap: 0.6rem; }
 
-  .lamp-pair { gap: 0.7rem; }
+  .pump-col + .pump-col,
+  .lamp-group + .lamp-group { padding-left: 0.6rem; }
 
-  .door-middle {
-    grid-area: 2 / 1 / 3 / -1;
-    justify-self: stretch;
-    padding: 1.25rem 0 0;
-    border-left: 0;
-    border-top: 1px solid var(--border);
-  }
+  .glance-heading { font-size: 0.66rem; letter-spacing: 0.05em; }
+  .fact dt { font-size: 0.72rem; }
+  .fact dd { font-size: 0.86rem; }
+  .amps { font-size: 0.96rem; }
 
-  .lcd { max-width: none; min-height: 4.75rem; }
+  .bulb { width: 1rem; height: 1rem; border-width: 1px; }
+  .lamp { gap: 0.35rem; }
+  .lamp-title { font-size: 0.82rem; }
+  .lamp-last,
+  .lamp-count { font-size: 0.66rem; }
 
-  /* Three columns of lamps on a narrow screen is tight, so the parts shrink
-     rather than the arrangement changing. Losing the arrangement is what makes
-     it unreadable; losing a few pixels is not. */
-  .door-heading { font-size: 0.68rem; letter-spacing: 0.06em; }
-  .bulb { width: 1.5rem; height: 1.5rem; }
-  .lamp { gap: 0.45rem; }
-  .lamp-title { font-size: 0.88rem; }
+  .lcd { min-height: 2.9rem; }
 }
 
 /* Forms ------------------------------------------------------------------- */
@@ -577,38 +646,6 @@ table.probe td, table.probe th { border-bottom: none; padding: 0.2rem 0.6rem 0.2
 
 /* Dashboard --------------------------------------------------------------- */
 
-/* The two pumps side by side, the way they sit on the panel door. They stack
-   on a phone, which is where this gets read at two in the morning. */
-.panel {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: var(--gap);
-  margin-bottom: var(--gap);
-}
-
-.pump {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1.25rem 1.5rem;
-}
-
-/* A running pump is obvious from across the room. */
-.pump.running {
-  border-color: var(--ok);
-  box-shadow: inset 0 0 0 1px var(--ok);
-}
-
-/* The name on the left, the lamp on the right, which is where a panel would
-   put it. */
-.pump header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.5rem;
-}
-
 /* The i beside a heading, and the note it opens.
 
    A native dialog, shown as a modal. It renders in the top layer, so it cannot
@@ -681,10 +718,10 @@ dialog.note .hint p:last-child { margin-bottom: 0; }
 
 .pump-lamp {
   flex: none;
-  width: 1.4rem;
-  height: 1.4rem;
+  width: 0.8rem;
+  height: 0.8rem;
   border-radius: 50%;
-  border: 2px solid var(--border);
+  border: 1px solid var(--border);
   background: var(--surface-2);
   transition: background 120ms linear, box-shadow 120ms linear;
 }
@@ -692,67 +729,9 @@ dialog.note .hint p:last-child { margin-bottom: 0; }
 .pump-lamp.on {
   background: var(--ok);
   border-color: var(--ok);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 22%, transparent),
-              0 0 18px color-mix(in srgb, var(--ok) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent),
+              0 0 12px color-mix(in srgb, var(--ok) 55%, transparent);
 }
-.pump h2 { margin: 0; font-size: 1.15rem; }
-
-/* Labelled, because a number on its own does not say what it is a number of,
-   and this one is zero most of the time. */
-.readout { margin-bottom: 1rem; }
-
-.readout-label {
-  display: block;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-}
-
-.readout-value {
-  display: flex;
-  align-items: baseline;
-  gap: 0.3rem;
-  margin-top: 0.15rem;
-}
-
-
-/* Bigger than the numbers under it and not by much. A reading that is zero
-   almost all the time has not earned the biggest type on the page; what it has
-   been doing over weeks has more to say than what it is doing this second. */
-.amps {
-  font-family: var(--mono);
-  font-size: 1.5rem;
-  font-weight: 700;
-  line-height: 1;
-}
-
-
-.unit { color: var(--text-muted); font-size: 1.2rem; }
-
-/* Two by two, always. Left to itself it fitted as many columns as would go,
-   which put four facts in a row on a wide card and three plus a lonely fourth
-   on a medium one. Two rows of two reads the same at every width. */
-.detail {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem 1rem;
-  margin: 1rem 0 0;
-}
-
-.detail dt {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-}
-
-.detail dd { margin: 0.1rem 0 0; }
-
-/* Nothing to report, in every field that can have nothing to report. Dimmer
-   than a real reading, so a card with no data behind it looks different at a
-   glance from one that is working. */
-.detail dd.none { color: var(--text-muted); }
 
 /* The ordinary day, next to today's count. Quieter than the count, because it
    is the thing being compared against rather than the answer. */
@@ -866,61 +845,13 @@ dialog.confirm .row-actions { margin-top: 1.25rem; }
    clear the option exists and what it is waiting for. */
 .checkboxes label.unavailable { color: var(--text-muted); cursor: not-allowed; }
 
-/* History ---------------------------------------------------------------- */
-
-/* Three cards of the same shape, as many across as fit. What a lamp cannot
-   say: one that is off now looks the same whether it went twenty times today
-   or never. */
-.history-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
-  gap: 1.25rem;
-  margin-bottom: 1.25rem;
-}
-
-.history-row .card { margin-bottom: 0; }
-
-.history-table { min-width: 0; }
-
-.history-table thead th {
-  font-size: 0.72rem;
-  font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  text-align: right;
-  padding-bottom: 0.4rem;
-}
-
-.history-table thead th:first-child { text-align: left; }
-
-.history-table th[scope="row"] {
-  font-weight: 550;
-  white-space: nowrap;
-  padding-left: 0;
-}
-
-.history-table td {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.history-table td.none { color: var(--text-muted); }
-
 /* Pills ------------------------------------------------------------------- */
 
 /* Every state carries a word as well as a color. A red pill and a green pill
    are the same pill to a colorblind reader, and this is an alarm display. */
-/* The line under a pump's numbers that says whether its draw is moving. Not
-   painted red: a pump drawing more than it did is worth reading, not worth
-   alarming about, and the alert rules are where an alarm belongs. */
-.drift {
-  margin: 0.6rem 0 0;
-  font-size: 0.82rem;
-  color: var(--text-muted);
-}
-
+/* Beside a pump's typical load, saying whether its draw is moving. Not painted
+   red: a pump drawing more than it did is worth reading, not worth alarming
+   about, and the alert rules are where an alarm belongs. */
 .drift-up { color: var(--warn); font-weight: 550; }
 
 .pill {

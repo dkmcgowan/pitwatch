@@ -950,7 +950,7 @@ def test_every_long_note_is_a_dialog_opened_from_beside_its_heading():
         assert 'id="note-' + key + '"' in page, key
 
     # And the words are still there, just not on the page.
-    assert "middle reading of every one" in page
+    assert "middle reading while the pump" in page
     assert "How often the pit has filled" in page
 
 
@@ -1027,17 +1027,21 @@ def test_the_note_does_not_sit_in_the_flow_of_the_page():
     assert page.count('class="info-mark"') == 5
 
 
-def test_the_current_reading_is_labelled_and_no_bigger_than_anything_else():
+def test_the_live_reading_is_labelled_and_no_bigger_than_anything_else():
     """A number on its own does not say what it is a number of, and this one is
     zero most of the time. It was set three times the size of the label beside
     it on a phone, by a rule in the block that sizes the header icons, left
     over from when it was meant to be the headline.
+
+    Load now, not current. Current is exactly what it is and exactly why it is
+    no use as a label: the line under it reads typical load, and the two are
+    the same measurement at two different moments.
     """
     page = render_dashboard()
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
 
     # The label itself, not the word where the note explains what it means.
-    assert page.count("<dt>Current</dt>") == 2
+    assert page.count("<dt>Load now</dt>") == 2
 
     # One size for the whole list, set on the row. Nothing inside it may set
     # another, wherever in the file it is written: that is how this got to
@@ -1150,8 +1154,10 @@ def test_the_run_count_is_described_as_a_floor():
     # Compared against what the page says, not against how the template wraps.
     prose = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", render_dashboard()))
 
-    assert "floor rather than a tally" in prose
-    assert "at least this many rather than exactly this many" in prose
+    assert "count as a floor" in prose
+    # And why it is one, which is the half somebody has to believe: two runs
+    # close together arrive here looking like a single longer one.
+    assert "two close runs can arrive as one" in prose
 
 
 def test_the_overload_note_names_all_four_selector_positions():

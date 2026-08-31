@@ -131,6 +131,11 @@
   // moving. The second part is the point: a steady draw climbing over weeks is
   // an impeller packing up or a bearing going dry, and it is invisible in any
   // single reading.
+  //
+  // Two words beside the number rather than the sentence under the card this
+  // replaces. The sentence said the same thing in twelve words and cost a line
+  // of height on every pump whether or not anything was moving; what it was
+  // measured against is in the tooltip and spelled out behind the i.
   function renderTypical(card, typical) {
     const value = card.querySelector("[data-typical]");
     const drift = card.querySelector("[data-drift]");
@@ -138,35 +143,27 @@
       return;
     }
 
-    // n/a rather than a sentence explaining itself. There is no room for a
-    // sentence in a two by two grid, and the settings page is where the reason
-    // belongs.
     const known = typical.median !== null && typical.median !== undefined;
     setFact(value, known ? typical.median.toFixed(1) + " A" : null);
-    if (!known) {
+
+    // Nothing to compare, or a tenth of an amp either way, which is
+    // measurement rather than a trend.
+    const moving =
+      known &&
+      typical.drift !== null &&
+      typical.drift !== undefined &&
+      Math.abs(typical.drift) >= 0.2;
+    if (!moving) {
       drift.hidden = true;
+      drift.textContent = "";
       return;
     }
 
-    if (typical.drift === null || typical.drift === undefined) {
-      drift.hidden = true;
-      return;
-    }
-    // A tenth of an amp either way is measurement, not a trend.
-    if (Math.abs(typical.drift) < 0.2) {
-      drift.className = "drift";
-      drift.textContent = "Steady against the four weeks before.";
-      drift.hidden = false;
-      return;
-    }
     const up = typical.drift > 0;
-    drift.className = up ? "drift drift-up" : "drift";
-    drift.textContent =
-      (up ? "Up " : "Down ") +
-      Math.abs(typical.drift).toFixed(1) +
-      " A on the four weeks before, which were " +
-      typical.earlier_median.toFixed(1) +
-      " A.";
+    drift.className = up ? "beside drift-up" : "beside";
+    drift.textContent = (up ? "up " : "down ") + Math.abs(typical.drift).toFixed(1);
+    drift.title =
+      "Against " + typical.earlier_median.toFixed(1) + " A over the four weeks before.";
     drift.hidden = false;
   }
 
@@ -244,7 +241,7 @@
     }
 
     // The overloads have no lamp, so say in words when one has tripped.
-    const note = document.querySelector("[data-door-note]");
+    const note = document.querySelector("[data-panel-note]");
     if (note) {
       const tripped = ["pump1_fault", "pump2_fault"].filter(function (role) {
         return lamps[role] && lamps[role].state === true;
@@ -263,8 +260,16 @@
     }
   }
 
-  // What each contact has been doing. One row per lamp, reading the same
-  // panel payload the lamps do, so a row and its lamp can never disagree.
+  // What each contact has been doing, under the lamp itself. Same panel
+  // payload the lamps read, so a lamp and the lines under it can never
+  // disagree.
+  //
+  // Each count carries the window it counted, because they are not the same
+  // window and a bare number would read as one. A float closes every time the
+  // pit fills, so a day is the useful figure; an alarm counted by the day
+  // reads zero forever and teaches somebody to stop looking.
+  const COUNTED = { today: "today", month: "this month" };
+
   function renderHistory(panel) {
     const lamps = panel || {};
 
@@ -272,15 +277,33 @@
       const lamp = lamps[row.getAttribute("data-history")];
       const last = row.querySelector("[data-history-last]");
       const count = row.querySelector("[data-history-count]");
-      const window_ = row.closest("table").getAttribute("data-window") || "today";
+      const group = row.closest("[data-window]");
+      const window_ = (group && group.getAttribute("data-window")) || "today";
       const history = (lamp && lamp.history) || {};
 
-      setFact(last, history.last_on ? since(history.last_on) : null);
       // Zero is a real answer here, unlike a run count from a clamp that might
       // not be fitted: an input somebody has assigned and PitWatch has read is
       // an input whose quiet month means something.
       const times = history[window_];
-      setFact(count, times === null || times === undefined ? null : String(times));
+      const counted = times !== null && times !== undefined;
+
+      if (history.last_on) {
+        setFact(last, since(history.last_on));
+      } else {
+        // Never is an answer; n/a is the absence of one. A contact that has
+        // been read all month and has not closed says never. One nobody has
+        // wired has nothing to say either way.
+        setFact(last, counted ? "never" : null);
+      }
+      if (counted) {
+        setFact(count, times + " " + (COUNTED[window_] || window_));
+      } else {
+        // The line above already reads n/a. A second one under it says nothing
+        // the first did not, and six lamps with nothing wired to them is a
+        // column of n/a where a panel should be.
+        count.textContent = "";
+        count.classList.add("none");
+      }
     });
   }
 

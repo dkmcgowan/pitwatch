@@ -618,14 +618,11 @@ def render_dashboard() -> str:
     return env.get_template("dashboard.html").render(site=SiteSettings(name="A pit"), user=None)
 
 
-def test_the_panel_is_four_blocks_across():
-    """Alerts, overloads, floats, then the screen. The three lists of lamps
-    read together and the screen sits apart from them, because it is the one
-    thing here that is a sentence rather than an indicator.
-
-    Overloads have their own heading because they are a different kind of bad
-    news: an alert means read the panel, an overload means a pump is off and
-    staying off.
+def test_the_dashboard_is_one_box():
+    """It was six: the panel door, a card each for the two pumps, and three
+    more for what the lamps had been doing. Six borders, six headings and six
+    sets of padding, so most of the page was the space between the things
+    somebody came to read and the answer to one question took a scroll.
 
     Layout is normally not worth a test. This is, because it has been described
     in prose and built from that description more than once, and shipped wrong
@@ -633,7 +630,29 @@ def test_the_panel_is_four_blocks_across():
     """
     page = render_dashboard()
 
+    assert page.count("<section") == 1
+    # The banner and the two device indicators sit outside it. Nothing else
+    # does, and no part of it is a card of its own any more.
+    assert 'class="card"' not in page
+    assert "history-row" not in page and "history-table" not in page
+
+
+def test_the_board_reads_top_to_bottom():
+    """The pumps, then the controller's own screen, then the contacts. The
+    screen sits between them because it is the one thing here that is a
+    sentence rather than a number, and the contacts come last because they are
+    the part somebody reads only when something is lit.
+
+    Overloads have a heading of their own rather than sitting under Alerts.
+    They are a different kind of bad news: an alert means read the panel, an
+    overload means a pump is off and staying off.
+    """
+    page = render_dashboard()
+
     order = [
+        'data-pump="1"',
+        'data-pump="2"',
+        "data-lcd",
         ">Alerts",
         'data-lamp="system_alert"',
         'data-lamp="high_water"',
@@ -643,23 +662,58 @@ def test_the_panel_is_four_blocks_across():
         ">Floats",
         'data-lamp="lead_float"',
         'data-lamp="lag_float"',
-        "door-middle",
-        "data-lcd",
     ]
     found = [page.index(token) for token in order]
 
-    assert found == sorted(found), "the panel is out of order: " + str(
+    assert found == sorted(found), "the board is out of order: " + str(
         list(zip(order, found, strict=True))
     )
 
 
-def test_a_lamp_says_one_thing():
-    """Lit or not. It used to carry a line of text under it reading "not set"
-    or "no data", which is a sentence where an indicator should be.
+def test_the_same_arrangement_at_every_width():
+    """Two pump columns and three lists of lamps, on a phone and on a desktop.
+    A layout that rearranges itself is two layouts to keep right, and the wide
+    one had six boxes stacking into a column several screens tall.
+    """
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
 
-    An unassigned lamp still draws dimmer, which is the one piece of that
-    distinction worth keeping without words: dark because nobody wired it reads
-    differently from dark because the contact is open.
+    def rule(selector: str) -> str:
+        return css.split(selector + " {", 1)[1].split("}", 1)[0]
+
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in rule(".glance-pumps")
+    assert "grid-template-columns: repeat(3, minmax(0, 1fr));" in rule(".glance-lamps")
+
+    # The phone block, which is the last thing in the board section. Nothing
+    # in there moves a block; it only takes type and padding down to fit.
+    phone = css.split("@media (max-width: 700px) {", 1)[1].split("/* Forms", 1)[0]
+    assert "grid-template-columns" not in phone
+    assert "grid-area" not in phone
+
+
+def test_the_blocks_are_separated_by_rules_and_not_by_boxes():
+    """A line says these answer different questions as well as a box does, and
+    costs a pixel of height instead of a border, a radius and two paddings."""
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+
+    between = css.split(".glance > * + * {", 1)[1].split("}", 1)[0]
+    assert "border-top:" in between
+    assert "padding-top:" in between
+
+    # And between the columns inside a block, for the same reason: a number
+    # under one heading must not read as the column beside it.
+    assert "border-left:" in css.split(".pump-col + .pump-col {", 1)[1].split("}", 1)[0]
+    assert "border-left:" in css.split(".lamp-group + .lamp-group {", 1)[1].split("}", 1)[0]
+
+
+def test_a_lamp_carries_what_it_has_been_doing():
+    """A lamp on its own cannot say the second part: one that is off looks
+    exactly the same whether it went twenty times today or has never gone at
+    all. That used to be three cards below the fold and is two small lines
+    under the bulb now.
+
+    What it does not carry is a sentence. It used to read "not set" or "no
+    data" under the bulb, which is prose where an indicator should be; an
+    unassigned lamp draws dimmer instead.
     """
     page = render_dashboard()
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
@@ -672,55 +726,29 @@ def test_a_lamp_says_one_thing():
     assert "data-lamp-state" not in js
     assert ".lamp.unset .bulb" in css
 
+    # Every lamp is also the row that says what it has been doing, so a lamp
+    # and the lines under it read the same payload and cannot disagree.
+    import re
 
-def test_the_overloads_have_a_block_of_their_own():
-    """They were under Alerts, which put two kinds of bad news under one word.
-    An alert means read the panel; an overload means a pump is off."""
-    page = render_dashboard()
-
-    assert ">OL1<" in page and ">OL2<" in page
-
-    alerts = page.split("door-alerts", 1)[1].split("door-overloads", 1)[0]
-    overloads = page.split("door-overloads", 1)[1].split("door-middle", 1)[0]
-
-    assert "system_alert" in alerts and "high_water" in alerts
-    assert "pump1_fault" not in alerts and "pump2_fault" not in alerts
-    assert "pump1_fault" in overloads and "pump2_fault" in overloads
+    for role in re.findall(r'data-lamp="([a-z_0-9]+)"', page):
+        lamp = page.split('data-lamp="' + role + '"', 1)[1].split("</div>", 1)[0]
+        assert 'data-history="' + role + '"' in lamp, role
+        assert "data-history-last" in lamp, role
+        assert "data-history-count" in lamp, role
 
 
-def test_a_pump_card_carries_its_own_lamp():
-    """Green while it is running, top right, where a panel would put it."""
-    page = render_dashboard()
-    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
-
-    assert page.count("data-pump-lamp") == 2
-    assert ".pump-lamp.on {" in css
-
-
-def test_the_history_cards_cover_every_lamp():
-    """Every contact with a lamp gets a row, because a lamp that is off now
-    looks the same whether it went twenty times today or never."""
+def test_the_history_covers_every_lamp():
+    """Every contact with a lamp gets both lines."""
     from pitwatch.schemas import DASHBOARD_ROLES
 
     page = render_dashboard()
 
     for role, _ in DASHBOARD_ROLES:
         if role in ("pump1_run", "pump2_run"):
-            continue  # those are the pump cards' own runs today
+            continue  # those are the pump columns' own runs today
         assert 'data-history="' + role + '"' in page, role
     assert page.count("data-history-last") == 6
     assert page.count("data-history-count") == 6
-
-
-def test_the_history_cards_read_in_the_same_order_as_the_lamps():
-    """Alerts, overloads, floats, both times. Two orders for the same three
-    things is one more thing to hold in your head."""
-    import re as _re
-
-    page = render_dashboard()
-    cards = _re.findall(r'<section class="card history">\s*<h2>([A-Za-z]+)', page)
-
-    assert cards == ["Alerts", "Overloads", "Floats"]
 
 
 def test_floats_are_counted_by_the_day_and_alarms_by_the_month():
@@ -732,13 +760,39 @@ def test_floats_are_counted_by_the_day_and_alarms_by_the_month():
     page = render_dashboard()
     windows = re.findall('data-window="([a-z]+)"', page)
 
-    # In the order the cards appear, which now matches the lamps above them:
-    # alerts, overloads, floats.
+    # In the order the groups appear: alerts, overloads, floats.
     assert windows == ["month", "month", "today"]
 
 
+def test_a_count_says_which_window_it_counted():
+    """Two windows on one row of lamps, so a bare number would read as one.
+    Alerts are counted by the month and floats by the day, and the difference
+    is invisible unless the count says so."""
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+
+    assert '{ today: "today", month: "this month" }' in js
+    # Read off the group the lamp is in, so the markup carries the window and
+    # the script does not have to know which lamp is which.
+    assert 'row.closest("[data-window]")' in js
+
+
+def test_a_contact_that_has_never_closed_says_so():
+    """Never is an answer. n/a is the absence of one, and reading n/a on a
+    float that has been watched all month and has not moved is what teaches
+    somebody to distrust the rest of the page."""
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+    history = js.split("function renderHistory", 1)[1].split("function renderInputs", 1)[0]
+
+    assert '"never"' in history
+    # And only when there is a count behind it. An input nobody has wired has
+    # nothing to say either way, and says it once rather than twice: the count
+    # under an n/a of its own would be a second n/a on every one of six lamps.
+    assert "counted" in history
+    assert 'count.textContent = "";' in history
+
+
 def test_the_run_contacts_have_no_lamp_on_the_panel():
-    """A pump that is running says so on its own card, in amps. A lamp
+    """A pump that is running says so in its own column, in amps. A lamp
     repeating that is one more thing to read for nothing.
 
     The assignments stay. They are what the screen reads to work out which pump
@@ -754,34 +808,18 @@ def test_the_run_contacts_have_no_lamp_on_the_panel():
     assert "pump2_run" in dict(DASHBOARD_ROLES)
 
 
-def test_the_screen_is_a_wide_panel_set_apart_by_a_rule():
-    """A panel, not a tile. It was square, which made the two side lists as
-    tall as it and forced the whole thing into a column on a phone."""
+def test_the_screen_is_wide_and_shallow():
+    """A panel, not a tile. It was square once, which made the lists beside it
+    as tall as it was and forced the whole thing into a column on a phone. It
+    is one short line, and every row of height it takes is a row the contacts
+    below it do not get."""
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+    lcd = css.split(".lcd {", 1)[1].split("}", 1)[0]
 
-    def rule(selector: str) -> str:
-        return css.split(selector + " {", 1)[1].split("}", 1)[0]
-
-    lcd = rule(".lcd")
     assert "aspect-ratio" not in lcd
     assert "width: 100%;" in lcd
     assert "min-height:" in lcd
-    # The sides are sized to their own contents and the middle takes the rest,
-    # which is what leaves room to be wide without guessing at fractions.
-    assert "grid-template-columns: auto auto auto minmax(0, 1fr);" in rule(".door-grid")
-
-    middle = rule(".door-middle")
-    # One rule, on the side the lamps are. The screen is last, so a rule on its
-    # right would sit against the edge of the card separating it from nothing.
-    assert "border-left:" in middle
-    assert "border-right:" not in middle
-    # And it has to stretch. A centered grid item shrinks to fit its contents,
-    # so the screen's width: 100% resolved against the width of its own text
-    # and the column it had been given went unused.
-    assert "justify-self: stretch;" in middle
-    # Each side is sized to its own widest lamp, so the bulbs in a stack line
-    # up under each other.
-    assert "width: max-content;" in rule(".door-side")
+    assert "max-width:" not in lcd, "it spans the box at every width now"
 
 
 def test_every_missing_pump_fact_reads_the_same_way():
@@ -789,9 +827,9 @@ def test_every_missing_pump_fact_reads_the_same_way():
     saying so. Left alone they drift: this had "not set", "not in 24 h", a
     bare dash and a sentence, all on one card."""
     js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
-    # The three that draw a pump card, and nothing else. The panel lamps below
-    # them keep their own words: "not set" there means no input is assigned,
-    # which is a different thing from having no reading.
+    # The three that draw a pump column, and nothing else. The panel lamps
+    # below them keep their own words: "not set" there means no input is
+    # assigned, which is a different thing from having no reading.
     card = js.split("function renderPump", 1)[1].split("function buildInputs", 1)[0]
 
     assert "function setFact(" in js
@@ -802,52 +840,13 @@ def test_every_missing_pump_fact_reads_the_same_way():
     assert card.count("setFact(") >= 4
 
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
-    assert ".detail dd.none {" in css
+    assert ".fact .none {" in css
 
 
-def test_a_phone_puts_the_three_lists_side_by_side():
-    """In the same order as the wide view: alerts, overloads, floats, with the
-    screen full width underneath. Stacking them made a column several screens
-    tall, and a different arrangement on a phone is a second layout to keep
-    right rather than the same one at another size.
-    """
-    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
-    # Everything after the phone breakpoint opens. The placements below appear
-    # nowhere else in the file, so there is no need to find where it closes.
-    phone = css.split("@media (max-width: 700px) {", 1)[1]
-
-    assert "grid-template-columns: repeat(3, minmax(0, 1fr));" in phone
-    assert "grid-area: 1 / 1;" in phone, "alerts first"
-    assert "grid-area: 1 / 2;" in phone, "overloads second"
-    assert "grid-area: 1 / 3;" in phone, "floats third"
-    assert "grid-area: 2 / 1 / 3 / -1;" in phone, "the screen spans the row below"
-
-
-def test_a_section_label_is_not_a_caption_on_the_first_lamp():
-    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
-
-    assert ".door-side .door-heading { margin-bottom:" in css
-
-
-def test_the_pump_facts_are_two_by_two():
-    """Left to itself the grid fitted as many columns as would go, which put
-    four facts in a row on a wide card and three plus a lonely fourth on a
-    medium one."""
-    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
-    detail = css.split(".detail {", 1)[1].split("}", 1)[0]
-
-    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in detail
-
-    page = render_dashboard()
-    card = page.split('data-pump="1"', 1)[1].split("</article>", 1)[0]
-    # Three since the plate rating went. An odd one in a two column grid sits
-    # alone on the second row, which is what a grid is for.
-    assert card.count("<dt>") == 3
-
-
-def test_a_pump_card_carries_everything_about_that_pump():
+def test_a_pump_column_carries_everything_about_that_pump():
     """Amps now, when it last ran, how often today, and how it has been
-    running. All facts about one motor, so they live together."""
+    running. All facts about one motor, so they live in one column, and the
+    two columns sit side by side the way the pumps do."""
     page = render_dashboard()
 
     for marker in (
@@ -856,28 +855,33 @@ def test_a_pump_card_carries_everything_about_that_pump():
         "data-fact-runs",
         "data-typical",
         "data-drift",
+        "data-pump-lamp",
     ):
         assert page.count(marker) == 2, marker
 
+    column = page.split('data-pump="1"', 1)[1].split('data-pump="2"', 1)[0]
+    assert column.count("<dt>") == 4
 
-def test_a_running_pump_is_shown_by_the_card_and_not_by_a_pill():
-    """The amps are right there and the card outlines itself green. A word
-    saying the same thing is a third way to say it."""
+
+def test_a_running_pump_is_shown_by_the_lamp_and_the_amps():
+    """No pill. The amps are right there and turn green, and the lamp beside
+    the name says the same thing to somebody looking from further away."""
     page = render_dashboard()
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
 
     assert "data-run-pill" not in page
-    assert ".pump.running" in css
+    assert ".pump-col.running .amps" in css
+    assert ".pump-lamp.on {" in css
 
 
 def test_every_long_note_is_a_dialog_opened_from_beside_its_heading():
     """A native dialog shown as a modal renders in the top layer, so it cannot
-    push a card around or end up behind one whatever the stacking looks like,
-    and Escape closes it without being told to."""
+    push the numbers around or end up behind something whatever the stacking
+    looks like, and Escape closes it without being told to."""
     page = render_dashboard()
 
-    # Five buttons and five notes on the page: three history cards and two
-    # pumps, the pump card being written once in a loop.
+    # Five buttons and five notes: the three groups of lamps and the two pump
+    # columns, the column being written once in a loop.
     assert page.count("data-info=") == 5
     assert page.count("<dialog") == 5
     assert page.count("</dialog>") == 5
@@ -888,7 +892,7 @@ def test_every_long_note_is_a_dialog_opened_from_beside_its_heading():
     for key in re.findall(r'data-info="([^"]+)"', page):
         assert 'id="note-' + key + '"' in page, key
 
-    # And the words are still there, just not on the card.
+    # And the words are still there, just not on the page.
     assert "middle reading of every one" in page
     assert "How often the pit has filled" in page
 
@@ -911,9 +915,9 @@ def test_a_note_can_always_be_closed():
     assert "button.hidden = true;" in notes
 
 
-def test_the_note_does_not_sit_in_the_flow_of_the_card():
-    """It used to, first at the top and then at the foot. Both pushed the
-    numbers around when it opened, which is what a card is for."""
+def test_the_note_does_not_sit_in_the_flow_of_the_page():
+    """It used to, first at the top of a card and then at the foot. Both pushed
+    the numbers around when it opened."""
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
     page = render_dashboard()
 
@@ -930,15 +934,16 @@ def test_the_current_reading_is_labelled_and_not_the_biggest_thing_on_the_page()
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
 
     # The label itself, not the word where the note explains what it means.
-    assert page.count('class="readout-label">Current<') == 2
+    assert page.count("<dt>Current</dt>") == 2
 
     def size(selector: str) -> float:
         rule = css.split(selector + " {", 1)[1].split("}", 1)[0]
         return float(rule.split("font-size:", 1)[1].split("rem", 1)[0].strip())
 
-    # Bigger than the facts under it, and by less than it used to be.
-    assert size(".amps") <= 1.75
-    assert size(".amps") > 1.0
+    # A little larger than the facts under it, and only a little. What a pump
+    # has been doing over weeks has more to say than what it is doing this
+    # second.
+    assert size(".fact dd") < size(".amps") <= 1.1
 
 
 def test_todays_run_count_carries_an_ordinary_day_beside_it():
@@ -949,6 +954,14 @@ def test_todays_run_count_carries_an_ordinary_day_beside_it():
 
     assert page.count("data-fact-average") == 2
     assert "daily_average" in js
+
+    # The count and the note beside it are separate elements. They were not:
+    # the span sat inside the element the count is written into, and writing
+    # textContent removes every child, so the ordinary day was destroyed on the
+    # first render and never appeared again.
+    for value, beside in (("data-fact-runs", "data-fact-average"), ("data-typical", "data-drift")):
+        holder = page.split(value, 1)[1].split("</span>", 1)[0]
+        assert beside not in holder, value
 
 
 def test_the_last_run_clock_does_not_wait_for_the_query():

@@ -19,14 +19,6 @@
 
   // -- helpers --------------------------------------------------------------
 
-  function setPill(element, text, kind) {
-    if (!element) {
-      return;
-    }
-    element.textContent = text;
-    element.className = "pill pill-" + kind;
-  }
-
   function amps(value) {
     return typeof value === "number" ? value.toFixed(2) : "--";
   }
@@ -167,36 +159,6 @@
     drift.hidden = false;
   }
 
-  // Which inputs exist and what they are called are settings, so the rows are
-  // built from what arrives rather than written into the page. Rebuilt only
-  // when the set of inputs actually changes; every other update writes into
-  // the rows already there, because replacing them once a second would throw
-  // away the selection of anyone reading one.
-  let builtFrom = null;
-
-  function buildInputs(container, list) {
-    container.textContent = "";
-    list.forEach(function (reading) {
-      const row = document.createElement("div");
-      row.className = "float";
-      row.setAttribute("data-input", reading.channel);
-      // Built rather than assigned as HTML: the name is whatever somebody
-      // typed on the settings page, and it goes in as text.
-      const name = document.createElement("span");
-      name.className = "float-name";
-      const pill = document.createElement("span");
-      pill.className = "pill pill-idle";
-      pill.setAttribute("data-input-pill", "");
-      const stamp = document.createElement("span");
-      stamp.className = "float-since muted";
-      stamp.setAttribute("data-input-since", "");
-      row.appendChild(name);
-      row.appendChild(pill);
-      row.appendChild(stamp);
-      container.appendChild(row);
-    });
-  }
-
   // The panel door.
   //
   // Three states per lamp and they are all different: on, off, and nothing to
@@ -214,7 +176,8 @@
 
       // A lamp says one thing: lit or not. It used to carry a line of text
       // under it saying "not set" or "no data", which is a sentence where an
-      // indicator should be. What it has been doing is answered downstairs.
+      // indicator should be. What it has been doing is on the two lines under
+      // it, in numbers.
       //
       // An unassigned lamp still draws dimmer, which is the one piece of that
       // distinction worth keeping without words: dark because nobody wired it
@@ -238,25 +201,6 @@
         "lcd-fail",
         display["1"] === "FAIL" || display["2"] === "FAIL"
       );
-    }
-
-    // The overloads have no lamp, so say in words when one has tripped.
-    const note = document.querySelector("[data-panel-note]");
-    if (note) {
-      const tripped = ["pump1_fault", "pump2_fault"].filter(function (role) {
-        return lamps[role] && lamps[role].state === true;
-      });
-      if (tripped.length) {
-        note.textContent =
-          tripped.length === 2
-            ? "Both overloads have tripped. Neither pump can start."
-            : "The " +
-              (lamps[tripped[0]].label || tripped[0]) +
-              " overload has tripped. That pump cannot start.";
-        note.hidden = false;
-      } else {
-        note.hidden = true;
-      }
     }
   }
 
@@ -307,102 +251,6 @@
     });
   }
 
-  function renderInputs(inputs) {
-    const container = document.querySelector("[data-inputs]");
-    if (!container) {
-      return;
-    }
-    const list = inputs || [];
-    const card = document.querySelector("[data-other-card]");
-    if (card) {
-      card.hidden = list.length === 0;
-    }
-    const shape = list
-      .map(function (reading) {
-        return reading.channel + ":" + reading.label;
-      })
-      .join("|");
-    if (shape !== builtFrom) {
-      builtFrom = shape;
-      buildInputs(container, list);
-    }
-
-    list.forEach(function (reading, index) {
-      const row = container.children[index];
-      if (!row) {
-        return;
-      }
-      const pill = row.querySelector("[data-input-pill]");
-      const stamp = row.querySelector("[data-input-since]");
-      row.querySelector(".float-name").textContent = reading.label;
-
-      if (reading.state === null) {
-        setPill(pill, "No data", "idle");
-        stamp.textContent = "";
-        row.classList.remove("wet");
-        return;
-      }
-      if (reading.state) {
-        setPill(pill, reading.on_word, "warn");
-        row.classList.add("wet");
-      } else {
-        setPill(pill, reading.off_word, "ok");
-        row.classList.remove("wet");
-      }
-      stamp.textContent = since(reading.changed_at);
-    });
-  }
-
-  // One indicator per device, named.
-  //
-  // "Something is offline" and "the meter is offline" are different amounts of
-  // use to somebody standing in a basement, and the two fail for entirely
-  // different reasons: the Shelly drops off wifi, the X-408 stops being able
-  // to reach the broker.
-  //
-  // Three states rather than two. Deliberately not set up is not a fault, and
-  // it is the reason a device that is off is hollow rather than red: running
-  // on the clamps alone is a normal way to run, and a permanent red for it
-  // would teach whoever reads this page that red means nothing.
-  const DEVICE_NAMES = { shelly: "Shelly EM", inputs: "The X-408" };
-
-  function renderLinks(devices) {
-    const known = devices || {};
-
-    document.querySelectorAll("[data-link]").forEach(function (box) {
-      const name = box.getAttribute("data-link");
-      const device = known[name];
-      const dot = box.querySelector(".link-dot");
-      const said = box.querySelector("[data-link-said]");
-      const label = DEVICE_NAMES[name] || name;
-
-      let state = "idle";
-      let words = label + " is not set up";
-
-      if (device && device.configured) {
-        if (device.online) {
-          state = "ok";
-          words = label + " is connected";
-        } else {
-          state = "crit";
-          words =
-            label +
-            " is offline: " +
-            (device.last_error || "not reachable") +
-            (device.last_seen ? ", last heard from " + since(device.last_seen) : "");
-        }
-      }
-
-      dot.className = "link-dot link-" + state;
-      box.classList.toggle("link-off", state === "idle");
-      // A title is a tooltip, which a phone cannot hover over and a screen
-      // reader may or may not read. The hidden span is the same words where
-      // they will always be found.
-      box.title = words;
-      said.textContent = words;
-    });
-  }
-
   function renderBanner(state) {
     const banner = document.querySelector("[data-banner]");
     if (!banner) {
@@ -434,7 +282,6 @@
     renderPump(2, (state.pumps || {})["2"]);
     renderPanel(state.panel);
     renderHistory(state.panel);
-    renderInputs(state.inputs);
     renderLinks(state.devices);
     renderBanner(state);
     document.body.classList.remove("stale");

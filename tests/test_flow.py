@@ -430,25 +430,6 @@ def test_the_live_feed_reports_a_pump_with_no_readings_as_unknown(client):
     assert pump["drawing_current"] is False
 
 
-def test_an_input_carrying_a_lamp_is_not_listed_below_it_as_well(client):
-    """And one that carries nothing is listed there, reading unknown rather
-    than off, because nothing has read it yet.
-
-    None is not False. An input reported as off when nothing has read it is an
-    alarm that will never fire and will look like it is working.
-    """
-    sign_in_as_admin(client)
-    # Everything as usual except DI3, which is left carrying nothing, so it is
-    # the one input with no lamp of its own.
-    client.post("/setup", data=SETUP_FORM | {"channel_3_role": ""})
-
-    inputs = {row["channel"]: row for row in client.get("/api/state").json()["inputs"]}
-
-    assert set(inputs) == {3}, "the seven with lamps are drawn on the panel instead"
-    assert inputs[3]["label"] == "DI3", "nothing has said what it is"
-    assert inputs[3]["state"] is None, "read, but nothing has arrived yet"
-
-
 SHELLY_ONLY_FORM = {
     key: value
     for key, value in SETUP_FORM.items()
@@ -497,31 +478,20 @@ def test_every_contact_reads_as_unknown_without_the_io_module(client):
 
     state = client.get("/api/state").json()
 
-    assert state["inputs"] == [], "no module, so there is nothing to list"
+    # None is not False. A lamp reading off when nothing has read it is an
+    # alarm that will never fire and will look like it is working.
+    for role, lamp in state["panel"].items():
+        if role == "display":
+            continue
+        assert lamp["state"] is None, role
+
+    # And no list of inputs carrying nothing. The panel brings out eight
+    # contacts and the module has eight inputs, so there is never a leftover.
+    assert "inputs" not in state
+
     for pump in state["pumps"].values():
         assert pump["current"] is None
         assert pump["running"] is False
-
-
-def test_the_leftovers_list_is_empty_until_the_module_is_set_up(client):
-    """Rather than eight rows reading DI1 to DI8 and Unknown.
-
-    Every input has a row in it once the module is real, including the ones
-    carrying nothing, because those are still read and recorded. None of them
-    do while there is no module, which is a normal way to start rather than a
-    state worth nagging about.
-    """
-    sign_in_as_admin(client)
-    client.post("/setup", data=SHELLY_ONLY_FORM)
-    assert client.get("/api/state").json()["inputs"] == []
-
-    client.post(
-        "/settings/inputs",
-        data={"inputs_enabled": "on", "inputs_host": "192.168.1.51"},
-    )
-
-    listed = {row["channel"] for row in client.get("/api/state").json()["inputs"]}
-    assert listed == {1, 2, 3, 4, 5, 6, 7, 8}, "nothing carries a lamp yet"
 
 
 def test_adding_the_io_module_later_does_not_need_a_restart(client):
@@ -789,9 +759,10 @@ def test_naming_an_input_is_all_it_takes_to_watch_it(client):
 
 
 def test_taking_a_lamp_off_an_input_leaves_the_input_working(client):
-    """Which is the whole removal story, and the part the old wording got
-    wrong. Setting an input back to carrying nothing takes its lamp away. It
-    does not stop the input being read: it moves to the list below the panel.
+    """Which is the whole removal story. Setting an input back to carrying
+    nothing takes its lamp off the panel. It does not stop the input being
+    read, debounced and recorded; it just has nowhere to be shown, which is
+    what taking its meaning away asked for.
     """
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
@@ -802,8 +773,9 @@ def test_taking_a_lamp_off_an_input_leaves_the_input_working(client):
     used = client.app.state.settings.inputs.used_channels
     assert [c.channel for c in used] == [1, 2, 3, 5, 6, 7, 8]
 
-    listed = {row["channel"] for row in client.get("/api/state").json()["inputs"]}
-    assert listed == {4}, "still read, just with no lamp of its own"
+    panel = client.get("/api/state").json()["panel"]
+    on_four = [role for role, lamp in panel.items() if lamp.get("channel") == 4]
+    assert on_four == [], "nothing is drawn from it any more"
 
 
 def test_moving_a_lamp_to_another_input_moves_what_the_dashboard_reads(client):
@@ -857,18 +829,6 @@ def test_a_lamp_nothing_was_given_stays_unassigned(client):
     assert panel["high_water"]["channel"] == 3
     assert panel["system_alert"]["channel"] is None
     assert panel["system_alert"]["label"] is None
-
-
-def test_an_input_a_lamp_is_showing_is_not_listed_again_below(client):
-    """The panel and the leftovers list are one screen. An input in both would
-    be read twice and counted once."""
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-
-    state = client.get("/api/state").json()
-    listed = {row["channel"] for row in state["inputs"]}
-
-    assert listed == set(), "all eight carry a lamp in this setup"
 
 
 def test_one_input_cannot_carry_two_lamps(client):

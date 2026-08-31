@@ -637,6 +637,48 @@ def test_the_dashboard_is_one_box():
     assert "history-row" not in page and "history-table" not in page
 
 
+def test_the_box_says_everything_in_three_words_or_less():
+    """A column here is a third of a phone wide. A sentence in one is a
+    paragraph, so nothing in the box is one: every line is a heading, a short
+    label or a number, and the prose lives behind the i where there is room
+    for it.
+
+    The line naming the pump an overload has stopped went with the rest. OL1
+    and OL2 already say which pump, and the screen says FAIL beside its name.
+    """
+    import re
+
+    page = render_dashboard()
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+
+    assert "data-panel-note" not in page and "data-panel-note" not in js
+
+    board = page.split('<section class="glance"', 1)[1]
+    board = re.sub(r"<dialog.*?</dialog>", "", board, flags=re.S)
+
+    for text in re.findall(r">([^<>]+)<", board):
+        words = text.split()
+        assert len(words) <= 3, text
+
+
+def test_nothing_sits_below_the_lamps():
+    """Eight contacts on the panel and eight inputs on the module, so every one
+    of them carries a lamp or a run signal and the list of leftovers was always
+    empty. An input with its meaning taken away is still read and recorded; it
+    just has nowhere on the dashboard to be shown, which is what taking the
+    meaning away asked for."""
+    page = render_dashboard()
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+
+    assert "data-inputs" not in page
+    assert "Other inputs" not in page
+    # And nothing left over to draw them with, so it cannot come back by
+    # halves.
+    assert "renderInputs" not in js and "setPill" not in js
+    assert ".pill" not in css and ".float" not in css
+
+
 def test_the_board_reads_top_to_bottom():
     """The pumps, then the controller's own screen, then the contacts. The
     screen sits between them because it is the one thing here that is a
@@ -827,10 +869,11 @@ def test_every_missing_pump_fact_reads_the_same_way():
     saying so. Left alone they drift: this had "not set", "not in 24 h", a
     bare dash and a sentence, all on one card."""
     js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
-    # The three that draw a pump column, and nothing else. The panel lamps
-    # below them keep their own words: "not set" there means no input is
-    # assigned, which is a different thing from having no reading.
-    card = js.split("function renderPump", 1)[1].split("function buildInputs", 1)[0]
+    # The three that draw a pump column, and nothing else.
+    # Down to where the panel starts. The lamps keep their own words: "not
+    # set" there means no input is assigned, which is a different thing from
+    # having no reading.
+    card = js.split("function renderPump", 1)[1].split("// The panel door.", 1)[0]
 
     assert "function setFact(" in js
     for phrase in ("not enough runs yet", "not in 24 h", '"not set"'):

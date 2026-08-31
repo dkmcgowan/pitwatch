@@ -161,7 +161,11 @@
 
      The run contacts have no lamp. A pump that is running says so in the
      column above, in amps, and a lamp repeating that is one more thing to read
-     for nothing. Which input drives which lamp is a setting. #}
+     for nothing. Which input drives which lamp is a setting.
+
+     There is nothing below this. The panel brings out eight contacts and the
+     module has eight inputs, so every one of them carries a lamp or a run
+     signal and there is no such thing as a leftover to list. #}
   <div class="glance-lamps">
     <div class="lamp-group" data-window="month">
       <h2 class="glance-heading">Alerts
@@ -274,19 +278,6 @@
         <p class="note-close">Click anywhere to close</p>
       </dialog>
     </div>
-  </div>
-
-  {# An overload turns a pump's word on the screen into FAIL. This says which
-     pump, in words, and is the only line here that is not a number. #}
-  <p class="glance-note" data-panel-note hidden></p>
-
-  {# Anything named that no lamp is showing. Hidden when there is nothing,
-     because on a panel whose eight inputs are all assigned there never is.
-     Which inputs exist and what they are called are settings, so the rows are
-     built from the state rather than written out here. #}
-  <div class="glance-extra" data-other-card hidden>
-    <h2 class="glance-heading">Other inputs</h2>
-    <div class="floats" data-inputs></div>
   </div>
 </section>
 

@@ -970,23 +970,25 @@ def test_the_note_does_not_sit_in_the_flow_of_the_page():
     assert page.count('class="info-mark"') == 5
 
 
-def test_the_current_reading_is_labelled_and_not_the_biggest_thing_on_the_page():
+def test_the_current_reading_is_labelled_and_no_bigger_than_anything_else():
     """A number on its own does not say what it is a number of, and this one is
-    zero most of the time."""
+    zero most of the time. It was set three times the size of the label beside
+    it on a phone, by a rule in the block that sizes the header icons, left
+    over from when it was meant to be the headline.
+    """
     page = render_dashboard()
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
 
     # The label itself, not the word where the note explains what it means.
     assert page.count("<dt>Current</dt>") == 2
 
-    def size(selector: str) -> float:
-        rule = css.split(selector + " {", 1)[1].split("}", 1)[0]
-        return float(rule.split("font-size:", 1)[1].split("rem", 1)[0].strip())
-
-    # A little larger than the facts under it, and only a little. What a pump
-    # has been doing over weeks has more to say than what it is doing this
-    # second.
-    assert size(".fact dd") < size(".amps") <= 1.1
+    # One size for the whole list, set on the row. Nothing inside it may set
+    # another, wherever in the file it is written: that is how this got to
+    # 2.4rem and stayed there.
+    assert "font-size:" in css.split(".fact {", 1)[1].split("}", 1)[0]
+    for selector in (".amps", ".unit", ".fact dt", ".fact dd"):
+        for rule in css.split(selector + " {")[1:]:
+            assert "font-size" not in rule.split("}", 1)[0], selector
 
 
 def test_todays_run_count_carries_an_ordinary_day_beside_it():

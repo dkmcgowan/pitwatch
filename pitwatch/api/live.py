@@ -37,15 +37,6 @@ router = APIRouter(prefix="/api")
 
 # What the pill reads when an input is on and when it is off.
 #
-# Deliberately not "wet" and "dry". An input is whatever somebody wired to it,
-# and this no longer has any idea which of them is a float, which is an alarm
-# contact, or which way round means trouble. Saying ON and Off is the honest
-# version of that, and it does not editorialize about a signal it cannot
-# interpret.
-ON_WORD = "ON"
-OFF_WORD = "Off"
-
-
 def lead_and_lag(inputs: InputsSettings, live_io: LiveIo) -> tuple[str, str]:
     """The two words in the middle of the panel, in pump order.
 
@@ -248,44 +239,24 @@ async def build_state(app) -> dict:
         }
 
     inputs = store.inputs
-    # The inputs a lamp is drawn from, which is now simply the ones that have
-    # been told what they carry. It used to be the set named on a second page,
-    # and the two could disagree.
+    # The inputs a lamp is drawn from, which is simply the ones that have been
+    # told what they carry. It used to be the set named on a second page, and
+    # the two could disagree.
     assigned = {mapped.channel for mapped in inputs.used_channels}
 
     signals: SignalHistory | None = getattr(app.state, "signal_history", None)
     closings = await signals.closings(pool, sorted(assigned)) if signals else {}
 
-    def input_state(mapped) -> dict:
-        changed = live_io.changed_at(mapped.channel)
-        return {
-            "channel": mapped.channel,
-            "label": mapped.title,
-            # None means nothing has read it yet, which is not the same as off.
-            "state": live_io.state_of(mapped.channel),
-            "on_word": ON_WORD,
-            "off_word": OFF_WORD,
-            "changed_at": changed.isoformat() if changed else None,
-        }
-
     return {
         "site": store.site.model_dump(mode="json"),
         "pumps": {"1": pump_state(1), "2": pump_state(2)},
         "panel": panel_state(inputs, live_io, closings),
-        # The inputs no lamp is showing, which is the complement of the set
-        # above rather than a subset of it. Nothing should go missing just
-        # because the dashboard has no place built for it, and an input
-        # carrying nothing is still read, still debounced and still recorded.
-        #
-        # Empty while the module is not set up, rather than eight rows reading
-        # DI1 to DI8 and Unknown. That is not a dashboard, and starting with
-        # only the clamps wired is a normal way to run rather than a state to
-        # nag somebody about.
-        "inputs": (
-            [input_state(mapped) for mapped in inputs.channels if mapped.channel not in assigned]
-            if configured["inputs"]
-            else []
-        ),
+        # No list of inputs carrying nothing. The panel brings out eight
+        # contacts and the module has eight inputs, so every one of them is a
+        # lamp or a run signal and the list was always empty. An input with no
+        # meaning assigned is still read, debounced and recorded; it simply has
+        # nowhere on a dashboard to be shown, which is what taking its meaning
+        # away asked for.
         "devices": devices,
         "updated_at": live.updated_at.isoformat() if live.updated_at else None,
     }

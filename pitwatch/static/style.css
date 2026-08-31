@@ -20,7 +20,6 @@
   --ok: #1a7f37;
   --warn: #9a6700;
   --crit: #b42318;
-  --idle: #6e7681;
 
   --radius: 10px;
   --gap: 1rem;
@@ -41,7 +40,6 @@
     --ok: #3fb950;
     --warn: #d29922;
     --crit: #f85149;
-    --idle: #7d8590;
   }
 }
 
@@ -454,15 +452,6 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
               0 0 16px color-mix(in srgb, var(--ok) 55%, transparent);
 }
 
-/* The one line in the box that is a sentence. An overload turns a pump's word
-   on the screen into FAIL, and this says which pump. */
-.glance-note {
-  margin: 0;
-  color: var(--crit);
-  font-weight: 550;
-  font-size: 0.9rem;
-}
-
 /* Everything three columns of lamps and two of numbers can lose on a narrow
    screen without losing the arrangement. The arrangement is what makes it
    readable; a few pixels of type is not. */
@@ -849,70 +838,13 @@ dialog.confirm .row-actions { margin-top: 1.25rem; }
    clear the option exists and what it is waiting for. */
 .checkboxes label.unavailable { color: var(--text-muted); cursor: not-allowed; }
 
-/* Pills ------------------------------------------------------------------- */
-
-/* Every state carries a word as well as a color. A red pill and a green pill
-   are the same pill to a colorblind reader, and this is an alarm display. */
-/* Beside a pump's typical load, saying whether its draw is moving. Not painted
-   red: a pump drawing more than it did is worth reading, not worth alarming
-   about, and the alert rules are where an alarm belongs. */
+/* Beside a pump's typical load, saying which way its draw is moving. Not
+   painted red: a pump drawing more than it did is worth reading, not worth
+   alarming about, and the alert rules are where an alarm belongs. */
 .drift-up { color: var(--warn); font-weight: 550; }
 
-.pill {
-  display: inline-block;
-  padding: 0.2rem 0.6rem;
-  border-radius: 999px;
-  font-size: 0.8rem;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-  border: 1px solid;
-}
-
-.pill-ok {
-  color: var(--ok);
-  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
-  background: color-mix(in srgb, var(--ok) 12%, transparent);
-}
-
-.pill-warn {
-  color: var(--warn);
-  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
-  background: color-mix(in srgb, var(--warn) 12%, transparent);
-}
-
-.pill-crit {
-  color: var(--crit);
-  border-color: color-mix(in srgb, var(--crit) 50%, transparent);
-  background: color-mix(in srgb, var(--crit) 12%, transparent);
-}
-
-.pill-idle {
-  color: var(--idle);
-  border-color: var(--border);
-  background: var(--surface-2);
-}
-
+/* A failed step or a reading that did not arrive, in the setup pages. */
 .bad { color: var(--crit); }
-
-/* Floats ------------------------------------------------------------------ */
-
-.floats { display: grid; gap: 0.5rem; }
-
-.float {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-2);
-}
-
-.float.wet { border-color: color-mix(in srgb, var(--crit) 50%, transparent); }
-
-.float-name { font-weight: 550; }
-.float-since { font-size: 0.82rem; }
 
 /* Whether each device is talking -------------------------------------------
  *

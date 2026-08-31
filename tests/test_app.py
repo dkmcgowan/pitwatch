@@ -679,6 +679,20 @@ def test_nothing_sits_below_the_lamps():
     assert ".pill" not in css and ".float" not in css
 
 
+def test_the_board_does_not_stretch_across_a_desktop():
+    """The page is wide enough for a table of users and this is not one. Two
+    pump columns and three lists of lamps pulled across a desktop put a label
+    at one end of a line and its number at the other. The banner and the device
+    dots take the same cap so the three of them line up down one edge."""
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+    # The first .links rule in the file is the one that caps the three of
+    # them together; the one further down only lays the dots out.
+    capped = css.split(".links {", 1)[1].split("}", 1)[0]
+
+    assert "max-width:" in capped
+    assert "margin-left: auto;" in capped and "margin-right: auto;" in capped
+
+
 def test_the_board_reads_top_to_bottom():
     """The pumps, then the controller's own screen, then the contacts. The
     screen sits between them because it is the one thing here that is a

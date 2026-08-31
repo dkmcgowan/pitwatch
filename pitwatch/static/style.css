@@ -233,6 +233,22 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
    an unassigned one is dark too rather than being drawn in some third color
    that has to be learned. */
 
+/* Capped and centered. The page is wide enough for a table of users, and this
+   is not one: two pump columns and three lists of lamps stretched across a
+   desktop put a label at one end of a line and its number at the other, and
+   left the lamps floating in the middle of nothing. The width it wants is
+   about the width of the phone layout it matches.
+
+   The banner and the device dots take the same cap, so the three of them line
+   up down one edge instead of the box sitting inside a wider column. */
+.glance,
+.banner,
+.links {
+  max-width: 46rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .glance {
   background: var(--surface);
   border: 1px solid var(--border);

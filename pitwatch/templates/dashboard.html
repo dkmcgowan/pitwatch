@@ -86,7 +86,7 @@
          is a couple of words now, with the explanation behind the i. #}
       <dl class="facts">
         <div class="fact">
-          <dt>Current</dt>
+          <dt>Load now</dt>
           <dd><span class="amps" data-amps>--</span><span class="unit">A</span></dd>
         </div>
         <div class="fact">
@@ -112,25 +112,18 @@
       <dialog class="note" id="note-pump-{{ number }}">
         <h3 class="note-title">Pump {{ number }}</h3>
         <div class="hint">
-          <p><strong>Current</strong> is what the clamp is reading right now,
-            which on a pit that runs for seconds at a time is usually zero.</p>
+          <p><strong>Load now</strong> is what the clamp reads this second,
+            usually zero on a pit that runs for seconds at a time.</p>
           <p><strong>Last run</strong> and <strong>runs today</strong> come from
-            the current rising off nothing. Once there are three days of history,
-            an ordinary day appears beside today's count, so today has something
-            to be read against.</p>
-          <p>Read the count as a floor rather than a tally. The meter reports on
-            its own schedule, so two runs close together can arrive looking like
-            one, and the count is at least this many rather than exactly this
-            many. Wiring the panel's run contact makes it exact, because the
-            panel module reports the moment the contact moves.</p>
-          <p><strong>Typical load</strong> is the middle reading of every one
-            taken while the pump was running this week, leaving out the first
-            reading of each run, which is where the starting surge lands. It is
-            the number to watch: a pump drawing more than it did a month ago is a
-            pump on its way to a problem. The words beside it are how this week
-            compares with the four weeks before, and nothing is shown when the
-            two are within a tenth of an amp, which is measurement rather than a
-            trend.</p>
+            the load rising off nothing. Read the count as a floor: the meter
+            reports on its own schedule, so two close runs can arrive as one.
+            The panel's run contact makes it exact. After three days an ordinary
+            day appears beside it.</p>
+          <p><strong>Typical load</strong> is the middle reading while the pump
+            was running this week, less the starting surge. It is the number to
+            watch: drawing more than it did a month ago is a pump on its way to
+            a problem. Beside it is the change against the four weeks
+            before.</p>
         </div>
         <p class="note-close">Click anywhere to close</p>
       </dialog>
@@ -191,16 +184,14 @@
       <dialog class="note" id="note-alerts">
         <h3 class="note-title">Alerts</h3>
         <div class="hint">
-          <p><strong>Alert</strong> is the controller's own alarm. It carries no
-            detail: several different faults raise the same contact, so it means go
-            and read the panel rather than anything more specific.</p>
-          <p><strong>High water</strong> means the pit came up past the high water
-            float, which usually happens when a storm is putting water in faster
-            than one pump takes it out. The controller can call both pumps to keep
-            up. Once in a while is the system working. Regularly is the pit
-            struggling with the inflow, and that is worth understanding before it
-            happens on a night nobody is watching.</p>
-          <p>Counted by the month, because counting an alarm by the day reads zero
+          <p><strong>Alert</strong> is the controller's own alarm. Several
+            faults raise the same contact, so it means read the panel rather
+            than anything more specific.</p>
+          <p><strong>High water</strong> means the pit came up past the high
+            float, usually a storm putting water in faster than one pump takes
+            it out. Once in a while is the system working. Regularly is the pit
+            losing to the inflow.</p>
+          <p>Counted by the month. An alarm counted by the day reads zero
             forever.</p>
         </div>
         <p class="note-close">Click anywhere to close</p>
@@ -231,21 +222,16 @@
       <dialog class="note" id="note-overloads">
         <h3 class="note-title">Overloads</h3>
         <div class="hint">
-          <p>A motor overload has tripped, so that pump is off and will not run.
-            The panel cut it because it was drawing more than the overload is set
-            to allow.</p>
-          <p>What happens next is set by the selector on the overload itself.
-            <strong>H</strong> is hand reset: the pump stays off until somebody
-            goes to the panel and presses the red button back in.
-            <strong>A</strong> is auto reset: it resets itself once it has cooled
-            and the pump can start again on its own, which sounds better and is
-            often worse, because a motor that trips and restarts all night is a
-            motor nobody hears about. Adding the <strong>O</strong> makes the red
-            button work as a stop button as well, so <strong>HO</strong> is hand
-            reset with a stop and <strong>AO</strong> is auto reset with a
-            stop.</p>
-          <p>Either way it tripped for a reason. A pump that has been drawing more
-            than it used to will show that in its typical load.</p>
+          <p>A motor overload has tripped: that pump is off and will not run.
+            The panel cut it for drawing more than the overload allows.</p>
+          <p>The selector decides what happens next. <strong>H</strong> is hand
+            reset: it stays off until somebody presses the red button back in.
+            <strong>A</strong> resets itself once cool, which is often worse, a
+            motor that trips and restarts all night being one nobody hears
+            about. <strong>O</strong> adds a stop, so <strong>HO</strong> and
+            <strong>AO</strong> are those two with a stop button.</p>
+          <p>It tripped for a reason, and a pump drawing more than it used to
+            will show that in its typical load.</p>
         </div>
         <p class="note-close">Click anywhere to close</p>
       </dialog>

@@ -48,8 +48,10 @@ async def build_history(app, window: series.Window) -> dict:
         channel = clamp[number]
         names[str(number)] = pump.name or f"Pump {number}"
         load[str(number)] = [
-            [at.isoformat(), round(peak, 2), round(mean, 2)]
-            for at, peak, mean in await series.load_series(pool, channel, window)
+            [at.isoformat(), round(peak, 2), None if settled is None else round(settled, 2)]
+            for at, peak, settled in await series.load_series(
+                pool, channel, window, domain.RUNNING_AMPS
+            )
         ]
         starts[str(number)] = [
             [at.isoformat(), count]

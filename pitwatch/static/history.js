@@ -9,6 +9,11 @@
 // viewBox scales the type with it, which on a phone means axis labels at six
 // pixels and on a wide screen means them at twenty. Measuring costs a redraw
 // on resize and is worth it.
+//
+// Every chart can be read with a finger. A line follows the cursor and the
+// numbers under that moment appear above the chart, because a shape tells you
+// something happened on Tuesday and this is a page somebody opens wanting to
+// know what it was.
 
 (function () {
   "use strict";
@@ -18,8 +23,8 @@
   const LABEL_WIDTH = 68;
 
   // The two pumps, told apart by color and by the key under the chart. Never
-  // by color alone: the key names them and the tooltip on each point says
-  // which, because a red and a green line are one line to a colorblind reader.
+  // by color alone: the key names them, and the reading that follows the
+  // cursor names them again.
   const SERIES = ["var(--series-1)", "var(--series-2)"];
 
   // A contact is drawn in the color its lamp would be on the dashboard, so the
@@ -35,7 +40,7 @@
     pump2_run: "var(--ok)",
   };
 
-  const state = { window: "7d", data: null };
+  const state = { window: "7d", data: null, settled: false };
 
   // -- little helpers -------------------------------------------------------
 
@@ -89,6 +94,25 @@
     return when.toLocaleDateString([], { month: "numeric", day: "numeric" });
   }
 
+  // The cursor says more than the axis does: on a week of hourly buckets the
+  // axis reads a date and the moment under a finger is a time as well.
+  function moment(ms, window_) {
+    const when = new Date(ms);
+    const day = when.toLocaleDateString([], {
+      weekday: "short",
+      month: "numeric",
+      day: "numeric",
+    });
+    if (window_ === "30d") {
+      return day;
+    }
+    return day + " " + when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function amps(value) {
+    return value === null || value === undefined ? "--" : value.toFixed(2) + " A";
+  }
+
   // -- the frame every chart shares -----------------------------------------
 
   function frame(canvas, width, height, top, options) {
@@ -112,7 +136,6 @@
           y1: y,
           y2: y,
           stroke: "var(--border)",
-          "stroke-width": step === 0 ? 1 : 1,
           "stroke-dasharray": step === 0 ? "" : "2 3",
         })
       );
@@ -150,7 +173,79 @@
     }
   }
 
+  // -- the line that follows a finger ---------------------------------------
+  //
+  // One line per chart, and the numbers under it written above the chart
+  // rather than into a tooltip that sits under a thumb. Pointer events, so a
+  // mouse and a finger are the same code, and the stylesheet leaves the page
+  // free to scroll up and down while a sideways drag reads the chart.
+
+  function wireCursor(shape, plot, name, from, to, read) {
+    const line = svg("line", {
+      y1: plot.top,
+      y2: plot.bottom,
+      stroke: "var(--text-muted)",
+      "stroke-width": 1,
+      "stroke-dasharray": "3 3",
+      visibility: "hidden",
+    });
+    shape.canvas.appendChild(line);
+
+    const readout = document.querySelector('[data-readout="' + name + '"]');
+    const width = Math.max(1, plot.right - plot.left);
+
+    function show(event) {
+      const bounds = shape.canvas.getBoundingClientRect();
+      const x = Math.min(plot.right, Math.max(plot.left, event.clientX - bounds.left));
+      line.setAttribute("x1", x);
+      line.setAttribute("x2", x);
+      line.setAttribute("visibility", "visible");
+      if (readout) {
+        readout.textContent = read(from + ((x - plot.left) / width) * (to - from));
+      }
+    }
+
+    function hide() {
+      line.setAttribute("visibility", "hidden");
+      if (readout) {
+        readout.textContent = "";
+      }
+    }
+
+    shape.canvas.addEventListener("pointerdown", show);
+    shape.canvas.addEventListener("pointermove", show);
+    shape.canvas.addEventListener("pointerleave", hide);
+    shape.canvas.addEventListener("pointercancel", hide);
+  }
+
+  // The point nearest a moment, and nothing at all when the nearest one is
+  // further away than a bucket. A reading half a day from where the finger is
+  // is not the reading the finger is pointing at.
+  function nearest(points, ms, reach) {
+    let best = null;
+    let distance = reach;
+    points.forEach(function (point) {
+      const gap = Math.abs(at(point[0]) - ms);
+      if (gap <= distance) {
+        distance = gap;
+        best = point;
+      }
+    });
+    return best;
+  }
+
   // -- load -----------------------------------------------------------------
+
+  // Column one is the highest reading in the bucket, column two the highest
+  // that was not the first of a run. Which one is drawn is the checkbox.
+  //
+  // A motor draws several times its running current for the moment it starts,
+  // so a chart of peaks is a chart of those moments: forty amps every time,
+  // saying nothing about the pump. The second column is what it settles at,
+  // and it is the same exclusion typical load makes on the dashboard.
+  function loadValue(point) {
+    return state.settled ? point[2] : point[1];
+  }
 
   function drawLoad(container, data) {
     const from = at(data.from);
@@ -158,7 +253,10 @@
     const numbers = [];
     Object.keys(data.load).forEach(function (number) {
       data.load[number].forEach(function (point) {
-        numbers.push(point[1]);
+        const value = loadValue(point);
+        if (value !== null && value !== undefined) {
+          numbers.push(value);
+        }
       });
     });
     if (!numbers.length) {
@@ -177,22 +275,28 @@
     const x = function (ms) {
       return plot.left + ((plot.right - plot.left) * (ms - from)) / Math.max(1, to - from);
     };
-    const y = function (amps) {
-      return plot.bottom - ((plot.bottom - plot.top) * amps) / top;
+    const y = function (value) {
+      return plot.bottom - ((plot.bottom - plot.top) * value) / top;
     };
 
     // A gap in the readings is drawn as a gap. The meter reports when
     // something changes, so two points an hour apart are not a line between
-    // them: joining them would draw an hour of load nobody measured.
+    // them: joining them would draw an hour of load nobody measured. A bucket
+    // with nothing but a start in it is a gap for the same reason once the
+    // starts are being left out.
     const gap = data.load_bucket * 2500;
     Object.keys(data.load).forEach(function (number, index) {
-      const points = data.load[number];
       let path = "";
       let last = null;
-      points.forEach(function (point) {
+      data.load[number].forEach(function (point) {
+        const value = loadValue(point);
+        if (value === null || value === undefined) {
+          last = null;
+          return;
+        }
         const ms = at(point[0]);
         const command = last === null || ms - last > gap ? "M" : "L";
-        path += command + x(ms).toFixed(1) + " " + y(point[1]).toFixed(1) + " ";
+        path += command + x(ms).toFixed(1) + " " + y(value).toFixed(1) + " ";
         last = ms;
       });
       if (path) {
@@ -207,6 +311,15 @@
           })
         );
       }
+    });
+
+    wireCursor(shape, plot, "load", from, to, function (ms) {
+      const parts = [moment(ms, data.window)];
+      Object.keys(data.load).forEach(function (number) {
+        const point = nearest(data.load[number], ms, data.load_bucket * 1000);
+        parts.push(data.pumps[number] + " " + amps(point ? loadValue(point) : null));
+      });
+      return parts.join("   ");
     });
     return true;
   }
@@ -255,6 +368,18 @@
           })
         );
       });
+    });
+
+    wireCursor(shape, plot, "starts", from, to, function (ms) {
+      const parts = [moment(ms, data.window)];
+      pumps.forEach(function (number) {
+        const point = nearest(data.starts[number], ms, data.count_bucket * 1000);
+        // A bucket with no row is a bucket with no starts in it, which is a
+        // zero rather than a shrug: readings were arriving and none of them
+        // was a start.
+        parts.push(data.pumps[number] + " " + (point ? point[1] : 0));
+      });
+      return parts.join("   ");
     });
     return true;
   }
@@ -326,6 +451,19 @@
         );
       });
     });
+
+    wireCursor(shape, plot, "contacts", from, to, function (ms) {
+      const closed = contacts
+        .filter(function (contact) {
+          return contact.spans.some(function (pair) {
+            return at(pair[0]) <= ms && ms <= at(pair[1]);
+          });
+        })
+        .map(function (contact) {
+          return contact.title;
+        });
+      return moment(ms, data.window) + "   " + (closed.length ? closed.join(", ") : "nothing on");
+    });
     return true;
   }
 
@@ -364,8 +502,12 @@
     charts.forEach(function (pair) {
       const container = document.querySelector('[data-chart="' + pair[0] + '"]');
       const empty = document.querySelector('[data-empty="' + pair[0] + '"]');
+      const readout = document.querySelector('[data-readout="' + pair[0] + '"]');
       if (!container) {
         return;
+      }
+      if (readout) {
+        readout.textContent = "";
       }
       // Unhidden before it is drawn, not after. A hidden box measures zero
       // wide, and a chart drawn at zero and then shown is a chart 220 pixels
@@ -415,6 +557,16 @@
       fetchWindow(button.getAttribute("data-window"));
     });
   });
+
+  // Both numbers are already on the page, so this is a redraw rather than a
+  // request.
+  const surge = document.querySelector("[data-settled]");
+  if (surge) {
+    surge.addEventListener("change", function () {
+      state.settled = surge.checked;
+      drawAll();
+    });
+  }
 
   // Redrawn at the new size rather than stretched, so the type stays the size
   // it was designed at.

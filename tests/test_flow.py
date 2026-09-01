@@ -1063,3 +1063,156 @@ def test_a_seeded_device_is_not_a_device_that_is_there(client):
 
     assert inputs.enabled is False
     assert client.app.state.settings.shelly.enabled is False
+
+
+def become_a_watcher(client) -> None:
+    """Add an ordinary account, give it a password through the invitation, and
+    sign in as it. Several tests want to know what somebody who is not an
+    administrator can reach."""
+    client.post(
+        "/users/new",
+        data={"name": "Watcher", "username": "watcher", "email": "w@example.com"},
+    )
+    invite = client.post(f"/users/{_user_id(client, 'watcher')}/invite").text
+    token = re.search(r"/set-password\?token=([A-Za-z0-9_-]+)", invite).group(1)
+    client.post("/logout")
+    client.post(
+        "/set-password",
+        data={
+            "token": token,
+            "new_password": "their-own-long-password",
+            "confirm_password": "their-own-long-password",
+        },
+    )
+
+
+def test_history_is_for_everybody_and_the_summary_is_not(client):
+    """The history page is the dashboard over time and there is nothing on it
+    somebody who can read the dashboard should not see.
+
+    Writing a summary spends money on an OpenAI account and hands a description
+    of the building to somebody else's model. That is the owner's decision, not
+    a button for anybody signed in.
+    """
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+    become_a_watcher(client)
+
+    assert client.get("/history").status_code == 200
+    assert client.get("/api/history").status_code == 200
+    assert client.get("/summary", follow_redirects=False).status_code == 403
+    assert client.post("/summary", follow_redirects=False).status_code == 403
+
+
+def test_the_history_page_is_in_the_header_for_everybody(client):
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+    become_a_watcher(client)
+
+    page = client.get("/history").text
+    assert 'aria-label="History"' in page
+    assert 'aria-label="Summary"' not in page, "an administrator's page"
+    assert 'aria-label="Settings"' not in page
+
+
+def test_the_history_reads_the_window_it_was_asked_for(client):
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    for window in ("24h", "7d", "30d"):
+        payload = client.get(f"/api/history?window={window}").json()
+        assert payload["window"] == window
+        assert set(payload) >= {"load", "starts", "contacts", "pumps", "from", "to"}
+        # Both pumps are answered for, with or without readings behind them.
+        assert set(payload["load"]) == {"1", "2"}
+
+    # Anything else is the default rather than an error. A window is a view,
+    # and a bad one in a query string should show a page rather than a stack.
+    assert client.get("/api/history?window=nonsense").json()["window"] == "7d"
+
+
+def test_every_assigned_input_gets_a_row_on_the_contacts_chart(client):
+    """And nothing else does. An input carrying nothing is still recorded, and
+    a row labelled DI6 with nothing to say is a row nobody can read."""
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    contacts = client.get("/api/history").json()["contacts"]
+    roles = {contact["role"] for contact in contacts}
+
+    assert roles == {
+        "system_alert",
+        "high_water",
+        "lead_float",
+        "lag_float",
+        "pump1_run",
+        "pump2_run",
+        "pump1_fault",
+        "pump2_fault",
+    }
+    for contact in contacts:
+        assert contact["spans"] == [], "nothing has been reported yet"
+
+
+def test_a_summary_without_a_key_says_so_rather_than_failing(client):
+    """The button is not even offered, and posting the form by hand comes back
+    with a sentence rather than a stack trace."""
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    page = client.get("/summary").text
+    assert "Generate summary" not in page
+
+    response = client.post("/summary", follow_redirects=False)
+    assert response.status_code == 303
+    assert "settings" in response.headers["location"]
+
+
+def test_the_summary_settings_survive_a_save(client):
+    """Including the key, which is written once and never rendered again."""
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    client.post(
+        "/settings/summary",
+        data={
+            "summary_description": "Two ejector pumps in a pit under the sidewalk.",
+            "summary_api_key": "sk-test-value",
+            "summary_model": "gpt-4o-mini",
+            "summary_base_url": "https://api.openai.com/v1",
+        },
+    )
+
+    stored = client.app.state.settings.summary
+    assert stored.api_key == "sk-test-value"
+    assert stored.description.startswith("Two ejector pumps")
+
+    page = client.get("/settings").text
+    assert "sk-test-value" not in page
+    assert "Two ejector pumps in a pit under the sidewalk." in page
+
+    # Saved again with the box left empty, which is what a browser posts when
+    # nobody touches it. The key stays.
+    client.post(
+        "/settings/summary",
+        data={
+            "summary_description": "Two ejector pumps in a pit under the sidewalk.",
+            "summary_api_key": "",
+            "summary_model": "gpt-4o-mini",
+            "summary_base_url": "https://api.openai.com/v1",
+        },
+    )
+    assert client.app.state.settings.summary.api_key == "sk-test-value"
+
+    # And cleared on purpose, which is what the checkbox is for.
+    client.post(
+        "/settings/summary",
+        data={
+            "summary_description": "",
+            "summary_api_key": "",
+            "summary_clear_key": "on",
+            "summary_model": "gpt-4o-mini",
+            "summary_base_url": "https://api.openai.com/v1",
+        },
+    )
+    assert client.app.state.settings.summary.api_key == ""

@@ -21,6 +21,9 @@
   --warn: #9a6700;
   --crit: #b42318;
 
+  --series-1: #1f6feb;
+  --series-2: #8250df;
+
   --radius: 10px;
   --gap: 1rem;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -40,6 +43,9 @@
     --ok: #3fb950;
     --warn: #d29922;
     --crit: #f85149;
+
+    --series-1: #4c8dff;
+    --series-2: #b083f0;
   }
 }
 
@@ -494,6 +500,108 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   .lamp-count { font-size: 0.66rem; }
 
   .lcd { min-height: 2.9rem; }
+}
+
+/* The history page --------------------------------------------------------- */
+
+/* Three charts drawn as SVG by hand, at the width the box actually is. The
+   same cap as the dashboard, so the two pages line up down one edge. */
+.charts {
+  max-width: 46rem;
+  margin: 0 auto;
+}
+
+.chart-windows {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+/* A row of three, one of them on. Small, because choosing a window is not the
+   job somebody came here to do. */
+.chip {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.chip:hover { color: var(--text); }
+
+.chip-on {
+  background: var(--accent);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.chart-card { padding: 0.9rem 1rem; margin-bottom: 1rem; }
+
+.chart svg { display: block; width: 100%; }
+
+/* Axis and row labels. In the stylesheet rather than on each element, because
+   there are a hundred of them on a busy month. */
+.chart-label {
+  fill: var(--text-muted);
+  font-family: var(--font);
+  font-size: 10px;
+}
+
+.chart-empty {
+  margin: 0.5rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* Which line is which pump. Named, because two colors are one color to a
+   colorblind reader. */
+.chart-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  margin-top: 0.6rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.key-item { display: inline-flex; align-items: center; gap: 0.35rem; }
+
+.key-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 2px;
+  flex: none;
+}
+
+/* Dimmed while a new window is on its way, with the old one still readable
+   underneath. A spinner over a chart that redraws in 200 ms is a flash. */
+.charts.loading { opacity: 0.55; }
+
+/* When the summary was written and who by. Above the summary rather than under
+   it: a paragraph about a pump means something different if it is a week
+   old. */
+.summary-when {
+  margin: 0 0 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+/* Paragraphs as they were written. Rendered as text and nothing else: this
+   came from a model, and a model's output is not markup. */
+.summary-body {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.55;
 }
 
 /* Forms ------------------------------------------------------------------- */
@@ -1140,10 +1248,17 @@ form.inline { display: inline; }
 .icon-link:hover { background: var(--surface-2); color: var(--text); }
 .icon-link.active { background: var(--surface-2); color: var(--accent); }
 
+/* Seven icons and a name do not fit across a phone, so for somebody signed in
+   the name goes and its mark stays. The mark keeps a thumb sized target around
+   it. Signed out there are no icons at all and the name stays where it is,
+   which is the one place a stranger reading this page finds out what it is. */
 @media (max-width: 30rem) {
-  .topbar { padding: 0.4rem 0.75rem; gap: 0.25rem; }
+  .topbar { padding: 0.4rem 0.6rem; gap: 0.25rem; }
   .topbar nav { gap: 0; }
-  .icon-link { width: 2.5rem; height: 2.5rem; }
+  .icon-link { width: 2.3rem; height: 2.3rem; }
+  .icon-link svg { width: 20px; height: 20px; }
+  body.signed-in .brand { font-size: 0; gap: 0; padding: 0.5rem; }
+  .brand-mark { width: 0.8rem; height: 0.8rem; }
   main { padding: 1rem 0.9rem; }
   .card { padding: 1rem 1.1rem; }
   .footer { padding: 0.75rem 0.9rem; font-size: 0.8rem; }

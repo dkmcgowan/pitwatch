@@ -27,6 +27,7 @@ from pitwatch.schemas import (
     SiteSettings,
     SmsSettings,
     SmtpSettings,
+    SummarySettings,
 )
 
 log = logging.getLogger(__name__)
@@ -155,6 +156,10 @@ class SettingsStore:
     @property
     def sms(self) -> SmsSettings:
         return self.get(SmsSettings)
+
+    @property
+    def summary(self) -> SummarySettings:
+        return self.get(SummarySettings)
 
     async def is_setup_complete(self) -> bool:
         return bool(await self.get_raw(SETUP_COMPLETE_SETTING, False))

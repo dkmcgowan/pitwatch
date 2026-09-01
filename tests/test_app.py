@@ -291,6 +291,7 @@ def render_settings(**overrides) -> str:
         SiteSettings,
         SmsSettings,
         SmtpSettings,
+        SummarySettings,
     )
 
     env = Environment(loader=FileSystemLoader("pitwatch/templates"), autoescape=True)
@@ -303,6 +304,7 @@ def render_settings(**overrides) -> str:
         "pumps": PumpsSettings(),
         "smtp": SmtpSettings(),
         "sms": SmsSettings(),
+        "summary": SummarySettings(),
         "roles": DASHBOARD_ROLES,
         "user": None,
         "error": None,
@@ -1001,7 +1003,9 @@ def test_a_note_can_always_be_closed():
     """A note that needs a target found before it will go away is a note that
     gets left open. Clicking anywhere closes it, including inside: there is
     nothing in there to interact with."""
-    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+    # Its own file, loaded by every page. It was the dashboard's until the
+    # history page needed the same four lines.
+    js = Path("pitwatch/static/notes.js").read_text(encoding="utf-8")
     notes = js.split("function wireNotes", 1)[1].split("wireNotes();", 1)[0]
 
     assert "showModal()" in notes, "modal, so only one at a time and Escape works"
@@ -1262,7 +1266,15 @@ def test_the_header_has_one_of_each_icon():
 
     base = _Path("pitwatch/templates/base.html").read_text(encoding="utf-8")
     links = re.findall(r'<a href="(/[a-z]*)" class="icon-link', base)
-    assert links == ["/", "/users", "/alerts", "/settings", "/profile"], links
+    assert links == [
+        "/",
+        "/history",
+        "/summary",
+        "/users",
+        "/alerts",
+        "/settings",
+        "/profile",
+    ], links
     assert len(links) == len(set(links))
 
 
@@ -1313,3 +1325,162 @@ def test_the_lamps_are_chosen_on_the_input_that_carries_them():
     assert "role_high_water" not in page
     assert "Dashboard lamps" not in page
     assert 'href="/settings/alerts"' not in page
+
+
+def render_page(name: str, **context) -> str:
+    from jinja2 import Environment, FileSystemLoader
+
+    from pitwatch.schemas import SiteSettings
+
+    env = Environment(loader=FileSystemLoader("pitwatch/templates"), autoescape=True)
+    env.globals["csrf_token"] = lambda: "token"
+    env.globals["version"] = "test"
+    context.setdefault("site", SiteSettings(name="A pit"))
+    context.setdefault("user", None)
+    return env.get_template(name).render(**context)
+
+
+def test_the_history_page_draws_three_charts_over_one_window():
+    """Load, starts and contacts, and one row of buttons that moves all three.
+    Three windows with their own selectors is three charts that can be looking
+    at three different weeks."""
+    page = render_page("history.html")
+
+    for chart in ("load", "starts", "contacts"):
+        assert 'data-chart="' + chart + '"' in page, chart
+        assert 'data-empty="' + chart + '"' in page, chart
+
+    import re
+
+    windows = re.findall(r'data-window="([0-9a-z]+)"', page)
+    assert windows == ["24h", "7d", "30d"]
+    # One of them is on when the page opens, and it is the one the API defaults
+    # to. Two that disagree means the page opens showing a week and saying a
+    # day.
+    from pitwatch.domain.series import DEFAULT_WINDOW
+
+    assert 'data-window="' + DEFAULT_WINDOW + '" aria-pressed="true"' in page
+
+
+def test_every_window_the_page_offers_is_one_the_query_knows():
+    """A button for a window the server does not have quietly falls back to the
+    default, so the page would answer a different question than the one that
+    was pressed."""
+    import re
+
+    from pitwatch.domain.series import WINDOWS
+
+    page = render_page("history.html")
+    for key in re.findall(r'data-window="([0-9a-z]+)"', page):
+        assert key in WINDOWS, key
+
+
+def test_the_charts_are_drawn_here_and_not_fetched_from_anywhere():
+    """The content security policy on this application allows scripts from this
+    origin and nothing else, so a charting library from a CDN would not load at
+    all. It is a few polylines; they are drawn by hand."""
+    js = Path("pitwatch/static/history.js").read_text(encoding="utf-8")
+
+    assert "createElementNS" in js
+    assert "cdn" not in js.lower()
+    # Text from the settings page goes in as text. A contact somebody named is
+    # a contact somebody could name with a script tag.
+    assert "innerHTML" not in js
+
+
+def test_the_summary_page_says_what_it_needs_before_it_offers_the_button():
+    """A button that spends money and fails is worse than no button."""
+    nothing = render_page(
+        "summary.html", last=None, age="", ready=False, described=False, error=None
+    )
+
+    assert "Generate summary" not in nothing
+    assert "settings" in nothing
+
+    ready = render_page("summary.html", last=None, age="", ready=True, described=False, error=None)
+    assert "Generate summary" in ready
+    # And it says the description is missing without refusing to work without
+    # one.
+    assert "No description of the system" in ready
+
+
+def test_a_written_summary_is_rendered_as_text_with_its_age():
+    """It came from a model. Whatever it says goes on the page as text, and the
+    page says when it was written: a paragraph about a pump means something
+    different if it is a week old."""
+    page = render_page(
+        "summary.html",
+        last={
+            "body": "Both pumps look <normal>.",
+            "model": "gpt-4o-mini",
+            "window_key": "7d",
+            "written_by": "david",
+        },
+        age="3 min ago",
+        ready=True,
+        described=True,
+        error=None,
+    )
+
+    assert "3 min ago" in page
+    assert "david" in page and "gpt-4o-mini" in page
+    # Escaped, not rendered.
+    assert "&lt;normal&gt;" in page
+    assert "<normal>" not in page
+
+
+def test_the_openai_key_is_never_rendered_back():
+    """Same rule as the broker password and the AWS secret. An empty box means
+    leave it alone, and there is a checkbox for clearing it."""
+    from pitwatch.schemas import SummarySettings
+
+    page = render_settings(summary=SummarySettings(api_key="sk-secret-value", description="A pit"))
+
+    assert "sk-secret-value" not in page
+    assert "summary_clear_key" in page
+    assert "unchanged" in page
+    # The description is not a secret and does come back, or editing it would
+    # mean retyping it.
+    assert "A pit" in page
+
+
+def test_the_summary_sends_the_description_and_the_numbers_and_nothing_else():
+    """No address, no site name, no account names. Nobody needs a street
+    address to say whether a pump is drawing more than it did last week."""
+    from pitwatch.schemas import SummarySettings
+    from pitwatch.summary import messages
+
+    numbers = {"pumps": [{"pump": 1, "name": "Pump 1", "starts_this_week": 12}]}
+    payload = messages(SummarySettings(description="Two pumps in a pit."), numbers)
+
+    assert [part["role"] for part in payload] == ["system", "user"]
+    body = payload[1]["content"]
+    assert "Two pumps in a pit." in body
+    assert "starts_this_week" in body
+    for leaked in ("822", "Greenwich", "admin"):
+        assert leaked not in body, leaked
+
+
+def test_a_summary_needs_a_key_before_it_asks_anything():
+    """And says so in a sentence somebody can act on rather than failing at the
+    far end of a request."""
+    import asyncio
+
+    from pitwatch.schemas import SummarySettings
+    from pitwatch.summary import SummaryError, ask
+
+    with pytest.raises(SummaryError) as raised:
+        asyncio.run(ask(SummarySettings(), [{"role": "user", "content": "hello"}]))
+
+    assert "settings page" in str(raised.value)
+
+
+def test_the_notes_are_wired_from_one_file_for_every_page():
+    """Three pages carry an i beside a heading now. One copy of the four lines
+    that opens it, loaded by the layout."""
+    base = Path("pitwatch/templates/base.html").read_text(encoding="utf-8")
+    dashboard = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+
+    assert "/static/notes.js" in base
+    assert "function wireNotes" not in dashboard
+    assert Path("pitwatch/static/notes.js").exists()

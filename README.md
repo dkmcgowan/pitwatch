@@ -17,8 +17,14 @@ pumps are running*.
   own dry contacts.
 - A live dashboard: both pumps, the controller's screen and the panel's own
   lamps in one view, the same on a phone as on a desktop.
+- A history page: load, starts and the panel contacts over a day, a week or a
+  month.
 - Email and SMS, with a test button on each that sends a real message, so you
   can prove the path works before you need it.
+- A written summary, for administrators, if you add an OpenAI key. It sends a
+  week of figures and the description of the system you wrote in settings, and
+  reads them back as a few paragraphs. Nothing is sent until somebody presses
+  the button.
 
 The alert rules are configured but do not fire yet. The engine that watches for
 them is the next piece.

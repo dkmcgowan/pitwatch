@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="/static/style.css?v={{ version }}">
 {% block head %}{% endblock %}
 </head>
-<body>
+<body{% if user %} class="signed-in"{% endif %}>
 {% include "_icons.html" %}
 <header class="topbar">
   <a class="brand" href="/">
@@ -26,7 +26,20 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-home"/></svg>
     </a>
 
+    {% if user %}
+    <a href="/history" class="icon-link {% if active == 'history' %}active{% endif %}"
+       title="History" aria-label="History">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-chart"/></svg>
+    </a>
+    {% endif %}
+
     {% if user and user.is_admin %}
+    {# The summary spends money on somebody's OpenAI account every time it is
+       written, so the page that writes it is an administrator's page. #}
+    <a href="/summary" class="icon-link {% if active == 'summary' %}active{% endif %}"
+       title="Summary" aria-label="Summary">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-summary"/></svg>
+    </a>
     <a href="/users" class="icon-link {% if active == 'users' %}active{% endif %}"
        title="Users" aria-label="Users">
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-people"/></svg>
@@ -63,6 +76,7 @@
   </span>
 </footer>
 
+<script src="/static/notes.js?v={{ version }}"></script>
 <script src="/static/setup.js?v={{ version }}"></script>
 {% block scripts %}{% endblock %}
 </body>

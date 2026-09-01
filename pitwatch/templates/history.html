@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% set active = 'history' %}
+{% block title %}History{% endblock %}
+
+{% block content %}
+
+{# Three charts, one window. Everything here is drawn by history.js from
+   /api/history; the markup is the frame it draws into, so the page has a shape
+   and its headings before the first reply arrives.
+
+   No page heading, the same as settings and alerts. The header says which page
+   this is and a second copy of the word under it is a line of type for
+   nothing. #}
+<div class="charts" data-history>
+
+  <div class="chart-windows" role="group" aria-label="How far back to look">
+    <button type="button" class="chip" data-window="24h" aria-pressed="false">24 hours</button>
+    <button type="button" class="chip chip-on" data-window="7d" aria-pressed="true">7 days</button>
+    <button type="button" class="chip" data-window="30d" aria-pressed="false">30 days</button>
+  </div>
+
+  {# What each pump has been drawing. The line breaks where the readings do:
+     the meter reports when something changes, so joining two points an hour
+     apart would draw an hour of load nobody measured. #}
+  <section class="card chart-card">
+    <h2 class="glance-heading">Load
+      <button type="button" class="info-mark" data-info="load" aria-label="What this shows">i</button>
+    </h2>
+    <div class="chart" data-chart="load"></div>
+    <p class="chart-empty" data-empty="load" hidden>No readings in this window.</p>
+    <div class="chart-key" data-key></div>
+    <dialog class="note" id="note-load">
+      <h3 class="note-title">Load</h3>
+      <div class="hint">
+        <p>The highest reading in each bucket, so a short run inside a quiet
+          hour still shows. A pit that runs for seconds at a time is at zero
+          most of the day, and the line sits on the floor between runs.</p>
+        <p>The line breaks where the readings do. The meter reports when
+          something changes rather than on a clock, so a gap is a gap.</p>
+      </div>
+      <p class="note-close">Click anywhere to close</p>
+    </dialog>
+  </section>
+
+  {# How often each pump started, which is the number that says whether
+     anything is changing. Counted the same way the dashboard counts it. #}
+  <section class="card chart-card">
+    <h2 class="glance-heading">Starts
+      <button type="button" class="info-mark" data-info="starts" aria-label="What this shows">i</button>
+    </h2>
+    <div class="chart" data-chart="starts"></div>
+    <p class="chart-empty" data-empty="starts" hidden>Nothing has run in this window.</p>
+    <dialog class="note" id="note-starts">
+      <h3 class="note-title">Starts</h3>
+      <div class="hint">
+        <p>A start is the load rising off nothing. By the hour over a day and
+          by the day over a week or a month.</p>
+        <p>Read it as a floor: the meter reports on its own schedule, so two
+          close runs can arrive as one. The panel's run contact makes it
+          exact.</p>
+      </div>
+      <p class="note-close">Click anywhere to close</p>
+    </dialog>
+  </section>
+
+  {# When each contact was closed, one row each, in the color its lamp would be
+     on the dashboard. This is the part that needs the panel module: with
+     nothing wired there is nothing to draw, and the page says so rather than
+     drawing eight empty rows. #}
+  <section class="card chart-card">
+    <h2 class="glance-heading">Contacts
+      <button type="button" class="info-mark" data-info="contacts" aria-label="What this shows">i</button>
+    </h2>
+    <div class="chart" data-chart="contacts"></div>
+    <p class="chart-empty" data-empty="contacts" hidden>Nothing yet. The floats,
+      the alarm and the overloads are read through the panel module.</p>
+    <dialog class="note" id="note-contacts">
+      <h3 class="note-title">Contacts</h3>
+      <div class="hint">
+        <p>One row per input that has been told what it carries, each bar the
+          time that contact was closed. The colors are the ones its lamp uses on
+          the dashboard: red for the alarm and the overloads, amber for the
+          floats, green for a pump running.</p>
+        <p>A bar that runs to the right hand edge is closed now.</p>
+      </div>
+      <p class="note-close">Click anywhere to close</p>
+    </dialog>
+  </section>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/history.js?v={{ version }}"></script>
+{% endblock %}

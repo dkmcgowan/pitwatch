@@ -306,6 +306,41 @@ class SmtpSettings(BaseModel):
         return value.strip()
 
 
+class SummarySettings(BaseModel):
+    """What the summary page needs: a description of the system, and a key.
+
+    The description is the half a model cannot work out from the numbers. Two
+    pumps in a pit under a building on a corner in Manhattan, a check valve
+    that was replaced in the spring, a superintendent who empties the pit by
+    hand when it storms: none of that is in a current reading, and all of it
+    changes what the readings mean.
+
+    The key is somebody's OpenAI account and this is the only place it is
+    stored. It is never rendered back to the browser, the same as every other
+    secret here.
+    """
+
+    KEY: ClassVar[str] = "summary"
+
+    description: str = Field(default="", max_length=4000)
+    api_key: str = ""
+    # Any model name the account can reach. A field rather than a list,
+    # because the list changes faster than this application does and a
+    # dropdown that has gone stale is a page that cannot be used at all.
+    model: str = "gpt-4o-mini"
+    base_url: str = "https://api.openai.com/v1"
+
+    @field_validator("api_key", "model", "base_url")
+    @classmethod
+    def trim(cls, value: str) -> str:
+        return value.strip()
+
+    @property
+    def ready(self) -> bool:
+        """Enough to ask. The description is optional and the key is not."""
+        return bool(self.api_key and self.model and self.base_url)
+
+
 class SmsSettings(BaseModel):
     KEY: ClassVar[str] = "sms"
 

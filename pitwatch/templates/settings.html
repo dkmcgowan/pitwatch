@@ -187,5 +187,53 @@
   </form>
 </section>
 
+{# What the summary page needs. The description is the half a model cannot work
+   out from the readings, and the key is somebody's OpenAI account. #}
+<section class="card">
+  <h2>The summary</h2>
+  <form method="post" action="/settings/summary" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="field">
+      <label for="summary_description">Your system</label>
+      <textarea id="summary_description" name="summary_description" rows="6"
+                maxlength="4000">{{ summary.description }}</textarea>
+      <p class="hint">What the pit does, what the pumps are, how the panel is
+        set up, what has been repaired and when. Everything the readings cannot
+        say. This is sent with the numbers every time a summary is written.</p>
+    </div>
+
+    <div class="grid">
+      <div class="field">
+        <label for="summary_api_key">OpenAI key</label>
+        <input type="password" id="summary_api_key" name="summary_api_key"
+               autocomplete="new-password"
+               placeholder="{% if summary.api_key %}unchanged{% else %}none set{% endif %}">
+        {% if summary.api_key %}
+        <label class="hint">
+          <input type="checkbox" name="summary_clear_key"> Clear the stored key
+        </label>
+        {% endif %}
+      </div>
+      <div class="field">
+        <label for="summary_model">Model</label>
+        <input type="text" id="summary_model" name="summary_model"
+               value="{{ summary.model }}" placeholder="gpt-4o-mini">
+        <p class="hint">Any model the account can reach. A box rather than a
+          list, because the list changes faster than this application does.</p>
+      </div>
+      <div class="field">
+        <label for="summary_base_url">API address</label>
+        <input type="text" id="summary_base_url" name="summary_base_url"
+               value="{{ summary.base_url }}" placeholder="https://api.openai.com/v1">
+        <p class="hint">Leave it alone unless you are pointing this at
+          something else that speaks the same protocol.</p>
+      </div>
+    </div>
+
+    <button type="submit" class="button">Save</button>
+  </form>
+</section>
+
 {% endblock %}
 

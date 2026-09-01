@@ -843,10 +843,10 @@ def test_a_contact_that_has_never_closed_says_so():
 
     assert '"never"' in history
     # And only when there is a count behind it. An input nobody has wired has
-    # nothing to say either way, and says it once rather than twice: the count
-    # under an n/a of its own would be a second n/a on every one of six lamps.
+    # nothing to say either way, and says so on both lines: one line under a
+    # lamp and two under the one beside it is a row that does not line up.
     assert "counted" in history
-    assert 'count.textContent = "";' in history
+    assert 'count.textContent = "";' not in history
 
 
 def test_the_run_contacts_have_no_lamp_on_the_panel():
@@ -1387,6 +1387,53 @@ def test_the_public_footer_ends_with_the_version():
     assert "A person" in footer
     assert footer.index("Messaging policy") < footer.index("PitWatch test")
     assert ">Home<" not in footer
+
+
+def test_every_chart_can_be_read_at_a_moment():
+    """A shape says something happened on Tuesday. Somebody opening this page
+    wants to know what it was, so a line follows the cursor and the numbers
+    under it are written above the chart rather than into a tooltip a thumb
+    would be covering."""
+    page = render_page("history.html")
+    js = Path("pitwatch/static/history.js").read_text(encoding="utf-8")
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+
+    for chart in ("load", "starts", "contacts"):
+        assert 'data-readout="' + chart + '"' in page, chart
+
+    # Pointer events, so a finger and a mouse are the same code.
+    assert 'addEventListener("pointermove"' in js
+    assert 'addEventListener("pointerleave"' in js
+    # And the page still scrolls under a finger going up and down.
+    assert "touch-action: pan-y" in css
+    # The line keeps its height whether or not it has anything in it, so
+    # touching a chart does not push the page around.
+    assert "min-height:" in css.split(".chart-readout {", 1)[1].split("}", 1)[0]
+
+
+def test_the_surge_can_be_left_out_without_asking_the_server_again():
+    """Both numbers arrive together, so the checkbox is a redraw. A trip to the
+    server to hide a column that is already on the page is a spinner for
+    nothing."""
+    page = render_page("history.html")
+    js = Path("pitwatch/static/history.js").read_text(encoding="utf-8")
+
+    assert "data-settled" in page
+    toggle = js.split('querySelector("[data-settled]")', 1)[1].split("}", 1)[0]
+    assert "drawAll()" in toggle
+    assert "fetch" not in toggle
+
+
+def test_a_lamp_with_nothing_behind_it_still_has_two_lines():
+    """One line under a lamp and two under the one beside it is a row that does
+    not line up, which is what happens the day some inputs are wired and some
+    are not."""
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+    history = js.split("function renderHistory", 1)[1].split("function renderLinks", 1)[0]
+
+    # Both lines go through setFact, which is the one place that writes n/a.
+    assert history.count("setFact(") == 3
+    assert 'count.textContent = ""' not in history
 
 
 def test_the_history_page_draws_three_charts_over_one_window():

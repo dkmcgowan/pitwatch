@@ -537,7 +537,7 @@ async def test_the_load_series_reports_a_peak_per_bucket(pool):
         ],
     )
 
-    points = await series.load_series(pool, 0, series.WINDOWS["24h"])
+    points = await series.load_series(pool, 0, series.WINDOWS["24h"], running_amps=1.0)
 
     assert points, "the readings are inside the window"
     assert max(peak for _, peak, _ in points) == pytest.approx(17.5)
@@ -593,3 +593,32 @@ async def test_a_summary_keeps_the_numbers_it_was_given(pool):
 
     assert row["created_at"] is not None
     assert json.loads(row["facts"])["pumps"][0]["starts_this_week"] == 12
+
+
+async def test_the_load_series_can_leave_out_the_starting_surge(pool):
+    """A motor draws several times its running current for the moment it
+    starts, so a chart of peaks is a chart of those moments. The second number
+    is the highest reading that was not the first of a run, which is the same
+    exclusion typical load makes."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain import series
+
+    now = datetime.now(UTC)
+    began = now - timedelta(hours=2)
+    await pool.executemany(
+        "INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)",
+        [
+            (began - timedelta(seconds=30), 0, 0.0),
+            (began, 0, 40.0),
+            (began + timedelta(seconds=5), 0, 15.0),
+            (began + timedelta(seconds=10), 0, 15.2),
+            (began + timedelta(seconds=40), 0, 0.0),
+        ],
+    )
+
+    points = await series.load_series(pool, 0, series.WINDOWS["24h"], running_amps=1.0)
+
+    assert max(peak for _, peak, _ in points) == pytest.approx(40.0)
+    settled = [value for _, _, value in points if value is not None]
+    assert max(settled) == pytest.approx(15.2), "the 40 A start is left out"

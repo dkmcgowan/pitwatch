@@ -239,15 +239,11 @@
         // wired has nothing to say either way.
         setFact(last, counted ? "never" : null);
       }
-      if (counted) {
-        setFact(count, times + " " + (COUNTED[window_] || window_));
-      } else {
-        // The line above already reads n/a. A second one under it says nothing
-        // the first did not, and six lamps with nothing wired to them is a
-        // column of n/a where a panel should be.
-        count.textContent = "";
-        count.classList.add("none");
-      }
+      // Both lines, always, whether or not there is anything behind them. A
+      // lamp with one line under it is a lamp a row shorter than the one
+      // beside it, and with some inputs wired and some not the three columns
+      // stop lining up with each other.
+      setFact(count, counted ? times + " " + (COUNTED[window_] || window_) : null);
     });
   }
 

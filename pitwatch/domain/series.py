@@ -5,15 +5,16 @@ of buckets from oldest to newest. What draws them is a few hundred lines of
 SVG in the browser rather than a charting library, so this is where the
 thinking lives and the drawing is only drawing.
 
-The window decides where the readings come from. A day of raw samples is a
-scan of one chunk; a month of them is thirty, so a month reads the hourly
-rollup instead. That rollup exists for exactly this and is why the retention
-policy keeps hours forever and raw samples for ninety days.
+Everything here reads raw samples, at every window. The hourly rollup would be
+a cheaper scan for a month, and it cannot answer either of the two questions
+this page is actually asked. A start is the current rising off nothing, and an
+hourly average cannot tell one long run from four short ones. The same goes
+for leaving out the starting surge: that means dropping the first reading of
+each run, and a rollup has already averaged it in.
 
-Starts are counted from raw readings at every window. A start is the current
-rising off nothing, and an hourly average cannot tell one long run from four
-short ones, which on a pit that runs for seconds at a time is the whole
-question.
+The scan is affordable because the application already does it. Typical load
+on the dashboard reads five weeks of raw readings per pump every five minutes,
+and raw samples are kept for ninety days, so a month is inside what is there.
 """
 
 from __future__ import annotations
@@ -39,8 +40,6 @@ class Window:
     # the day, while the load line wants as many points as will fit.
     load_bucket: timedelta
     count_bucket: timedelta
-    # Raw samples, or the hourly rollup. See the module docstring.
-    hourly: bool = False
 
 
 WINDOWS: dict[str, Window] = {
@@ -64,7 +63,6 @@ WINDOWS: dict[str, Window] = {
         span=timedelta(days=30),
         load_bucket=timedelta(hours=6),
         count_bucket=timedelta(days=1),
-        hourly=True,
     ),
 }
 
@@ -77,22 +75,30 @@ DEFAULT_WINDOW = "7d"
 LEAD_IN = timedelta(hours=1)
 
 
-LOAD_RAW = """
+# Two numbers per bucket: the highest reading in it, and the highest reading in
+# it that was not the first of a run.
+#
+# The second is the same exclusion typical load makes, for the same reason. A
+# motor draws several times its running current for the moment it starts, and a
+# chart of peaks is a chart of those moments: forty amps every time, telling
+# you nothing about the pump. Leaving them out shows what it settles at.
+#
+# The lead in is what makes the first bucket in the window honest. Without a
+# reading before it, the earliest reading has no previous to be compared
+# against and cannot be recognized as a surge.
+LOAD = """
+WITH readings AS (
+    SELECT ts, current, lag(current) OVER (ORDER BY ts) AS previous
+    FROM em_sample
+    WHERE channel = $1 AND ts > now() - $2::interval - $5::interval
+)
 SELECT time_bucket($3::interval, ts) AS bucket,
-       max(current)                  AS peak,
-       avg(current)                  AS mean
-FROM em_sample
-WHERE channel = $1 AND ts > now() - $2::interval
-GROUP BY 1
-ORDER BY 1
-"""
-
-LOAD_HOURLY = """
-SELECT time_bucket($3::interval, bucket) AS bucket,
-       max(max_current)                  AS peak,
-       avg(avg_current)                  AS mean
-FROM em_1h
-WHERE channel = $1 AND bucket > now() - $2::interval
+       max(current)                   AS peak,
+       max(current) FILTER (
+           WHERE NOT (current >= $4 AND (previous IS NULL OR previous < $4))
+       )                              AS settled
+FROM readings
+WHERE ts > now() - $2::interval
 GROUP BY 1
 ORDER BY 1
 """
@@ -137,16 +143,28 @@ def window_for(key: str | None) -> Window:
 
 
 async def load_series(
-    pool: asyncpg.Pool, channel: int, window: Window
-) -> list[tuple[datetime, float, float]]:
-    """Peak and mean load per bucket, oldest first."""
-    query = LOAD_HOURLY if window.hourly else LOAD_RAW
+    pool: asyncpg.Pool, channel: int, window: Window, running_amps: float
+) -> list[tuple[datetime, float, float | None]]:
+    """Peak load per bucket, and peak with the starting surge left out.
+
+    The second is None for a bucket whose every reading was the first of a run,
+    which is a real answer: there is nothing in that bucket but starting.
+    """
     try:
-        rows = await pool.fetch(query, channel, window.span, window.load_bucket)
+        rows = await pool.fetch(
+            LOAD, channel, window.span, window.load_bucket, running_amps, LEAD_IN
+        )
     except (asyncpg.PostgresError, OSError) as error:
         log.warning("Could not read the load history: %s", error)
         return []
-    return [(row["bucket"], float(row["peak"] or 0.0), float(row["mean"] or 0.0)) for row in rows]
+    return [
+        (
+            row["bucket"],
+            float(row["peak"] or 0.0),
+            None if row["settled"] is None else float(row["settled"]),
+        )
+        for row in rows
+    ]
 
 
 async def starts_series(

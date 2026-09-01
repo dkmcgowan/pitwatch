@@ -26,9 +26,19 @@
     <h2 class="glance-heading">Load
       <button type="button" class="info-mark" data-info="load" aria-label="What this shows">i</button>
     </h2>
+    {# What is under the cursor, above the chart rather than in a tooltip a
+       thumb would be covering. Empty until somebody touches the chart, and it
+       keeps its line either way so nothing jumps. #}
+    <p class="chart-readout" data-readout="load"></p>
     <div class="chart" data-chart="load"></div>
     <p class="chart-empty" data-empty="load" hidden>No readings in this window.</p>
-    <div class="chart-key" data-key></div>
+    <div class="chart-foot">
+      <div class="chart-key" data-key></div>
+      <label class="chart-toggle">
+        <input type="checkbox" data-settled>
+        Leave out the starting surge
+      </label>
+    </div>
     <dialog class="note" id="note-load">
       <h3 class="note-title">Load</h3>
       <div class="hint">
@@ -37,6 +47,13 @@
           most of the day, and the line sits on the floor between runs.</p>
         <p>The line breaks where the readings do. The meter reports when
           something changes rather than on a clock, so a gap is a gap.</p>
+        <p>A motor draws several times its running current for the moment it
+          starts, so the peaks are mostly those moments. Leaving out the
+          starting surge drops the first reading of each run and shows what the
+          pump settles at, which is the same reading typical load is taken
+          from.</p>
+        <p>Drag across the chart, with a finger or a mouse, to read the numbers
+          at a moment.</p>
       </div>
       <p class="note-close">Click anywhere to close</p>
     </dialog>
@@ -48,6 +65,7 @@
     <h2 class="glance-heading">Starts
       <button type="button" class="info-mark" data-info="starts" aria-label="What this shows">i</button>
     </h2>
+    <p class="chart-readout" data-readout="starts"></p>
     <div class="chart" data-chart="starts"></div>
     <p class="chart-empty" data-empty="starts" hidden>Nothing has run in this window.</p>
     <dialog class="note" id="note-starts">
@@ -71,6 +89,7 @@
     <h2 class="glance-heading">Contacts
       <button type="button" class="info-mark" data-info="contacts" aria-label="What this shows">i</button>
     </h2>
+    <p class="chart-readout" data-readout="contacts"></p>
     <div class="chart" data-chart="contacts"></div>
     <p class="chart-empty" data-empty="contacts" hidden>Nothing yet. The floats,
       the alarm and the overloads are read through the panel module.</p>

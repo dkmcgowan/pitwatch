@@ -45,13 +45,17 @@
     <span><a href="mailto:{{ site.contact_email }}">{{ site.contact_email }}</a></span>
     {% endif %}
   </div>
-  <div class="footer-links">
-    <a href="/">Home</a>
-    &middot; <a href="/contact">Contact</a>
+  {# The same two groups as the footer inside the application, in the same
+     order: who this is on the left, where to read the rest on the right. It
+     was three groups and one of them was a link home, which is what the mark
+     in the header is for. Two pages with two footers is two footers to keep
+     right. #}
+  <span>
+    <a href="/contact">Contact</a>
     &middot; <a href="/messaging-policy">Messaging policy</a>
     &middot; <a href="/privacy">Privacy</a>
-  </div>
-  <div class="footer-version">PitWatch {{ version }}</div>
+    &middot; PitWatch {{ version }}
+  </span>
 </footer>
 </body>
 </html>

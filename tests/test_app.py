@@ -1340,6 +1340,55 @@ def render_page(name: str, **context) -> str:
     return env.get_template(name).render(**context)
 
 
+def test_the_two_footers_are_the_same_shape():
+    """A visitor who reads the public pages and then signs in should not feel
+    like the footer moved. Both are two groups: who this is on the left, where
+    to read the rest on the right, ending in the version.
+
+    Neither carries a link home. The mark in the header is the link home, and
+    the public footer had one of those plus a group of its own for the version,
+    which left three groups spread across a desktop and none of them lined up
+    with anything.
+    """
+    base = Path("pitwatch/templates/base.html").read_text(encoding="utf-8")
+    public = Path("pitwatch/templates/public.html").read_text(encoding="utf-8")
+
+    public_footer = public.split("<footer", 1)[1]
+    base_footer = base.split("<footer", 1)[1]
+
+    assert '<a href="/">Home</a>' not in public_footer
+    assert "footer-links" not in public_footer and "footer-version" not in public_footer
+
+    for link in ("/messaging-policy", "/privacy"):
+        assert link in base_footer, link
+        assert link in public_footer, link
+    # Contact is public only. There is nobody to contact from inside the
+    # application; you are already the operator.
+    assert "/contact" in public_footer
+    assert "/contact" not in base_footer
+
+    # Two children each, which is what puts the second one against the right
+    # hand edge.
+    for footer in (base_footer, public_footer):
+        assert footer.count("PitWatch {{ version }}") == 1
+
+
+def test_the_public_footer_ends_with_the_version():
+    """Rendered rather than read, because the shape that matters is the one a
+    browser gets."""
+    from pitwatch.schemas import SiteSettings
+
+    page = render_page(
+        "home.html",
+        site=SiteSettings(operator="A person", contact_email="hello@example.com"),
+    )
+    footer = page.split("<footer", 1)[1]
+
+    assert "A person" in footer
+    assert footer.index("Messaging policy") < footer.index("PitWatch test")
+    assert ">Home<" not in footer
+
+
 def test_the_history_page_draws_three_charts_over_one_window():
     """Load, starts and contacts, and one row of buttons that moves all three.
     Three windows with their own selectors is three charts that can be looking

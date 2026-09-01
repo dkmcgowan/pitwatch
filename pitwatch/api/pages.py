@@ -13,12 +13,14 @@ has, and is why the README does not suggest putting this on the internet.
 from __future__ import annotations
 
 import logging
+from urllib.parse import quote
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import ValidationError
 
 from pitwatch import auth
+from pitwatch import summary as summaries
 from pitwatch.api import forms
 from pitwatch.domain import alerts as alert_specs
 from pitwatch.notify import email as email_sender
@@ -122,6 +124,7 @@ async def settings_page(request: Request, admin: auth.IsAdmin, saved: str | None
             pumps=store.pumps,
             smtp=store.smtp,
             sms=store.sms,
+            summary=store.summary,
             saved=saved,
             error=None,
         ),
@@ -179,6 +182,52 @@ async def alerts_save(request: Request, admin: auth.IsAdmin):
     return RedirectResponse("/alerts?saved=1", status_code=303)
 
 
+# -- history and the written summary -----------------------------------------
+#
+# History is for everybody. It is the same data the dashboard shows, over time,
+# and there is nothing on it somebody who can read the dashboard should not
+# see.
+#
+# The summary is not. Writing one spends money on an OpenAI account and hands
+# a description of the building to somebody else's model, and both of those are
+# the owner's decision rather than a page anybody signed in can press.
+
+
+@router.get("/history", include_in_schema=False)
+async def history_page(request: Request, user: auth.SignedIn):
+    return _templates(request).TemplateResponse(request, "history.html", _context(request))
+
+
+@router.get("/summary", include_in_schema=False)
+async def summary_page(request: Request, admin: auth.IsAdmin, error: str | None = None):
+    store: SettingsStore = request.app.state.settings
+    last = await summaries.latest(request.app.state.pool)
+    return _templates(request).TemplateResponse(
+        request,
+        "summary.html",
+        _context(
+            request,
+            last=last,
+            age=summaries.age(last["created_at"]) if last else "",
+            ready=store.summary.ready,
+            described=bool(store.summary.description.strip()),
+            error=error,
+        ),
+    )
+
+
+@router.post("/summary", include_in_schema=False)
+async def summary_write(request: Request, admin: auth.IsAdmin):
+    try:
+        await summaries.write(request.app, admin.username)
+    except summaries.SummaryError as error:
+        # Straight back to the page with what went wrong on it. The one thing
+        # somebody needs after a failed call is the reason, and OpenAI's own
+        # message is nearly always the reason.
+        return RedirectResponse(f"/summary?error={quote(str(error)[:300])}", status_code=303)
+    return RedirectResponse("/summary", status_code=303)
+
+
 @router.post("/settings/{section}", include_in_schema=False)
 async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> HTMLResponse:
     store: SettingsStore = request.app.state.settings
@@ -198,6 +247,8 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
                 await store.put(forms.smtp_from(form, store.smtp))
             case "sms":
                 await store.put(forms.sms_from(form, store.sms))
+            case "summary":
+                await store.put(forms.summary_from(form, store.summary))
             case _:
                 return RedirectResponse("/settings", status_code=303)
     except (ValueError, ValidationError) as error:
@@ -211,6 +262,7 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
                 pumps=store.pumps,
                 smtp=store.smtp,
                 sms=store.sms,
+                summary=store.summary,
                 saved=None,
                 error=_readable(error),
             ),

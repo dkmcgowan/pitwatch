@@ -23,6 +23,7 @@ from jinja2 import pass_context
 from starlette.middleware.sessions import SessionMiddleware
 
 from pitwatch import __version__, auth, csrf
+from pitwatch.api import history as history_api
 from pitwatch.api import live as live_api
 from pitwatch.api import pages, stream, users
 from pitwatch.config import Config, get_config
@@ -193,6 +194,7 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
     users.register(app)
     pages.register(app)
     live_api.register(app)
+    history_api.register(app)
     stream.register(app)
 
     # GET and HEAD both, explicitly. FastAPI does not add HEAD alongside GET the

@@ -480,3 +480,116 @@ async def test_the_typical_load_leaves_out_the_start_of_each_run(pool):
 
     assert typical.median == pytest.approx(16.0), "the 40 A starts are excluded"
     assert typical.samples == 80, "two settled readings from each of forty runs"
+
+
+async def test_starts_are_counted_per_bucket_and_not_at_the_window_edge(pool):
+    """A start is the load rising off nothing, the same rule the dashboard
+    counts by, bucketed.
+
+    The edge matters. Without a lead in, the earliest reading inside the window
+    has nothing before it to be compared against, is treated as a rising edge,
+    and every chart opens with a start that did not happen.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain import series
+
+    now = datetime.now(UTC)
+    rows = []
+    # Two runs today, three hours apart, each a rise and a fall.
+    for hours in (2, 5):
+        at = now - timedelta(hours=hours)
+        rows += [
+            (at - timedelta(minutes=1), 0, 0.0),
+            (at, 0, 15.0),
+            (at + timedelta(seconds=20), 0, 14.5),
+            (at + timedelta(minutes=1), 0, 0.0),
+        ]
+    # And one that was already running when the window opened, which is not a
+    # start inside it.
+    rows.append((now - timedelta(hours=24, minutes=10), 0, 16.0))
+    rows.append((now - timedelta(hours=23, minutes=50), 0, 16.0))
+    await pool.executemany("INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)", rows)
+
+    counted = await series.starts_series(pool, 0, series.WINDOWS["24h"], running_amps=1.0)
+
+    assert sum(count for _, count in counted) == 2, [(str(at), count) for at, count in counted]
+    # By the hour over a day, so the two land in different buckets.
+    assert len(counted) == 2
+
+
+async def test_the_load_series_reports_a_peak_per_bucket(pool):
+    """The highest reading in the bucket, not the average. A pit that runs for
+    seconds at a time is at zero most of an hour, and an average would draw a
+    flat line through a pump that started four times."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain import series
+
+    now = datetime.now(UTC)
+    at = now - timedelta(hours=2)
+    await pool.executemany(
+        "INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)",
+        [
+            (at, 0, 0.0),
+            (at + timedelta(seconds=30), 0, 17.5),
+            (at + timedelta(minutes=1), 0, 0.0),
+        ],
+    )
+
+    points = await series.load_series(pool, 0, series.WINDOWS["24h"])
+
+    assert points, "the readings are inside the window"
+    assert max(peak for _, peak, _ in points) == pytest.approx(17.5)
+
+
+async def test_a_contact_closed_before_the_window_still_draws(pool):
+    """A float that closed an hour before the window opened and is still closed
+    has no event inside it. Reading only the events would draw it as having
+    been open the whole time, which is the opposite of what happened."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain import series
+
+    now = datetime.now(UTC)
+    await pool.executemany(
+        "INSERT INTO io_event (ts, channel, label, state, raw) VALUES ($1, $2, $3, $4, $4)",
+        [
+            # Closed well before the day being drawn, and never reopened.
+            (now - timedelta(days=2), 3, "High water", True),
+            # And a second input that went and came back inside the window.
+            (now - timedelta(hours=6), 4, "Lead float", True),
+            (now - timedelta(hours=5, minutes=58), 4, "Lead float", False),
+        ],
+    )
+
+    spans = await series.contact_spans(pool, [3, 4], series.WINDOWS["24h"])
+
+    assert len(spans[3]) == 1
+    opened, shut = spans[3][0]
+    # Clipped to the window at the near end and running to now at the far one,
+    # because it is closed as this is being read.
+    assert (now - opened) < timedelta(hours=25)
+    assert (now - shut) < timedelta(minutes=1)
+
+    assert len(spans[4]) == 1
+    opened, shut = spans[4][0]
+    assert (shut - opened) == pytest.approx(timedelta(minutes=2), abs=timedelta(seconds=5))
+
+
+async def test_a_summary_keeps_the_numbers_it_was_given(pool):
+    """A summary read a month later is an opinion unless what it was looking at
+    is beside it."""
+    import json
+
+    row = await pool.fetchrow(
+        """
+        INSERT INTO summary (window_key, model, body, facts, written_by)
+        VALUES ('7d', 'gpt-4o-mini', 'Both pumps look normal.', $1::jsonb, 'david')
+        RETURNING id, created_at, facts
+        """,
+        json.dumps({"pumps": [{"pump": 1, "starts_this_week": 12}]}),
+    )
+
+    assert row["created_at"] is not None
+    assert json.loads(row["facts"])["pumps"][0]["starts_this_week"] == 12

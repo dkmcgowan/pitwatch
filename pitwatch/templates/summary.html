@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% set active = 'summary' %}
+{% block title %}Summary{% endblock %}
+
+{% block content %}
+
+{# One button and whatever it last wrote.
+
+   Nothing here happens on its own. Every press is a paid call on somebody's
+   OpenAI account, so the page shows the last summary until somebody asks for
+   another, and says when it was written so nobody reads a week old reading as
+   this morning's. #}
+<div class="charts">
+
+  {% if error %}
+  <p class="error" role="alert">{{ error }}</p>
+  {% endif %}
+
+  <section class="card chart-card">
+    <div class="card-head">
+      <h2 class="glance-heading">Summary
+        <button type="button" class="info-mark" data-info="summary" aria-label="What this is">i</button>
+      </h2>
+      {% if ready %}
+      <form method="post" action="/summary" data-summary-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="button" data-summary-button>Generate summary</button>
+      </form>
+      {% endif %}
+    </div>
+
+    {% if not ready %}
+    <p class="hint">
+      Nothing to ask with yet. The key and the model live on the
+      <a href="/settings">settings page</a>, under The summary.
+    </p>
+    {% elif not described %}
+    <p class="hint">
+      No description of the system has been written yet. It will still work, and
+      it will be a much better read with one: what the pit does, what the pumps
+      are, what has been repaired lately. That is on the
+      <a href="/settings">settings page</a>.
+    </p>
+    {% endif %}
+
+    {% if last %}
+    <p class="summary-when">
+      Written {{ age }} by {{ last.written_by or 'somebody' }}, from
+      {{ last.window_key }} of readings, using {{ last.model }}.
+    </p>
+    {# Whitespace kept, and nothing rendered as markup. This is text from a
+       model, and text from a model goes on the page as text. #}
+    <p class="summary-body">{{ last.body }}</p>
+    {% elif ready %}
+    <p class="hint">Nothing written yet. The button reads the last week and asks.</p>
+    {% endif %}
+
+    <dialog class="note" id="note-summary">
+      <h3 class="note-title">Summary</h3>
+      <div class="hint">
+        <p>The last week of readings, plus the description of the system from
+          the settings page, sent to OpenAI to be read back as a few
+          paragraphs. Nothing is sent on a schedule; it happens when somebody
+          presses the button.</p>
+        <p>What goes out is the description and a page of daily figures: starts
+          per day, peak and running load, what the contacts did, and whether
+          each device was talking. No address, no account names.</p>
+        <p>It is a reading of the numbers, not an inspection. It cannot hear
+          the pump, and it knows nothing that is not on this page.</p>
+      </div>
+      <p class="note-close">Click anywhere to close</p>
+    </dialog>
+  </section>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/summary.js?v={{ version }}"></script>
+{% endblock %}

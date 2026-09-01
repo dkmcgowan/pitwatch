@@ -24,6 +24,7 @@ from pitwatch.schemas import (
     SiteSettings,
     SmsSettings,
     SmtpSettings,
+    SummarySettings,
 )
 
 
@@ -209,6 +210,23 @@ def smtp_from(form: FormData, existing: SmtpSettings) -> SmtpSettings:
         security=text(form, "smtp_security", "starttls") or "starttls",
         from_address=text(form, "smtp_from_address"),
         from_name=text(form, "smtp_from_name", "PitWatch") or "PitWatch",
+    )
+
+
+def summary_from(form: FormData, existing: SummarySettings) -> SummarySettings:
+    # Same rule as every other secret: never rendered back to the browser, so an
+    # empty box means leave it alone and there is a checkbox for clearing it.
+    key = text(form, "summary_api_key")
+    if checkbox(form, "summary_clear_key"):
+        key = ""
+    elif not key:
+        key = existing.api_key
+
+    return SummarySettings(
+        description=text(form, "summary_description"),
+        api_key=key,
+        model=text(form, "summary_model", existing.model) or existing.model,
+        base_url=text(form, "summary_base_url", existing.base_url) or existing.base_url,
     )
 
 

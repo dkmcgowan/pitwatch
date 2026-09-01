@@ -1340,6 +1340,32 @@ def render_page(name: str, **context) -> str:
     return env.get_template(name).render(**context)
 
 
+def test_the_name_stays_in_the_header_on_a_phone():
+    """It was hidden there, to buy room for seven icons. The icons could give
+    up a size instead, and the name is the one place a stranger reading this
+    finds out what it is.
+
+    It gives way before the icons do, though: on a screen too narrow for both,
+    a header that wraps onto two rows costs every page a row of height, and a
+    name that ends in an ellipsis costs nothing anybody needs.
+    """
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+    base = Path("pitwatch/templates/base.html").read_text(encoding="utf-8")
+    public = Path("pitwatch/templates/public.html").read_text(encoding="utf-8")
+
+    # The last of the two phone blocks, which is the one the header is in, up
+    # to the end of the file's last rule.
+    phone = css.rsplit("@media (max-width: 30rem) {", 1)[1].split(".login-single", 1)[0]
+    assert "font-size: 0;" not in phone, "the name is sized down, not switched off"
+    assert ".brand { font-size:" in phone
+
+    # Both layouts carry the same header, so a rule for one has to reach both.
+    assert 'class="brand-name"' in base and 'class="brand-name"' in public
+    truncated = css.split(".brand-name {", 1)[1].split("}", 1)[0]
+    assert "text-overflow: ellipsis;" in truncated
+    assert "flex: none;" in css.split(".topbar nav {", 1)[1].split("}", 1)[0]
+
+
 def test_the_two_footers_are_the_same_shape():
     """A visitor who reads the public pages and then signs in should not feel
     like the footer moved. Both are two groups: who this is on the left, where

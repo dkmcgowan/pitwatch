@@ -9,12 +9,12 @@
 <link rel="stylesheet" href="/static/style.css?v={{ version }}">
 {% block head %}{% endblock %}
 </head>
-<body{% if user %} class="signed-in"{% endif %}>
+<body>
 {% include "_icons.html" %}
 <header class="topbar">
   <a class="brand" href="/">
     <span class="brand-mark" aria-hidden="true"></span>
-    PitWatch
+    <span class="brand-name">PitWatch</span>
   </a>
   {# Icons rather than words. Four text links plus a name, a password link and
      a sign out button wrapped onto two lines on a phone, and this is a page

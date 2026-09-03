@@ -620,11 +620,15 @@ def render_dashboard() -> str:
     return env.get_template("dashboard.html").render(site=SiteSettings(name="A pit"), user=None)
 
 
-def test_the_dashboard_is_one_box():
-    """It was six: the panel door, a card each for the two pumps, and three
-    more for what the lamps had been doing. Six borders, six headings and six
-    sets of padding, so most of the page was the space between the things
-    somebody came to read and the answer to one question took a scroll.
+def test_the_dashboard_is_five_sections():
+    """A pump, the other pump, then alerts, overloads and floats.
+
+    It was six boxes once, then one box holding everything at a size that fit a
+    phone without scrolling. The one box fit and could not be read: two pump
+    columns in half a screen each, three lists of lamps in a third each, and
+    the people who read this page are standing in a boiler room and are not
+    twenty five. Five full width sections and a scroll is the trade, and the
+    scroll is the cheap half of it.
 
     Layout is normally not worth a test. This is, because it has been described
     in prose and built from that description more than once, and shipped wrong
@@ -632,10 +636,10 @@ def test_the_dashboard_is_one_box():
     """
     page = render_dashboard()
 
-    assert page.count("<section") == 1
-    # The banner and the two device indicators sit outside it. Nothing else
-    # does, and no part of it is a card of its own any more.
-    assert 'class="card"' not in page
+    assert page.count("<section") == 5
+    # The banner and the two device indicators sit outside them, and nothing
+    # else does.
+    assert page.count('class="board-card') == 5
     assert "history-row" not in page and "history-table" not in page
 
 
@@ -655,7 +659,7 @@ def test_the_box_says_everything_in_three_words_or_less():
 
     assert "data-panel-note" not in page and "data-panel-note" not in js
 
-    board = page.split('<section class="glance"', 1)[1]
+    board = page.split('<div class="board"', 1)[1]
     board = re.sub(r"<dialog.*?</dialog>", "", board, flags=re.S)
 
     for text in re.findall(r">([^<>]+)<", board):
@@ -696,12 +700,14 @@ def test_the_board_does_not_stretch_across_a_desktop():
 
 
 def test_the_board_reads_top_to_bottom():
-    """The pumps, then the controller's own screen, then the contacts. The
-    screen sits between them because it is the one thing here that is a
-    sentence rather than a number, and the contacts come last because they are
-    the part somebody reads only when something is lit.
+    """Pump 1, pump 2, then the contacts, which come last because they are the
+    part somebody reads only when something is lit.
 
-    Overloads have a heading of their own rather than sitting under Alerts.
+    The controller's screen used to sit between them, a green panel across the
+    page reading "P1:LEAD  P2:LAG". Those two words are beside the two pumps
+    now, which is where somebody looking at a pump was going to look for them.
+
+    Overloads have a section of their own rather than sitting under Alerts.
     They are a different kind of bad news: an alert means read the panel, an
     overload means a pump is off and staying off.
     """
@@ -710,7 +716,6 @@ def test_the_board_reads_top_to_bottom():
     order = [
         'data-pump="1"',
         'data-pump="2"',
-        "data-lcd",
         ">Alerts",
         'data-lamp="system_alert"',
         'data-lamp="high_water"',
@@ -728,39 +733,44 @@ def test_the_board_reads_top_to_bottom():
     )
 
 
-def test_the_same_arrangement_at_every_width():
-    """Two pump columns and three lists of lamps, on a phone and on a desktop.
-    A layout that rearranges itself is two layouts to keep right, and the wide
-    one had six boxes stacking into a column several screens tall.
+def test_the_narrow_screen_gives_up_padding_and_not_type():
+    """One section per row at every width, and the same type at every width.
+
+    The phone block used to bring the headings, the labels, the counts and the
+    bulbs all down a size, on the screen where they were already smallest. That
+    is backwards: the phone in a basement is the hard case, and what it can
+    afford to give up is the room around the words, not the words.
     """
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
 
     def rule(selector: str) -> str:
         return css.split(selector + " {", 1)[1].split("}", 1)[0]
 
-    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in rule(".glance-pumps")
-    assert "grid-template-columns: repeat(3, minmax(0, 1fr));" in rule(".glance-lamps")
+    # A stack, not a grid of columns: nothing here is beside anything else.
+    assert "grid-template-columns" not in rule(".board")
 
-    # The phone block, which is the last thing in the board section. Nothing
-    # in there moves a block; it only takes type and padding down to fit.
-    phone = css.split("@media (max-width: 700px) {", 1)[1].split("/* Forms", 1)[0]
+    # The phone block, which is the last thing in the board section.
+    phone = css.split("@media (max-width: 700px) {", 1)[1].split("/* The history", 1)[0]
+    assert "font-size" not in phone
     assert "grid-template-columns" not in phone
     assert "grid-area" not in phone
 
 
-def test_the_blocks_are_separated_by_rules_and_not_by_boxes():
-    """A line says these answer different questions as well as a box does, and
-    costs a pixel of height instead of a border, a radius and two paddings."""
+def test_a_section_is_a_box_and_a_row_is_a_rule():
+    """A rule between blocks was enough while they were columns inside one box.
+    Across five full width sections it is not: the eye needs to know where a
+    section starts more than it needs the pixel of height back.
+
+    Inside a section it is the other way about. A label at one end of a line
+    this wide and its number at the other want a track to be read along, and a
+    rule is that track."""
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
 
-    between = css.split(".glance > * + * {", 1)[1].split("}", 1)[0]
-    assert "border-top:" in between
-    assert "padding-top:" in between
+    box = css.split(".board-card {", 1)[1].split("}", 1)[0]
+    assert "border:" in box and "border-radius:" in box
 
-    # And between the columns inside a block, for the same reason: a number
-    # under one heading must not read as the column beside it.
-    assert "border-left:" in css.split(".pump-col + .pump-col {", 1)[1].split("}", 1)[0]
-    assert "border-left:" in css.split(".lamp-group + .lamp-group {", 1)[1].split("}", 1)[0]
+    for selector in (".fact {", ".lamp {"):
+        assert "border-top:" in css.split(selector, 1)[1].split("}", 1)[0], selector
 
 
 def test_a_lamp_carries_what_it_has_been_doing():
@@ -866,18 +876,33 @@ def test_the_run_contacts_have_no_lamp_on_the_panel():
     assert "pump2_run" in dict(DASHBOARD_ROLES)
 
 
-def test_the_screen_is_wide_and_shallow():
-    """A panel, not a tile. It was square once, which made the lists beside it
-    as tall as it was and forced the whole thing into a column on a phone. It
-    is one short line, and every row of height it takes is a row the contacts
-    below it do not get."""
-    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
-    lcd = css.split(".lcd {", 1)[1].split("}", 1)[0]
+def test_the_panels_word_sits_beside_the_pump_it_is_about():
+    """LEAD, LAG, ON and FAIL are the controller's own words, and somebody who
+    has stood in front of that panel already knows how to read them.
 
-    assert "aspect-ratio" not in lcd
-    assert "width: 100%;" in lcd
-    assert "min-height:" in lcd
-    assert "max-width:" not in lcd, "it spans the box at every width now"
+    They used to be a green screen across the middle of the page reading
+    "P1:LEAD  P2:LAG", drawn to look like the display on the door. That was a
+    picture of a display rather than a display: a band of the page spent on two
+    words, with neither word anywhere near the pump it described. Nothing is
+    left of it, in the markup or the stylesheet, so it cannot come back by
+    halves.
+    """
+    page = render_dashboard()
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+
+    assert "data-lcd" not in page and "lcd" not in css and "lcd" not in js
+
+    # One badge per pump, and it starts saying nothing rather than guessing.
+    assert page.count("data-status") == 2
+    assert page.count('class="status status-none"') == 2
+
+    # The three words worth a color of their own. Lag is the ordinary state and
+    # keeps the plain badge, and every one of them is a word as well, which is
+    # the rule the rest of this page follows.
+    for word in ("lead", "on", "fail"):
+        assert ".status-" + word + " {" in css, word
+    assert "MEANS = {" in js and '"status-" + word.toLowerCase()' in js
 
 
 def test_every_missing_pump_fact_reads_the_same_way():
@@ -902,10 +927,11 @@ def test_every_missing_pump_fact_reads_the_same_way():
     assert ".fact .none {" in css
 
 
-def test_a_pump_column_carries_everything_about_that_pump():
-    """Amps now, when it last ran, how often today, and how it has been
-    running. All facts about one motor, so they live in one column, and the
-    two columns sit side by side the way the pumps do."""
+def test_a_pump_section_carries_everything_about_that_pump():
+    """What it is doing this second, when it last ran, how often today, how it
+    has been running, and the word the controller has for it. All facts about
+    one motor, so they live in one section, and the second pump gets the same
+    section under it rather than half the width beside it."""
     page = render_dashboard()
 
     for marker in (
@@ -914,23 +940,32 @@ def test_a_pump_column_carries_everything_about_that_pump():
         "data-fact-runs",
         "data-typical",
         "data-drift",
-        "data-pump-lamp",
+        "data-status",
     ):
         assert page.count(marker) == 2, marker
 
-    column = page.split('data-pump="1"', 1)[1].split('data-pump="2"', 1)[0]
-    assert column.count("<dt>") == 4
+    section = page.split('data-pump="1"', 1)[1].split('data-pump="2"', 1)[0]
+    assert section.count("<dt>") == 4
 
 
-def test_a_running_pump_is_shown_by_the_lamp_and_the_amps():
-    """No pill. The amps are right there and turn green, and the lamp beside
-    the name says the same thing to somebody looking from further away."""
+def test_a_running_pump_is_shown_by_the_whole_section():
+    """No pill and no dot. The section outlines and tints itself, its icon goes
+    green and so do the amps, which is the same answer at three distances: from
+    across the room, from a glance, and from reading it.
+
+    The dot beside the name went with the redesign. It was thirteen pixels
+    saying what a whole tinted section now says."""
     page = render_dashboard()
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
 
     assert "data-run-pill" not in page
-    assert ".pump-col.running .amps" in css
-    assert ".pump-lamp.on {" in css
+    assert "data-pump-lamp" not in page and "data-pump-lamp" not in js
+    assert ".pump-lamp" not in css
+
+    assert ".pump-card.running {" in css
+    assert ".pump-card.running .amps" in css
+    assert ".pump-card.running .card-icon" in css
 
 
 def test_every_long_note_is_a_dialog_opened_from_beside_its_heading():
@@ -1359,8 +1394,14 @@ def test_the_name_stays_in_the_header_on_a_phone():
     assert "font-size: 0;" not in phone, "the name is sized down, not switched off"
     assert ".brand { font-size:" in phone
 
-    # Both layouts carry the same header, so a rule for one has to reach both.
-    assert 'class="brand-name"' in base and 'class="brand-name"' in public
+    # Both layouts carry the same header, and it is one file: the mark used to
+    # be a blue dot written out in each of them, which is two places for a logo
+    # to be changed in one of.
+    brand = Path("pitwatch/templates/_brand.html").read_text(encoding="utf-8")
+    assert '{% include "_brand.html" %}' in base
+    assert '{% include "_brand.html" %}' in public
+    assert 'class="brand-name"' in brand and 'class="brand-logo"' in brand
+    assert "brand-mark" not in css
     truncated = css.split(".brand-name {", 1)[1].split("}", 1)[0]
     assert "text-overflow: ellipsis;" in truncated
     assert "flex: none;" in css.split(".topbar nav {", 1)[1].split("}", 1)[0]

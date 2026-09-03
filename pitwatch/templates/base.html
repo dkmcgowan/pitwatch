@@ -12,10 +12,7 @@
 <body>
 {% include "_icons.html" %}
 <header class="topbar">
-  <a class="brand" href="/">
-    <span class="brand-mark" aria-hidden="true"></span>
-    <span class="brand-name">PitWatch</span>
-  </a>
+  {% include "_brand.html" %}
   {# Icons rather than words. Four text links plus a name, a password link and
      a sign out button wrapped onto two lines on a phone, and this is a page
      somebody reads on a phone in a basement. Each one keeps a title and an

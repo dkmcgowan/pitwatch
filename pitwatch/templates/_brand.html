@@ -1,0 +1,25 @@
+{# The name and the mark, written once and included by both headers.
+
+   It was a blue dot. A dot is not a logo: it says nothing about what this
+   watches, and next to a row of drawn icons it read as a status light that
+   never changed, which is the worst thing a decoration can be on a page whose
+   whole business is indicators that mean something.
+
+   The mark is the pit itself: two walls open at the top, water in the bottom,
+   and a float riding on it. Same drawing as the favicon, so the tab and the
+   header are the same thing at two sizes.
+
+   Inline rather than a reference into the icon sprite, because the public
+   pages do not include the sprite and a header that renders on one layout and
+   not the other is the kind of thing nobody notices until a stranger sees it.
+#}
+<a class="brand" href="/">
+  <svg class="brand-logo" viewBox="0 0 28 28" aria-hidden="true" focusable="false">
+    <rect width="28" height="28" rx="8" fill="currentColor"/>
+    <path d="M7 5.5v12.2A3.3 3.3 0 0 0 10.3 21h7.4a3.3 3.3 0 0 0 3.3-3.3V5.5"
+          fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M7.6 16.5h12.8" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/>
+    <circle cx="14" cy="12.6" r="2.6" fill="#ffffff"/>
+  </svg>
+  <span class="brand-name">PitWatch</span>
+</a>

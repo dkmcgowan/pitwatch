@@ -38,106 +38,117 @@
   </span>
 </div>
 
-{# One box, read top to bottom: the pumps, the controller's own screen, then
-   the contacts.
+{# Five sections down the page: pump 1, pump 2, and then the three groups of
+   contacts.
 
-   It was six boxes, and the same answer took a scroll and a hunt: the panel
-   door up top, a card each for the two pumps, then three more cards saying
-   what the lamps had been doing. Every one of them carried its own border,
-   heading and padding, so most of the page was the gaps between the things
-   somebody came to read. Everything here is one glance now, and it is laid out
-   the same way at every width rather than rearranging itself on a phone.
+   This was one box holding all of it, the two pumps side by side in half a
+   screen each and three lists of lamps side by side under them, sized so the
+   whole panel fit a phone without scrolling. It fit. It was also six point
+   type in a quarter of a phone, read by people in their sixties standing in a
+   boiler room, and a page that fits on one screen and cannot be read has not
+   saved anybody anything.
 
-   Rules between the three blocks rather than borders around them. A line is
-   enough to say these are different questions, and it costs no height. #}
-<section class="glance" aria-label="The pumps and the panel">
+   So every section is the full width now and nothing is smaller than it needs
+   to be. A pump gets a whole row to itself, its name is a heading rather than
+   a caption, and a label and its number sit at the two ends of a line wide
+   enough to carry a rule between the rows. It scrolls, which is the price, and
+   scrolling is a thing a thumb does without looking. #}
+<div class="board">
 
-  {# Both pumps, side by side, at every width. Two columns of four short lines
-     fit a phone; two cards do not. #}
-  <div class="glance-pumps">
-    {% for number in [1, 2] %}
-    <div class="pump-col" data-pump="{{ number }}">
-      {# The name is written by JavaScript, so the lamp and the button live
-         beside it rather than inside it. textContent on the heading would take
-         them with it. #}
-      <h2 class="glance-heading">
-        <span class="pump-lamp" data-pump-lamp title="Not running"></span>
-        <span data-name>Pump {{ number }}</span>
-        <button type="button" class="info-mark" data-info="pump-{{ number }}" aria-label="What each number means">i</button>
-      </h2>
+  {% for number in [1, 2] %}
+  {# One pump, everything about it, full width.
 
-      {# Amps and the contacts, and nothing derived from voltage.
+     The name is written by JavaScript, so the icon, the word and the button
+     live beside it rather than inside it: textContent on the heading would
+     take them with it. #}
+  <section class="board-card pump-card" data-pump="{{ number }}" aria-label="Pump {{ number }}">
+    <div class="card-top">
+      <svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-pump"/></svg>
+      <h2 class="card-title"><span data-name>Pump {{ number }}</span></h2>
+      <button type="button" class="info-mark" data-info="pump-{{ number }}" aria-label="What each number means">i</button>
+      {# The word off the controller's own screen: LEAD, LAG, ON or FAIL.
 
-         The Shelly's own supply is a 120 V outlet, not a tap off the phase the
-         clamps are around, so its voltage reading belongs to a different
-         circuit. Current does not care: a CT measures the field around a
-         conductor and is independent of what the meter is using as a voltage
-         reference. Watts and power factor very much do care, because real
-         power needs voltage and current from the same phase with the right
-         angle between them, and there is no reason to think that angle is
-         right here. So they are not shown.
-
-         Typical load is the median of every reading above the running
-         threshold over the last week, which ignores the starting surge without
-         needing a rule about what counts as one. Beside it, how that compares
-         with the four weeks before, because one number is not information:
-         sixteen amps is fine or alarming entirely depending on what it was
-         last month. That comparison used to be a sentence under the card and
-         is a couple of words now, with the explanation behind the i. #}
-      <dl class="facts">
-        <div class="fact">
-          <dt>Load now</dt>
-          <dd><span class="amps" data-amps>--</span><span class="unit">A</span></dd>
-        </div>
-        <div class="fact">
-          <dt>Last run</dt>
-          <dd data-fact-last>--</dd>
-        </div>
-        {# The value and the note beside it are separate elements on purpose.
-           Writing the count into the dd would take the span with it: assigning
-           textContent removes every child, and the ordinary day was quietly
-           destroyed on the first render for exactly that reason. #}
-        <div class="fact">
-          <dt>Runs today</dt>
-          <dd><span data-fact-runs>--</span><span class="beside" data-fact-average hidden></span></dd>
-        </div>
-        <div class="fact">
-          <dt>Typical load</dt>
-          <dd><span data-typical>--</span><span class="beside" data-drift hidden></span></dd>
-        </div>
-      </dl>
-
-      {# Behind an i. Right the first time somebody reads it and clutter every
-         time after, which is what a disclosure is for. #}
-      <dialog class="note" id="note-pump-{{ number }}">
-        <h3 class="note-title">Pump {{ number }}</h3>
-        <div class="hint">
-          <p><strong>Load now</strong> is what the clamp reads this second,
-            usually zero on a pit that runs for seconds at a time.</p>
-          <p><strong>Last run</strong> and <strong>runs today</strong> come from
-            the load rising off nothing. Read the count as a floor: the meter
-            reports on its own schedule, so two close runs can arrive as one.
-            The panel's run contact makes it exact. After three days an ordinary
-            day appears beside it.</p>
-          <p><strong>Typical load</strong> is the middle reading while the pump
-            was running this week, less the starting surge. It is the number to
-            watch: drawing more than it did a month ago is a pump on its way to
-            a problem. Beside it is the change against the four weeks
-            before.</p>
-        </div>
-        <p class="note-close">Click anywhere to close</p>
-      </dialog>
+         It used to be a green screen across the middle of the page reading
+         "P1:LEAD  P2:LAG", drawn to look like the display on the panel door.
+         That was a picture of a display rather than a display: it spent a band
+         of the page on two words, and neither word was anywhere near the pump
+         it was about. They are one word each now, beside the name they belong
+         to. #}
+      <span class="status status-none" data-status
+            title="Waiting for the panel to say which pump is lead">--</span>
     </div>
-    {% endfor %}
-  </div>
 
-  {# The controller's own screen, the one thing here that is a sentence rather
-     than an indicator. #}
-  <div class="lcd" role="status" aria-live="polite">
-    <span class="lcd-text" data-lcd>P1:--  P2:--</span>
-  </div>
+    {# Amps and the contacts, and nothing derived from voltage.
 
-  {# The contacts: what is lit now, and under each one what it has been doing.
+       The Shelly's own supply is a 120 V outlet, not a tap off the phase the
+       clamps are around, so its voltage reading belongs to a different
+       circuit. Current does not care: a CT measures the field around a
+       conductor and is independent of what the meter is using as a voltage
+       reference. Watts and power factor very much do care, because real power
+       needs voltage and current from the same phase with the right angle
+       between them, and there is no reason to think that angle is right here.
+       So they are not shown.
+
+       Typical load is the median of every reading above the running threshold
+       over the last week, which ignores the starting surge without needing a
+       rule about what counts as one. Beside it, how that compares with the
+       four weeks before, because one number is not information: sixteen amps
+       is fine or alarming entirely depending on what it was last month. #}
+    <dl class="facts">
+      <div class="fact">
+        <dt>Load now</dt>
+        <dd><span class="amps" data-amps>--</span><span class="unit">A</span></dd>
+      </div>
+      <div class="fact">
+        <dt>Last run</dt>
+        <dd data-fact-last>--</dd>
+      </div>
+      {# The value and the note beside it are separate elements on purpose.
+         Writing the count into the dd would take the span with it: assigning
+         textContent removes every child, and the ordinary day was quietly
+         destroyed on the first render for exactly that reason. #}
+      <div class="fact">
+        <dt>Runs today</dt>
+        <dd><span data-fact-runs>--</span><span class="beside" data-fact-average hidden></span></dd>
+      </div>
+      <div class="fact">
+        <dt>Typical load</dt>
+        <dd><span data-typical>--</span><span class="beside" data-drift hidden></span></dd>
+      </div>
+    </dl>
+
+    {# Behind an i. Right the first time somebody reads it and clutter every
+       time after, which is what a disclosure is for. #}
+    <dialog class="note" id="note-pump-{{ number }}">
+      <h3 class="note-title">Pump {{ number }}</h3>
+      <div class="hint">
+        <p>The word beside the name is the controller's own, and it means what
+          it means on the panel door. <strong>LEAD</strong> is the pump that
+          answers the next call, and the one running while it runs.
+          <strong>LAG</strong> is the one sitting out, which is whichever pump
+          went last. <strong>ON</strong> on both means the pit came up past the
+          lag float and the controller called them both.
+          <strong>FAIL</strong> is an overload: that pump is off and staying
+          off.</p>
+        <p><strong>Load now</strong> is what the clamp reads this second,
+          usually zero on a pit that runs for seconds at a time.</p>
+        <p><strong>Last run</strong> and <strong>runs today</strong> come from
+          the load rising off nothing. Read the count as a floor: the meter
+          reports on its own schedule, so two close runs can arrive as one.
+          The panel's run contact makes it exact. After three days an ordinary
+          day appears beside it.</p>
+        <p><strong>Typical load</strong> is the middle reading while the pump
+          was running this week, less the starting surge. It is the number to
+          watch: drawing more than it did a month ago is a pump on its way to
+          a problem. Beside it is the change against the four weeks
+          before.</p>
+      </div>
+      <p class="note-close">Click anywhere to close</p>
+    </dialog>
+  </section>
+  {% endfor %}
+
+  {# The contacts: what is lit now, and beside each one what it has been doing.
 
      A lamp on its own cannot say the second part. One that is off looks
      exactly the same whether it went twenty times today or has never gone at
@@ -148,124 +159,132 @@
      that went twice in a month is the whole story, and counting those by the
      day would read zero forever and teach somebody to stop looking.
 
-     Overloads have their own heading rather than sitting under Alerts. They
-     are a different kind of bad news: an alert means read the panel, an
+     Overloads have a section of their own rather than sitting under Alerts.
+     They are a different kind of bad news: an alert means read the panel, an
      overload means a pump is off and staying off.
 
-     The run contacts have no lamp. A pump that is running says so in the
-     column above, in amps, and a lamp repeating that is one more thing to read
-     for nothing. Which input drives which lamp is a setting.
+     The run contacts have no lamp. A pump that is running says so in its own
+     section, in amps and in the word beside its name, and a lamp repeating
+     that is one more thing to read for nothing. Which input drives which lamp
+     is a setting.
 
      There is nothing below this. The panel brings out eight contacts and the
      module has eight inputs, so every one of them carries a lamp or a run
      signal and there is no such thing as a leftover to list. #}
-  <div class="glance-lamps">
-    <div class="lamp-group" data-window="month">
-      <h2 class="glance-heading">Alerts
-        <button type="button" class="info-mark" data-info="alerts" aria-label="What this shows">i</button></h2>
-      <div class="lamp-pair">
-        <div class="lamp lamp-red" data-lamp="system_alert" data-history="system_alert">
-          <span class="bulb" aria-hidden="true"></span>
-          <span class="lamp-words">
-            <span class="lamp-title">Alert</span>
-            <span class="lamp-last" data-history-last title="When it was last raised">--</span>
-            <span class="lamp-count" data-history-count title="Times this month">--</span>
-          </span>
-        </div>
-        <div class="lamp lamp-red" data-lamp="high_water" data-history="high_water">
-          <span class="bulb" aria-hidden="true"></span>
-          <span class="lamp-words">
-            <span class="lamp-title">High</span>
-            <span class="lamp-last" data-history-last title="When it was last raised">--</span>
-            <span class="lamp-count" data-history-count title="Times this month">--</span>
-          </span>
-        </div>
-      </div>
-      <dialog class="note" id="note-alerts">
-        <h3 class="note-title">Alerts</h3>
-        <div class="hint">
-          <p><strong>Alert</strong> is the controller's own alarm. Several
-            faults raise the same contact, so it means read the panel rather
-            than anything more specific.</p>
-          <p><strong>High water</strong> means the pit came up past the high
-            float, usually a storm putting water in faster than one pump takes
-            it out. Once in a while is the system working. Regularly is the pit
-            losing to the inflow.</p>
-          <p>Counted by the month. An alarm counted by the day reads zero
-            forever.</p>
-        </div>
-        <p class="note-close">Click anywhere to close</p>
-      </dialog>
+  <section class="board-card lamp-card" data-window="month" aria-label="Alerts">
+    <div class="card-top">
+      <svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-alert"/></svg>
+      <h2 class="card-title">Alerts</h2>
+      <button type="button" class="info-mark" data-info="alerts" aria-label="What this shows">i</button>
     </div>
+    <div class="lamp-pair">
+      <div class="lamp lamp-red" data-lamp="system_alert" data-history="system_alert">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">System alert</span>
+        <span class="lamp-when">
+          <span class="lamp-last" data-history-last title="When it was last raised">--</span>
+          <span class="lamp-count" data-history-count title="Times this month">--</span>
+        </span>
+      </div>
+      <div class="lamp lamp-red" data-lamp="high_water" data-history="high_water">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">High water</span>
+        <span class="lamp-when">
+          <span class="lamp-last" data-history-last title="When it was last raised">--</span>
+          <span class="lamp-count" data-history-count title="Times this month">--</span>
+        </span>
+      </div>
+    </div>
+    <dialog class="note" id="note-alerts">
+      <h3 class="note-title">Alerts</h3>
+      <div class="hint">
+        <p><strong>System alert</strong> is the controller's own alarm. Several
+          faults raise the same contact, so it means read the panel rather
+          than anything more specific.</p>
+        <p><strong>High water</strong> means the pit came up past the high
+          float, usually a storm putting water in faster than one pump takes
+          it out. Once in a while is the system working. Regularly is the pit
+          losing to the inflow.</p>
+        <p>Counted by the month. An alarm counted by the day reads zero
+          forever.</p>
+      </div>
+      <p class="note-close">Click anywhere to close</p>
+    </dialog>
+  </section>
 
-    <div class="lamp-group" data-window="month">
-      <h2 class="glance-heading">Overloads
-        <button type="button" class="info-mark" data-info="overloads" aria-label="What this shows">i</button></h2>
-      <div class="lamp-pair">
-        <div class="lamp lamp-red" data-lamp="pump1_fault" data-history="pump1_fault">
-          <span class="bulb" aria-hidden="true"></span>
-          <span class="lamp-words">
-            <span class="lamp-title">OL1</span>
-            <span class="lamp-last" data-history-last title="When it last tripped">--</span>
-            <span class="lamp-count" data-history-count title="Times this month">--</span>
-          </span>
-        </div>
-        <div class="lamp lamp-red" data-lamp="pump2_fault" data-history="pump2_fault">
-          <span class="bulb" aria-hidden="true"></span>
-          <span class="lamp-words">
-            <span class="lamp-title">OL2</span>
-            <span class="lamp-last" data-history-last title="When it last tripped">--</span>
-            <span class="lamp-count" data-history-count title="Times this month">--</span>
-          </span>
-        </div>
-      </div>
-      <dialog class="note" id="note-overloads">
-        <h3 class="note-title">Overloads</h3>
-        <div class="hint">
-          <p>A motor overload has tripped: that pump is off and will not run.
-            The panel cut it for drawing more than the overload allows.</p>
-          <p>The selector decides what happens next. <strong>H</strong> is hand
-            reset: it stays off until somebody presses the red button back in.
-            <strong>A</strong> resets itself once cool, which is often worse, a
-            motor that trips and restarts all night being one nobody hears
-            about. <strong>O</strong> adds a stop, so <strong>HO</strong> and
-            <strong>AO</strong> are those two with a stop button.</p>
-          <p>It tripped for a reason, and a pump drawing more than it used to
-            will show that in its typical load.</p>
-        </div>
-        <p class="note-close">Click anywhere to close</p>
-      </dialog>
+  <section class="board-card lamp-card" data-window="month" aria-label="Overloads">
+    <div class="card-top">
+      <svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-overload"/></svg>
+      <h2 class="card-title">Overloads</h2>
+      <button type="button" class="info-mark" data-info="overloads" aria-label="What this shows">i</button>
     </div>
+    <div class="lamp-pair">
+      <div class="lamp lamp-red" data-lamp="pump1_fault" data-history="pump1_fault">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">Pump 1 overload</span>
+        <span class="lamp-when">
+          <span class="lamp-last" data-history-last title="When it last tripped">--</span>
+          <span class="lamp-count" data-history-count title="Times this month">--</span>
+        </span>
+      </div>
+      <div class="lamp lamp-red" data-lamp="pump2_fault" data-history="pump2_fault">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">Pump 2 overload</span>
+        <span class="lamp-when">
+          <span class="lamp-last" data-history-last title="When it last tripped">--</span>
+          <span class="lamp-count" data-history-count title="Times this month">--</span>
+        </span>
+      </div>
+    </div>
+    <dialog class="note" id="note-overloads">
+      <h3 class="note-title">Overloads</h3>
+      <div class="hint">
+        <p>A motor overload has tripped: that pump is off and will not run.
+          The panel cut it for drawing more than the overload allows.</p>
+        <p>The selector decides what happens next. <strong>H</strong> is hand
+          reset: it stays off until somebody presses the red button back in.
+          <strong>A</strong> resets itself once cool, which is often worse, a
+          motor that trips and restarts all night being one nobody hears
+          about. <strong>O</strong> adds a stop, so <strong>HO</strong> and
+          <strong>AO</strong> are those two with a stop button.</p>
+        <p>It tripped for a reason, and a pump drawing more than it used to
+          will show that in its typical load.</p>
+      </div>
+      <p class="note-close">Click anywhere to close</p>
+    </dialog>
+  </section>
 
-    <div class="lamp-group" data-window="today">
-      <h2 class="glance-heading">Floats
-        <button type="button" class="info-mark" data-info="floats" aria-label="What this shows">i</button></h2>
-      <div class="lamp-pair">
-        <div class="lamp lamp-amber" data-lamp="lead_float" data-history="lead_float">
-          <span class="bulb" aria-hidden="true"></span>
-          <span class="lamp-words">
-            <span class="lamp-title">Lead</span>
-            <span class="lamp-last" data-history-last title="When it was last on">--</span>
-            <span class="lamp-count" data-history-count title="Times today">--</span>
-          </span>
-        </div>
-        <div class="lamp lamp-amber" data-lamp="lag_float" data-history="lag_float">
-          <span class="bulb" aria-hidden="true"></span>
-          <span class="lamp-words">
-            <span class="lamp-title">Lag</span>
-            <span class="lamp-last" data-history-last title="When it was last on">--</span>
-            <span class="lamp-count" data-history-count title="Times today">--</span>
-          </span>
-        </div>
-      </div>
-      <dialog class="note" id="note-floats">
-        <h3 class="note-title">Floats</h3>
-        <p class="hint">How often the pit has filled far enough to call a pump, and when it last did.</p>
-        <p class="note-close">Click anywhere to close</p>
-      </dialog>
+  <section class="board-card lamp-card" data-window="today" aria-label="Floats">
+    <div class="card-top">
+      <svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-water"/></svg>
+      <h2 class="card-title">Floats</h2>
+      <button type="button" class="info-mark" data-info="floats" aria-label="What this shows">i</button>
     </div>
-  </div>
-</section>
+    <div class="lamp-pair">
+      <div class="lamp lamp-amber" data-lamp="lead_float" data-history="lead_float">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">Lead float</span>
+        <span class="lamp-when">
+          <span class="lamp-last" data-history-last title="When it was last on">--</span>
+          <span class="lamp-count" data-history-count title="Times today">--</span>
+        </span>
+      </div>
+      <div class="lamp lamp-amber" data-lamp="lag_float" data-history="lag_float">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">Lag float</span>
+        <span class="lamp-when">
+          <span class="lamp-last" data-history-last title="When it was last on">--</span>
+          <span class="lamp-count" data-history-count title="Times today">--</span>
+        </span>
+      </div>
+    </div>
+    <dialog class="note" id="note-floats">
+      <h3 class="note-title">Floats</h3>
+      <p class="hint">How often the pit has filled far enough to call a pump, and when it last did.</p>
+      <p class="note-close">Click anywhere to close</p>
+    </dialog>
+  </section>
+</div>
 
 {% endblock %}
 

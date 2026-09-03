@@ -41,4 +41,13 @@ ignore = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # Starlette's test client reads anyio.abc.BlockingPortal at import time and
+    # anyio 4.15 deprecated that alias, so a bare "error" turns somebody else's
+    # rename into a run that cannot collect a single test. Nothing in here can
+    # fix it and pinning anyio would freeze a transitive dependency to dodge a
+    # warning. Narrow to the one message, so the day starlette catches up this
+    # line starts doing nothing and the rest of the rule still bites.
+    "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning",
+]

@@ -68,16 +68,11 @@
     card.querySelector("[data-name]").textContent = pump.name || "Pump " + number;
     card.querySelector("[data-amps]").textContent = amps(pump.current);
 
-    // The card outlines itself while a pump is running. There is no pill any
-    // more: the amps above say the same thing in a number somebody wanted
-    // anyway, and two things saying it is two things to read.
+    // The whole section says it while a pump is running: outlined and tinted,
+    // with its icon and its amps green. There is no separate lamp beside the
+    // name any more, and no pill either. Both were a small shape repeating
+    // what the section it sits in already says.
     card.classList.toggle("running", pump.running === true);
-
-    const lamp = card.querySelector("[data-pump-lamp]");
-    if (lamp) {
-      lamp.classList.toggle("on", pump.running === true);
-      lamp.title = pump.running ? "Running" : "Not running";
-    }
 
     renderTypical(card, pump.typical || {});
     renderRecent(card, pump);
@@ -176,8 +171,8 @@
 
       // A lamp says one thing: lit or not. It used to carry a line of text
       // under it saying "not set" or "no data", which is a sentence where an
-      // indicator should be. What it has been doing is on the two lines under
-      // it, in numbers.
+      // indicator should be. What it has been doing is at the end of the same
+      // row, in numbers.
       //
       // An unassigned lamp still draws dimmer, which is the one piece of that
       // distinction worth keeping without words: dark because nobody wired it
@@ -193,19 +188,48 @@
       }
     });
 
-    const lcd = document.querySelector("[data-lcd]");
-    if (lcd) {
-      const display = lamps.display || { 1: "--", 2: "--" };
-      lcd.textContent = "P1:" + display["1"] + "  P2:" + display["2"];
-      lcd.classList.toggle(
-        "lcd-fail",
-        display["1"] === "FAIL" || display["2"] === "FAIL"
-      );
-    }
+    const display = lamps.display || { 1: "--", 2: "--" };
+    renderStatus(1, display["1"]);
+    renderStatus(2, display["2"]);
   }
 
-  // What each contact has been doing, under the lamp itself. Same panel
-  // payload the lamps read, so a lamp and the lines under it can never
+  // The controller's word for a pump: LEAD, LAG, ON or FAIL, beside the name
+  // it is about.
+  //
+  // It was a green screen across the middle of the page reading "P1:LEAD
+  // P2:LAG", drawn to look like the display on the panel door. That was a
+  // picture of a display rather than a display: a band of the page spent on
+  // two words, with neither word anywhere near the pump it described.
+  //
+  // The words are the panel's, not ours. Somebody who has stood in front of
+  // that controller already knows how to read them, and the note behind the i
+  // says what they mean for somebody who has not.
+  const MEANS = {
+    LEAD: "Answers the next call, and running while it runs",
+    LAG: "Sitting this one out",
+    ON: "Running: the controller has called both pumps",
+    FAIL: "Overload tripped. This pump is off and staying off"
+  };
+
+  function renderStatus(number, word) {
+    const card = document.querySelector('[data-pump="' + number + '"]');
+    const badge = card && card.querySelector("[data-status]");
+    if (!badge) {
+      return;
+    }
+    // Nothing has run since this was wired up, so the controller has not said
+    // which pump is lead and neither do we. A dash is the honest answer; a
+    // guess would be wrong half the time.
+    const known = Boolean(MEANS[word]);
+    badge.textContent = known ? word : "--";
+    badge.className = "status " + (known ? "status-" + word.toLowerCase() : "status-none");
+    badge.title = known
+      ? MEANS[word]
+      : "Waiting for the panel to say which pump is lead";
+  }
+
+  // What each contact has been doing, on the lamp's own row. Same panel
+  // payload the lamps read, so a lamp and the lines beside it can never
   // disagree.
   //
   // Each count carries the window it counted, because they are not the same
@@ -240,9 +264,9 @@
         setFact(last, counted ? "never" : null);
       }
       // Both lines, always, whether or not there is anything behind them. A
-      // lamp with one line under it is a lamp a row shorter than the one
-      // beside it, and with some inputs wired and some not the three columns
-      // stop lining up with each other.
+      // lamp with one line beside it is a row shorter than the one under it,
+      // and with some inputs wired and some not the sections stop lining up
+      // with each other.
       setFact(count, counted ? times + " " + (COUNTED[window_] || window_) : null);
     });
   }

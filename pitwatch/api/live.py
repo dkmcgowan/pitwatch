@@ -198,10 +198,12 @@ async def build_state(app) -> dict:
             if history is None
             else await history.typical(pool, clamp[number], domain.RUNNING_AMPS)
         )
+        # The site's own timezone, because today is a word about where the pit
+        # is and not about where the server is.
         recent[number] = (
             Recent()
             if counter is None
-            else await counter.recent(pool, clamp[number], domain.RUNNING_AMPS)
+            else await counter.recent(pool, clamp[number], domain.RUNNING_AMPS, store.site.timezone)
         )
 
     def pump_state(number: int) -> dict:

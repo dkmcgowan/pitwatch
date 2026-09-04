@@ -620,15 +620,19 @@ def render_dashboard() -> str:
     return env.get_template("dashboard.html").render(site=SiteSettings(name="A pit"), user=None)
 
 
-def test_the_dashboard_is_five_sections():
-    """A pump, the other pump, then alerts, overloads and floats.
+def test_the_dashboard_is_four_sections():
+    """A pump, the other pump, then alerts and floats.
 
     It was six boxes once, then one box holding everything at a size that fit a
     phone without scrolling. The one box fit and could not be read: two pump
     columns in half a screen each, three lists of lamps in a third each, and
     the people who read this page are standing in a boiler room and are not
-    twenty five. Five full width sections and a scroll is the trade, and the
-    scroll is the cheap half of it.
+    twenty five. Full width sections and a scroll is the trade, and the scroll
+    is the cheap half of it.
+
+    Then the overloads gave up their own section and became two more rows under
+    Alerts, which is what they are: an alarm, counted by the month, read by
+    somebody looking for the one thing that is lit rather than for a heading.
 
     Layout is normally not worth a test. This is, because it has been described
     in prose and built from that description more than once, and shipped wrong
@@ -636,11 +640,16 @@ def test_the_dashboard_is_five_sections():
     """
     page = render_dashboard()
 
-    assert page.count("<section") == 5
+    assert page.count("<section") == 4
     # The banner and the two device indicators sit outside them, and nothing
     # else does.
-    assert page.count('class="board-card') == 5
+    assert page.count('class="board-card') == 4
     assert "history-row" not in page and "history-table" not in page
+    # And nothing left of the section that went, in the markup or the
+    # stylesheet, so it cannot come back by halves.
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+    assert ">Overloads" not in page and "overload-card" not in page
+    assert "overload-card" not in css
 
 
 def test_the_box_says_everything_in_three_words_or_less():
@@ -707,9 +716,9 @@ def test_the_board_reads_top_to_bottom():
     page reading "P1:LEAD  P2:LAG". Those two words are beside the two pumps
     now, which is where somebody looking at a pump was going to look for them.
 
-    Overloads have a section of their own rather than sitting under Alerts.
-    They are a different kind of bad news: an alert means read the panel, an
-    overload means a pump is off and staying off.
+    The overloads are the last two rows of Alerts rather than a section of
+    their own. They are the worst of the four, and the panel's own word for
+    that pump already says FAIL beside its name.
     """
     page = render_dashboard()
 
@@ -719,7 +728,6 @@ def test_the_board_reads_top_to_bottom():
         ">Alerts",
         'data-lamp="system_alert"',
         'data-lamp="high_water"',
-        ">Overloads",
         'data-lamp="pump1_fault"',
         'data-lamp="pump2_fault"',
         ">Floats",
@@ -758,7 +766,7 @@ def test_the_narrow_screen_gives_up_padding_and_not_type():
 
 def test_a_section_is_a_box_and_a_row_is_a_rule():
     """A rule between blocks was enough while they were columns inside one box.
-    Across five full width sections it is not: the eye needs to know where a
+    Across four full width sections it is not: the eye needs to know where a
     section starts more than it needs the pixel of height back.
 
     Inside a section it is the other way about. A label at one end of a line
@@ -805,6 +813,121 @@ def test_a_lamp_carries_what_it_has_been_doing():
         assert "data-history-count" in lamp, role
 
 
+def test_both_lines_beside_a_lamp_are_the_same_size():
+    """When it last went and how often it has been going. Two answers to two
+    questions, so they are set alike.
+
+    The count used to be two thirds the size of the line above it, which made
+    the pair read as an answer with a footnote under it, and made a row with
+    nothing behind it an n/a on top of a smaller n/a. Muted against not muted
+    is the whole difference now, which is the same difference a label and its
+    number have on a pump.
+    """
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+
+    def rule(selector: str) -> str:
+        return css.split(selector + " {", 1)[1].split("}", 1)[0]
+
+    def size(selector: str) -> str:
+        return rule(selector).split("font-size:", 1)[1].split(";", 1)[0].strip()
+
+    assert size(".lamp-count") == size(".lamp-last") == size(".lamp-title")
+    # And the difference that is left: one is the answer, the other is quieter.
+    assert "var(--text-muted)" in rule(".lamp-count")
+    assert "var(--text)" in rule(".lamp-last")
+
+
+def test_the_overloads_are_rows_of_the_alerts_section():
+    """An overload is an alert. It is a worse one, and the difference is that
+    it has already taken a pump away rather than asking somebody to go and
+    read the panel, but a heading of its own is a heading between somebody
+    whose phone just went off and the row that is lit.
+
+    So Alerts is four rows: the panel's alarm, the high water float, and an
+    overload for each pump. All four are counted over the same month, which is
+    what made them mergeable in the first place.
+    """
+    page = render_dashboard()
+
+    section = '<section class="board-card lamp-card alert-card" data-window="month"'
+    assert section in page
+    alerts = page.split(section, 1)[1].split("</section>", 1)[0]
+
+    for role in ("system_alert", "high_water", "pump1_fault", "pump2_fault"):
+        assert 'data-lamp="' + role + '"' in alerts, role
+
+    # The overloads keep everything they used to say, on the way in: which
+    # pump it is, and the note that says the panel has already cut that motor.
+    assert "Pump 1 overload" in alerts and "Pump 2 overload" in alerts
+    assert "will not run" in alerts
+
+
+def test_the_alerts_section_says_whether_anything_is_up():
+    """Four dark bulbs already say nothing is raised. They say it by being four
+    things somebody has to read and find dark, which is a page that has to be
+    checked rather than one that reports, and being told is the whole reason
+    anybody opens this on a phone.
+
+    So the four rows are added up beside the heading, in the same badge the
+    pumps carry the controller's word in.
+    """
+    page = render_dashboard()
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+
+    alerts = page.split('aria-label="Alerts"', 1)[1].split("</section>", 1)[0]
+    assert "data-alert-summary" in alerts
+    # It starts as a dash, like the pumps' own badge: nothing has arrived yet
+    # and a guess would be wrong.
+    assert 'class="status status-none"' in alerts
+
+    # The four it adds up are the four rows of that section and nothing else.
+    roles = js.split("const ALERT_ROLES = ", 1)[1].split("]", 1)[0]
+    for role in ("system_alert", "high_water", "pump1_fault", "pump2_fault"):
+        assert role in roles, role
+    assert "lead_float" not in roles and "lag_float" not in roles
+
+    # Quiet when clear and red when not, and a word either way rather than a
+    # color on its own.
+    assert '"All clear"' in js
+    assert '" active"' in js
+    assert ".status-clear {" in css and ".status-alarm {" in css
+
+
+def test_the_summary_counts_only_what_is_wired():
+    """An alert with no input assigned is not being watched, and folding it
+    into "all clear" would be the page claiming something nobody wired. It is
+    the same rule the lamps follow: null is not false."""
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+    summary = js.split("function renderAlertSummary", 1)[1].split("function renderLinks", 1)[0]
+
+    # Wired is the filter, and an empty set is a dash rather than a clear.
+    assert "lamp.channel" in summary
+    assert '"--"' in summary
+    assert "lamp.state === true" in summary
+
+
+def test_a_float_going_is_the_equipment_working():
+    """Red is an alarm and green is the equipment doing its job, and a float
+    closing is the second one: a pit that fills and gets pumped out is a pit
+    working.
+
+    They were amber, on the reasoning that water rising is a warning. It is
+    Tuesday. Amber for the ordinary thing left the page with no color that
+    meant fine, and nothing else was using it."""
+    page = render_dashboard()
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+
+    floats = page.split('aria-label="Floats"', 1)[1].split("</section>", 1)[0]
+    assert floats.count("lamp lamp-green") == 2
+
+    alerts = page.split('aria-label="Alerts"', 1)[1].split("</section>", 1)[0]
+    assert alerts.count("lamp lamp-red") == 4
+
+    # Two colors on the lamps, and nothing left of the third.
+    assert "lamp-amber" not in css and "lamp-amber" not in page
+
+
 def test_the_history_covers_every_lamp():
     """Every contact with a lamp gets both lines."""
     from pitwatch.schemas import DASHBOARD_ROLES
@@ -828,8 +951,9 @@ def test_floats_are_counted_by_the_day_and_alarms_by_the_month():
     page = render_dashboard()
     windows = re.findall('data-window="([a-z]+)"', page)
 
-    # In the order the groups appear: alerts, overloads, floats.
-    assert windows == ["month", "month", "today"]
+    # In the order the groups appear: alerts, then floats. The overloads are
+    # rows of the alerts section now and are counted on its month.
+    assert windows == ["month", "today"]
 
 
 def test_a_count_says_which_window_it_counted():
@@ -894,14 +1018,20 @@ def test_the_panels_word_sits_beside_the_pump_it_is_about():
     assert "data-lcd" not in page and "lcd" not in css and "lcd" not in js
 
     # One badge per pump, and it starts saying nothing rather than guessing.
+    # Counted inside the pump sections: the alerts summary is the same shape
+    # of badge in the same starting state, and it is not one of these.
     assert page.count("data-status") == 2
-    assert page.count('class="status status-none"') == 2
+    pumps = page.split('data-pump="1"', 1)[1].split('aria-label="Alerts"', 1)[0]
+    assert pumps.count('class="status status-none"') == 2
 
     # The three words worth a color of their own. Lag is the ordinary state and
     # keeps the plain badge, and every one of them is a word as well, which is
     # the rule the rest of this page follows.
+    #
+    # Matched without the brace: fail shares its rule with the alerts summary's
+    # own red, and a selector in a list is still a selector.
     for word in ("lead", "on", "fail"):
-        assert ".status-" + word + " {" in css, word
+        assert ".status-" + word in css, word
     assert "MEANS = {" in js and '"status-" + word.toLowerCase()' in js
 
 
@@ -931,7 +1061,7 @@ def test_every_missing_pump_fact_reads_the_same_way():
     assert 'setFact(card.querySelector("[data-amps]")' in card
 
     # One rule, and it reaches the lamps as well as the facts. A field with
-    # nothing behind it reads the same on all five sections, in the type of
+    # nothing behind it reads the same on all four sections, in the type of
     # the reading it stands in for rather than a lighter one of its own.
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
     selectors = css.split(".fact .none", 1)[1].split("{", 1)[0]
@@ -956,7 +1086,87 @@ def test_a_pump_section_carries_everything_about_that_pump():
         assert page.count(marker) == 2, marker
 
     section = page.split('data-pump="1"', 1)[1].split('data-pump="2"', 1)[0]
-    assert section.count("<dt>") == 4
+    assert section.count("<dt>") == 2
+
+
+def test_a_pump_is_two_rows_and_not_four():
+    """Load now and typical load were a line each, and they are the same
+    measurement at two moments: what the clamp reads this second, which on a
+    pit that runs for seconds at a time is zero nearly every time anybody
+    looks, and what it reads while the pump is working. Zero had half the row
+    and the number worth watching was underneath it.
+
+    Last run, runs today and the ordinary day were three lines asking one
+    question. All of it fits a 390 pixel phone on two lines, which was the
+    whole argument: the pump was the tallest thing on the page and most of the
+    height was labels.
+    """
+    page = render_dashboard()
+
+    section = page.split('data-pump="1"', 1)[1].split('data-pump="2"', 1)[0]
+    assert "<dt>Load</dt>" in section and "<dt>Runs</dt>" in section
+    assert section.count('class="fact"') == 2
+
+    # The live reading and the typical one share the load row.
+    load = section.split("<dt>Load</dt>", 1)[1].split("</div>", 1)[0]
+    assert "data-amps" in load and "data-typical" in load and "data-drift" in load
+
+    # When it last went, how many times today, and an ordinary day, in that
+    # order, share the runs row.
+    runs = section.split("<dt>Runs</dt>", 1)[1].split("</div>", 1)[0]
+    for marker in ("data-fact-last", "data-runs-sep", "data-fact-runs", "data-fact-average"):
+        assert marker in runs, marker
+    order = [runs.index(marker) for marker in ("data-fact-last", "data-fact-runs")]
+    assert order == sorted(order)
+
+
+def test_a_row_with_nothing_behind_it_says_so_once():
+    """Three values on the runs row and one n/a between them, not three with
+    punctuation in between. The count and the dot are the same answer as the
+    clock beside them, so they go when it has nothing to say."""
+    page = render_dashboard()
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+
+    # Nothing but the clock is drawn until a reading has arrived.
+    runs = page.split("<dt>Runs</dt>", 1)[1].split("</div>", 1)[0]
+    assert "data-fact-runs hidden" in runs
+    assert "data-runs-sep" in runs and "hidden>" in runs
+
+    recent = js.split("function renderRecent", 1)[1].split("function renderTypical", 1)[0]
+    assert "runs.hidden = !heard" in recent
+    assert "separator.hidden = !heard" in recent
+
+    # And the typical load goes rather than adding a second n/a to the load
+    # row, which already has one in the amps.
+    typical = js.split("function renderTypical", 1)[1].split("// The panel door.", 1)[0]
+    assert "value.hidden = !known" in typical
+    assert "setFact(value" not in typical
+
+
+def test_runs_today_means_today():
+    """Since midnight where the pit is, not the last twenty four hours.
+
+    It was a rolling day, which is a defensible number and is not the one the
+    word promises. At nine in the morning a count that still holds last night's
+    storm is the page telling somebody something they will read as wrong, and
+    being right about a window nobody asked for is not worth that.
+    """
+    from pitwatch.domain import history
+
+    assert not hasattr(history, "RUN_WINDOW")
+    # Midnight in the site's timezone, drawn in the database so that the day
+    # and the rows it filters are decided at the same instant.
+    assert "date_trunc('day', now() AT TIME ZONE" in history.RUNS_QUERY
+    assert "interval" not in history.RUNS_QUERY.split("FILTER", 1)[1].split(")", 1)[0]
+
+    # And the timezone reaches it from the site's own settings rather than the
+    # server's clock. It is part of the cache key, because a cached count is a
+    # count of somebody's day.
+    live = Path("pitwatch/api/live.py").read_text(encoding="utf-8")
+    assert "store.site.timezone" in live
+    assert "key = (channel, running_amps, timezone)" in (
+        Path("pitwatch/domain/history.py").read_text(encoding="utf-8")
+    )
 
 
 def test_a_running_pump_is_shown_by_the_whole_section():
@@ -989,11 +1199,11 @@ def test_every_long_note_is_a_dialog_opened_from_beside_its_heading():
     looks like, and Escape closes it without being told to."""
     page = render_dashboard()
 
-    # Five buttons and five notes: the three groups of lamps and the two pump
+    # Four buttons and four notes: the two groups of lamps and the two pump
     # columns, the column being written once in a loop.
-    assert page.count("data-info=") == 5
-    assert page.count("<dialog") == 5
-    assert page.count("</dialog>") == 5
+    assert page.count("data-info=") == 4
+    assert page.count("<dialog") == 4
+    assert page.count("</dialog>") == 4
 
     # Each button names a note that exists.
     import re
@@ -1077,8 +1287,8 @@ def test_the_note_does_not_sit_in_the_flow_of_the_page():
 
     assert "card-note" not in css and "card-note" not in page
     assert "dialog.note::backdrop" in css
-    # The handle sits beside the heading it belongs to.
-    assert page.count('class="info-mark"') == 5
+    # The handle sits beside the heading it belongs to, on each of the four.
+    assert page.count('class="info-mark"') == 4
 
 
 def test_the_live_reading_is_labelled_and_no_bigger_than_anything_else():
@@ -1087,15 +1297,19 @@ def test_the_live_reading_is_labelled_and_no_bigger_than_anything_else():
     it on a phone, by a rule in the block that sizes the header icons, left
     over from when it was meant to be the headline.
 
-    Load now, not current. Current is exactly what it is and exactly why it is
-    no use as a label: the line under it reads typical load, and the two are
+    Load, not current. Current is exactly what it is and exactly why it is no
+    use as a label: the typical load sits on the same line now, and the two are
     the same measurement at two different moments.
+
+    Not "load now" either, for the same reason. The row carries both the
+    reading from this second and the one from this week, so a label that says
+    now is wrong about half of what is under it.
     """
     page = render_dashboard()
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
 
     # The label itself, not the word where the note explains what it means.
-    assert page.count("<dt>Load now</dt>") == 2
+    assert page.count("<dt>Load</dt>") == 2
 
     # One size for the whole list, set on the row. Nothing inside it may set
     # another, wherever in the file it is written: that is how this got to

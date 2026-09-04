@@ -89,9 +89,10 @@
     renderRecent(card, pump);
   }
 
-  // When it last started and how often today, which are the two questions
-  // somebody standing in a wet basement actually asks. On the pump's own card,
-  // with the amps, because they are all facts about the same motor.
+  // When it last started, how many times it has started today, and how many
+  // times it starts on an ordinary day. Three answers to one question, so they
+  // are one row rather than three: asking it three times down a card is what
+  // made the pump the tallest thing on this page.
   function renderRecent(card, pump) {
     const last = card.querySelector("[data-fact-last]");
     const runs = card.querySelector("[data-fact-runs]");
@@ -100,16 +101,26 @@
     }
     const recent = pump.recent || {};
 
+    // Nothing to count and nothing that ever ran are the same answer here. A
+    // clamp that has never seen a run and a clamp that is not fitted look
+    // identical from this side, so neither gets to claim a confident zero.
+    const heard = Boolean(recent.last_start || recent.runs || pump.drawing_current);
+
     if (pump.drawing_current) {
       setFact(last, "running now");
     } else {
       setFact(last, recent.last_start ? since(recent.last_start) : null);
     }
 
-    // Nothing to count and nothing that ever ran are the same answer here. A
-    // clamp that has never seen a run and a clamp that is not fitted look
-    // identical from this side, so neither gets to claim a confident zero.
-    setFact(runs, recent.last_start || recent.runs ? String(recent.runs) : null);
+    // One n/a on this row rather than three with punctuation between them. The
+    // count and the dot are the same answer as the clock beside them, so they
+    // go when it has nothing to say rather than each saying so themselves.
+    setFact(runs, heard ? recent.runs + " today" : null);
+    runs.hidden = !heard;
+    const separator = card.querySelector("[data-runs-sep]");
+    if (separator) {
+      separator.hidden = !heard;
+    }
 
     // An ordinary day beside today's count. Eighty-nine is a lot or a Tuesday
     // depending on what the month looks like, and only one of those is worth
@@ -117,9 +128,7 @@
     const average = card.querySelector("[data-fact-average]");
     if (average) {
       const known =
-        recent.daily_average !== null &&
-        recent.daily_average !== undefined &&
-        (recent.last_start || recent.runs);
+        recent.daily_average !== null && recent.daily_average !== undefined && heard;
       average.textContent = known ? "avg " + recent.daily_average : "";
       average.hidden = !known;
     }
@@ -130,10 +139,14 @@
   // an impeller packing up or a bearing going dry, and it is invisible in any
   // single reading.
   //
-  // Two words beside the number rather than the sentence under the card this
-  // replaces. The sentence said the same thing in twelve words and cost a line
-  // of height on every pump whether or not anything was moving; what it was
-  // measured against is in the tooltip and spelled out behind the i.
+  // Beside the live reading rather than on a line of its own. They are the same
+  // measurement at two moments, and the live one is zero nearly every time
+  // anybody looks: giving zero half the card and putting the number worth
+  // watching underneath it had the sizing exactly backwards.
+  //
+  // It goes rather than saying n/a when there is nothing behind it. The row
+  // already has an answer, which is the amps; a second n/a on the same line
+  // says the same nothing twice.
   function renderTypical(card, typical) {
     const value = card.querySelector("[data-typical]");
     const drift = card.querySelector("[data-drift]");
@@ -142,7 +155,11 @@
     }
 
     const known = typical.median !== null && typical.median !== undefined;
-    setFact(value, known ? typical.median.toFixed(1) + " A" : null);
+    value.textContent = known ? "typical " + typical.median.toFixed(1) : "";
+    value.hidden = !known;
+    value.title = known
+      ? "The middle reading while the pump was running this week, less the starting surge."
+      : "";
 
     // Nothing to compare, or a tenth of an amp either way, which is
     // measurement rather than a trend.
@@ -199,9 +216,67 @@
       }
     });
 
+    renderAlertSummary(lamps);
+
     const display = lamps.display || { 1: "--", 2: "--" };
     renderStatus(1, display["1"]);
     renderStatus(2, display["2"]);
+  }
+
+  // The four alert rows added up, beside the heading.
+  //
+  // Four dark bulbs already say nothing is up. They say it by being four
+  // things somebody has to read and find dark, which is a page that has to be
+  // checked rather than one that reports, and the whole reason anybody opens
+  // this on a phone is to be told.
+  //
+  // It counts what it can see and says so no harder than that. An alert with
+  // no input assigned is not being watched, and rolling it into "all clear"
+  // would be the page claiming something nobody wired. That case is in the
+  // tooltip, and the row itself is drawn dim.
+  const ALERT_ROLES = ["system_alert", "high_water", "pump1_fault", "pump2_fault"];
+
+  function renderAlertSummary(lamps) {
+    const badge = document.querySelector("[data-alert-summary]");
+    if (!badge) {
+      return;
+    }
+
+    const watched = ALERT_ROLES.map(function (role) {
+      return lamps[role];
+    }).filter(function (lamp) {
+      return Boolean(lamp && lamp.channel);
+    });
+    const lit = watched.filter(function (lamp) {
+      return lamp.state === true;
+    });
+
+    // Nothing assigned at all, which is a fresh install rather than a quiet
+    // one. The same dash the pumps show when the panel has not spoken.
+    if (!watched.length) {
+      badge.className = "status status-none";
+      badge.textContent = "--";
+      badge.title = "No alert inputs are assigned yet";
+      return;
+    }
+
+    if (lit.length) {
+      badge.className = "status status-alarm";
+      badge.textContent = lit.length + " active";
+      badge.title = lit
+        .map(function (lamp) {
+          return lamp.label || lamp.title;
+        })
+        .join(", ");
+      return;
+    }
+
+    badge.className = "status status-clear";
+    badge.textContent = "All clear";
+    badge.title =
+      watched.length === ALERT_ROLES.length
+        ? "Nothing raised on any of the four"
+        : "Nothing raised on the " + watched.length + " assigned. The rest have no input.";
   }
 
   // The controller's word for a pump: LEAD, LAG, ON or FAIL, beside the name

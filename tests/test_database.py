@@ -482,6 +482,53 @@ async def test_the_typical_load_leaves_out_the_start_of_each_run(pool):
     assert typical.samples == 80, "two settled readings from each of forty runs"
 
 
+async def test_runs_today_is_counted_from_local_midnight(pool):
+    """Today, not the last twenty four hours.
+
+    A run at ten last night and a run just after midnight are one run today
+    and one yesterday, and a rolling day calls them both today until ten
+    tonight. That is a defensible window and it is not the one the word
+    promises: somebody reading "2 today" over breakfast is being told
+    something they will reasonably believe.
+
+    The day is the site's, not the server's. This asserts on a timezone the
+    machine running the tests is very unlikely to be in, so a query that quietly
+    used the server's clock would count both runs.
+    """
+    from datetime import UTC, datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from pitwatch.domain.history import RecentRuns
+
+    where_the_pit_is = "Pacific/Kiritimati"
+    midnight = datetime.now(ZoneInfo(where_the_pit_is)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
+    def run(at):
+        """A rise off nothing and back to it, which is what a start looks like
+        from the meter's side."""
+        return [
+            (at - timedelta(minutes=1), 0, 0.0),
+            (at, 0, 15.0),
+            (at + timedelta(minutes=1), 0, 0.0),
+        ]
+
+    rows = run(midnight - timedelta(hours=2)) + run(midnight + timedelta(minutes=1))
+    await pool.executemany(
+        "INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)",
+        [(ts.astimezone(UTC), channel, amps) for ts, channel, amps in rows],
+    )
+
+    recent = await RecentRuns().recent(pool, channel=0, running_amps=1.0, timezone=where_the_pit_is)
+
+    assert recent.runs == 1, "the one two hours before midnight was yesterday"
+    assert recent.last_start is not None
+    # Three days of history before an average is worth printing, and this is
+    # two hours of it.
+    assert recent.daily_average is None
+
+
 async def test_starts_are_counted_per_bucket_and_not_at_the_window_edge(pool):
     """A start is the load rising off nothing, the same rule the dashboard
     counts by, bucketed.

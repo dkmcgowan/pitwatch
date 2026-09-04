@@ -24,6 +24,11 @@
   --series-1: #1f6feb;
   --series-2: #8250df;
 
+  /* Water, for the one section that is about water and nothing else. The
+     alarm colors above are spoken for: a float rising is not a fault, and
+     painting its heading in the same red as an overload would say it was. */
+  --water: #0e7490;
+
   --radius: 10px;
   --gap: 1rem;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -46,6 +51,8 @@
 
     --series-1: #4c8dff;
     --series-2: #b083f0;
+
+    --water: #4bbcd8;
   }
 }
 
@@ -131,7 +138,15 @@ body {
   flex: none;
 }
 
-.topbar nav a {
+/* The public header's links, which are words rather than icons.
+
+   Written as `.topbar nav a` once, back when the signed in header was words
+   too. That outweighed every rule `.icon-link` had, so the signed in header
+   quietly took its colors from here instead: the page you were on was the
+   same gray as the ones you were not, and had been for as long as the nav has
+   been icons. Named after the nav it is actually for, so the two headers stop
+   sharing rules that only ever suited one of them. */
+.public-nav a {
   padding: 0.45rem 0.8rem;
   border-radius: var(--radius);
   color: var(--text-muted);
@@ -139,8 +154,7 @@ body {
   font-weight: 500;
 }
 
-.topbar nav a:hover { background: var(--surface-2); color: var(--text); }
-.topbar nav a.active { background: var(--surface-2); color: var(--text); }
+.public-nav a:hover { background: var(--surface-2); color: var(--text); }
 
 /* Layout ------------------------------------------------------------------ */
 
@@ -291,12 +305,32 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   margin-bottom: 0.3rem;
 }
 
+/* Each of the five headings carries its own color, in the icon and in a tint
+   behind it. Five gray drawings in a column are told apart by reading them,
+   which is the job the icon was there to save; a color is the thing an eye
+   finds before it has read anything.
+
+   The hue is the section's own and it does not change with the state of
+   anything, which is what keeps it clear of the lamps below it. A red bulb
+   means an alarm is up right now. A red heading on Alerts means that section
+   is Alerts. The one exception is a running pump, which turns its whole
+   section green, icon included, and is the only place on this page where a
+   color moves. */
 .card-icon {
   flex: none;
-  width: 1.7rem;
-  height: 1.7rem;
-  color: var(--text-muted);
+  box-sizing: border-box;
+  width: 2.3rem;
+  height: 2.3rem;
+  padding: 0.3rem;
+  border-radius: 9px;
+  color: var(--icon, var(--text-muted));
+  background: color-mix(in srgb, var(--icon, var(--text-muted)) 13%, transparent);
 }
+
+.pump-card { --icon: var(--accent); }
+.alert-card { --icon: var(--crit); }
+.overload-card { --icon: var(--warn); }
+.float-card { --icon: var(--water); }
 
 .card-title {
   margin: 0;
@@ -386,10 +420,19 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   font-variant-numeric: tabular-nums;
 }
 
-/* Nothing to report, in every field that can have nothing to report. Dimmer
-   than a real reading and no heavier than the label, so a section with no data
-   behind it looks different at a glance from one that is working. */
-.fact .none { color: var(--text-muted); font-weight: 400; }
+/* Nothing to report, in every field that can have nothing to report. Same
+   type as the reading it stands in for, muted and a little dimmer, so a
+   section with nothing behind it reads differently from a working one without
+   reading in a different font from the line above it.
+
+   It used to drop a weight as well, which is why an n/a sat in a column of
+   answers looking like it belonged to some other page. */
+.fact .none,
+.lamp-last.none,
+.lamp-count.none {
+  color: var(--text-muted);
+  opacity: 0.75;
+}
 
 /* The one number that changes by the second. Monospaced so it does not shuffle
    the line about as it changes, and no larger than anything else: a reading
@@ -415,8 +458,8 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   background: color-mix(in srgb, var(--ok) 8%, transparent);
 }
 
+.pump-card.running { --icon: var(--ok); }
 .pump-card.running .amps { color: var(--ok); }
-.pump-card.running .card-icon { color: var(--ok); }
 
 /* Alerts, overloads and floats. Three sections of the same shape, two contacts
    each, so they read the same way one under the other. */
@@ -437,17 +480,25 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   min-width: 0;
 }
 
+/* The name of the contact, which is the label on this row exactly as "Load
+   now" is the label on a pump's. So it is set as one: same size, same weight,
+   same muted color as a fact's term. The three contact sections were a size
+   and a weight of their own before, and five boxes down a page in two
+   typographies read as two pages. */
 .lamp-title {
   flex: 1;
   min-width: 0;
   font-size: 1.05rem;
-  font-weight: 550;
+  color: var(--text-muted);
 }
 
-/* When it last went and how often lately, at the end of the row. Quieter and
-   smaller than the name, because they are what the lamp is missing rather than
-   the answer itself: a lamp that is off looks exactly the same whether it went
-   twenty times today or has never gone at all. */
+/* When it last went and how often lately, at the end of the row: the answer,
+   in the type a pump's answers are in. They are what the lamp is missing
+   rather than a footnote to it, because a lamp that is off looks exactly the
+   same whether it went twenty times today or has never gone at all.
+
+   Two lines rather than one, the count under the time in the size the ordinary
+   day is written in beside a run count. */
 .lamp-when {
   display: grid;
   flex: none;
@@ -456,19 +507,18 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 }
 
 .lamp-last {
-  font-size: 0.95rem;
+  font-size: 1.05rem;
+  font-weight: 600;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
 .lamp-count {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
+  font-weight: 400;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
-
-.lamp-last.none,
-.lamp-count.none { color: var(--text-muted); opacity: 0.7; }
 
 .bulb {
   flex: none;
@@ -483,7 +533,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 }
 
 .lamp.unset .bulb { opacity: 0.45; }
-.lamp.unset .lamp-title { color: var(--text-muted); font-weight: 500; }
+.lamp.unset .lamp-title { opacity: 0.75; }
 
 .lamp-red.on .bulb {
   background: var(--crit);
@@ -1302,8 +1352,14 @@ form.inline { display: inline; }
 }
 
 .icon-link svg { width: 22px; height: 22px; }
-.icon-link:hover { background: var(--surface-2); color: var(--text); }
-.icon-link.active { background: var(--surface-2); color: var(--accent); }
+/* The page you are on is the brand color on a tint of it, and a hover is the
+   same color without the tint, so the row answers "where am I" before it is
+   read. Gray on gray said it too quietly to find on a tablet across a room. */
+.icon-link:hover { background: var(--surface-2); color: var(--accent); }
+.icon-link.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
 
 /* Seven icons and a name across a phone. Everything comes down a size rather
    than anything going away: the name is the one place a stranger reading this

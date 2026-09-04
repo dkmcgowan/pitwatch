@@ -923,6 +923,13 @@ def test_every_missing_pump_fact_reads_the_same_way():
     # "no data yet" to appear.
     assert card.count("setFact(") >= 4
 
+    # Load now included. It answered "--" of its own for a while, which is a
+    # different thing said in a different typeface at the top of a column of
+    # three n/a, and it is the first row of the first section on a fresh
+    # install.
+    assert '"--"' not in card
+    assert 'setFact(card.querySelector("[data-amps]")' in card
+
     # One rule, and it reaches the lamps as well as the facts. A field with
     # nothing behind it reads the same on all five sections, in the type of
     # the reading it stands in for rather than a lighter one of its own.

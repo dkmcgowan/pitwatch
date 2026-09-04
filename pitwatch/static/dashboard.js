@@ -19,8 +19,12 @@
 
   // -- helpers --------------------------------------------------------------
 
+  // Null rather than a dash of its own when there is no reading. What to say
+  // in that case is setFact's to decide, and it is the only thing that decides
+  // it: this used to answer "--", which put a monospaced dash at the top of a
+  // column of n/a on every install that had not heard from a meter yet.
   function amps(value) {
-    return typeof value === "number" ? value.toFixed(2) : "--";
+    return typeof value === "number" ? value.toFixed(2) : null;
   }
 
   function since(iso) {
@@ -66,7 +70,14 @@
     }
 
     card.querySelector("[data-name]").textContent = pump.name || "Pump " + number;
-    card.querySelector("[data-amps]").textContent = amps(pump.current);
+
+    // Load now reads the same way as the three rows under it when there is
+    // nothing behind it. The unit goes with the number: "n/a A" is not a
+    // reading, and the A on its own is a label for something that is not
+    // there.
+    const reading = amps(pump.current);
+    setFact(card.querySelector("[data-amps]"), reading);
+    card.querySelector(".unit").hidden = reading === null;
 
     // The whole section says it while a pump is running: outlined and tinted,
     // with its icon and its amps green. There is no separate lamp beside the

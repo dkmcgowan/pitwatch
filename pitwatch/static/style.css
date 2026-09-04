@@ -244,7 +244,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 
 /* The board --------------------------------------------------------------- */
 
-/* Five sections down the page: pump 1, pump 2, alerts, overloads, floats.
+/* Four sections down the page: pump 1, pump 2, alerts, floats.
  *
  * It was one box holding all of it. Two pump columns in half a screen each and
  * three lists of lamps side by side underneath, everything sized down until the
@@ -259,7 +259,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
  * arm's length.
  *
  * Boxes again rather than rules between blocks. A rule is enough to separate
- * two columns inside one card; it is not enough between five full width
+ * two columns inside one card; it is not enough between four full width
  * sections, where the eye needs to know where a section starts more than it
  * needs the pixel of height back.
  *
@@ -296,7 +296,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 }
 
 /* The icon, the name, and whatever the section has to say about itself, on one
-   line. The icon is there to be found by shape: five headings down a page are
+   line. The icon is there to be found by shape: four headings down a page are
    quicker to tell apart by their drawing than by reading them. */
 .card-top {
   display: flex;
@@ -305,8 +305,8 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   margin-bottom: 0.3rem;
 }
 
-/* Each of the five headings carries its own color, in the icon and in a tint
-   behind it. Five gray drawings in a column are told apart by reading them,
+/* Each of the four headings carries its own color, in the icon and in a tint
+   behind it. Four gray drawings in a column are told apart by reading them,
    which is the job the icon was there to save; a color is the thing an eye
    finds before it has read anything.
 
@@ -329,7 +329,6 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 
 .pump-card { --icon: var(--accent); }
 .alert-card { --icon: var(--crit); }
-.overload-card { --icon: var(--warn); }
 .water-card { --icon: var(--water); }
 
 .card-title {
@@ -379,11 +378,22 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   background: color-mix(in srgb, var(--ok) 14%, transparent);
 }
 
-/* Off and staying off. */
-.status-fail {
+/* Off and staying off, and the alerts section with something raised. Two
+   different sentences and the same news: a red word where a quiet one usually
+   is. */
+.status-fail,
+.status-alarm {
   color: var(--crit);
   border-color: color-mix(in srgb, var(--crit) 55%, transparent);
   background: color-mix(in srgb, var(--crit) 14%, transparent);
+}
+
+/* Nothing raised, which is what this says nearly all of the time. Quiet
+   rather than green, because the page already has a green and it means a pump
+   is running. The word does the work; the color is only there to not shout. */
+.status-clear {
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
 }
 
 /* Label on the left, answer on the right, four to a section. A definition list
@@ -470,8 +480,16 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 
 .pump-card.running .amps { color: var(--ok); }
 
-/* Alerts, overloads and floats. Three sections of the same shape, two contacts
-   each, so they read the same way one under the other. */
+/* Alerts and floats. Two sections of the same shape, four contacts and two, so
+   the six rows read the same way one under the other.
+
+   The overloads had a section of their own, on the argument that they are a
+   different kind of bad news: an alert means read the panel, an overload means
+   a pump is off and staying off. That is true and it did not earn a heading.
+   Somebody who came to this page because a phone went off is looking for the
+   one thing that is lit, and a third heading is one more thing between them
+   and it. Under one heading they are four rows of the same shape, counted over
+   the same month, and what each of them means is in the note behind the i. */
 .lamp-pair {
   display: grid;
   margin-top: 0.35rem;
@@ -491,9 +509,9 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 
 /* The name of the contact, which is the label on this row exactly as "Load
    now" is the label on a pump's. So it is set as one: same size, same weight,
-   same muted color as a fact's term. The three contact sections were a size
-   and a weight of their own before, and five boxes down a page in two
-   typographies read as two pages. */
+   same muted color as a fact's term. The contact sections were a size and a
+   weight of their own before, and a page of boxes in two typographies reads as
+   two pages. */
 .lamp-title {
   flex: 1;
   min-width: 0;
@@ -506,8 +524,13 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
    rather than a footnote to it, because a lamp that is off looks exactly the
    same whether it went twenty times today or has never gone at all.
 
-   Two lines rather than one, the count under the time in the size the ordinary
-   day is written in beside a run count. */
+   Two lines rather than one, and both of them in the type the rest of the page
+   answers in. The count was two thirds the size of the line above it, which
+   made the pair read as an answer with a footnote under it; they are two
+   answers to two questions, when it last went and how often it has been going,
+   and neither is a note on the other. The count is muted and the last time is
+   not, which is the same difference a label and its number have on a pump, and
+   it is enough. */
 .lamp-when {
   display: grid;
   flex: none;
@@ -523,7 +546,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 }
 
 .lamp-count {
-  font-size: 0.8rem;
+  font-size: 1.05rem;
   font-weight: 400;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
@@ -544,18 +567,20 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .lamp.unset .bulb { opacity: 0.45; }
 .lamp.unset .lamp-title { opacity: 0.75; }
 
+/* Two colors on the lamps and they are the two kinds of news. Red is an alarm:
+   something is wrong and somebody has to do something. Green is the equipment
+   working, which is what a float closing is, because a pit that fills and gets
+   pumped out is a pit doing its job.
+
+   The floats were amber, on the reasoning that water rising is a warning. It is
+   not: it is Tuesday. Amber for the ordinary thing left this page with no color
+   that meant fine, and three sections of warm lamps where only one of them was
+   ever bad news. */
 .lamp-red.on .bulb {
   background: var(--crit);
   border-color: var(--crit);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--crit) 22%, transparent),
               0 0 16px color-mix(in srgb, var(--crit) 60%, transparent);
-}
-
-.lamp-amber.on .bulb {
-  background: var(--warn);
-  border-color: var(--warn);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent),
-              0 0 16px color-mix(in srgb, var(--warn) 55%, transparent);
 }
 
 .lamp-green.on .bulb {
@@ -584,7 +609,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 /* A small quiet heading over a chart or a written summary. It names what is
    under it rather than announcing itself, which is what a heading over a
    drawing should do. The dashboard used to share this and does not any more:
-   its five sections are read from a distance and their headings are the size
+   its four sections are read from a distance and their headings are the size
    of headings. */
 .section-heading {
   display: flex;
@@ -968,11 +993,27 @@ dialog.note .hint p:last-child { margin-bottom: 0; }
 
 /* The ordinary day, next to today's count. Quieter than the count, because it
    is the thing being compared against rather than the answer. */
+/* The note that rides beside an answer: the typical load next to the live one,
+   the ordinary day next to today's count.
+
+   A size up from where it started. At 0.8rem it read as a footnote on the
+   answer rather than a second answer, which is the same mistake the count
+   under a lamp was making, and these two carry more of the card now that the
+   pump is two rows. */
 .beside {
   margin-left: 0.4rem;
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   font-weight: 400;
   color: var(--text-muted);
+}
+
+/* Between when it last ran and how many times it has today. A dot rather than
+   a gap, because three values right aligned on one line with nothing between
+   them read as one number that has been spaced out. */
+.runs-sep {
+  margin: 0 0.35rem;
+  color: var(--text-muted);
+  opacity: 0.55;
 }
 
 /* Alerts ------------------------------------------------------------------ */

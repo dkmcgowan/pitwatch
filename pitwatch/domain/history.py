@@ -190,7 +190,17 @@ class CurrentHistory:
 # What is not sound is reading the absence of a report as the absence of an
 # event.
 
-RUN_WINDOW = timedelta(hours=24)
+# Today means today: since midnight where the pit is, not the last twenty four
+# hours. It was a rolling day, which is a defensible number and is not the one
+# the word promises. At nine in the morning "runs today" counting last night's
+# storm is the page telling somebody something they will read as wrong, and
+# being right about a window nobody asked for is not worth that.
+#
+# Midnight is taken in the site's own timezone rather than the server's or
+# UTC, and taken in the database so that the day is drawn at the same instant
+# the rows are filtered by. The cost is that today's count is a part day being
+# read against a whole day's average until the evening, which is what the note
+# behind the i says.
 
 # How far back the average of a normal day is worked out over. Long enough that
 # one storm does not become the baseline, short enough to still be this season.
@@ -216,7 +226,10 @@ WITH readings AS (
     FROM readings
 )
 SELECT
-    count(*) FILTER (WHERE started AND ts > now() - $3::interval) AS runs,
+    count(*) FILTER (
+        WHERE started
+        AND ts >= date_trunc('day', now() AT TIME ZONE $3::text) AT TIME ZONE $3::text
+    ) AS runs,
     -- The last run whenever it was, not the last one today. A pump that has
     -- not gone since Tuesday should say Tuesday, not say nothing.
     max(ts)  FILTER (WHERE started)                              AS last_start,
@@ -251,10 +264,16 @@ class RecentRuns:
     """Run counts and last start, cached for a minute."""
 
     def __init__(self) -> None:
-        self._cache: dict[tuple[int, float], tuple[datetime, Recent]] = {}
+        self._cache: dict[tuple[int, float, str], tuple[datetime, Recent]] = {}
 
-    async def recent(self, pool: asyncpg.Pool, channel: int, running_amps: float) -> Recent:
-        key = (channel, running_amps)
+    async def recent(
+        self,
+        pool: asyncpg.Pool,
+        channel: int,
+        running_amps: float,
+        timezone: str = "UTC",
+    ) -> Recent:
+        key = (channel, running_amps, timezone)
         now = datetime.now(UTC)
         cached = self._cache.get(key)
         if cached is not None and now - cached[0] < REFRESH_RUNS:
@@ -262,7 +281,7 @@ class RecentRuns:
         self._cache[key] = (now, cached[1] if cached else Recent())
 
         try:
-            row = await pool.fetchrow(RUNS_QUERY, channel, running_amps, RUN_WINDOW, RUN_BASELINE)
+            row = await pool.fetchrow(RUNS_QUERY, channel, running_amps, timezone, RUN_BASELINE)
         except (asyncpg.PostgresError, OSError) as error:
             log.warning("Could not count recent runs for clamp %d: %s", channel, error)
             return self._cache[key][1]

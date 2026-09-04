@@ -923,8 +923,12 @@ def test_every_missing_pump_fact_reads_the_same_way():
     # "no data yet" to appear.
     assert card.count("setFact(") >= 4
 
+    # One rule, and it reaches the lamps as well as the facts. A field with
+    # nothing behind it reads the same on all five sections, in the type of
+    # the reading it stands in for rather than a lighter one of its own.
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
-    assert ".fact .none {" in css
+    selectors = css.split(".fact .none", 1)[1].split("{", 1)[0]
+    assert ".lamp-last.none" in selectors and ".lamp-count.none" in selectors
 
 
 def test_a_pump_section_carries_everything_about_that_pump():
@@ -965,7 +969,11 @@ def test_a_running_pump_is_shown_by_the_whole_section():
 
     assert ".pump-card.running {" in css
     assert ".pump-card.running .amps" in css
-    assert ".pump-card.running .card-icon" in css
+    # The icon follows the section's own color token, which is what paints it
+    # the rest of the time too, so the running color cannot drift away from
+    # the resting one or leave the tint behind it the wrong hue.
+    assert "--icon: var(--ok);" in css.split(".pump-card.running {", 1)[1].split("}", 1)[0]
+    assert "var(--icon" in css.split(".card-icon {", 1)[1].split("}", 1)[0]
 
 
 def test_every_long_note_is_a_dialog_opened_from_beside_its_heading():

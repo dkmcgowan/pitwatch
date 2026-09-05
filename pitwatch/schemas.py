@@ -639,7 +639,7 @@ class SiteSettings(BaseModel):
     # typed. Leave it empty and links are built from the incoming request,
     # which is right often enough but not always.
     base_url: str = ""
-    # Shown on the public messaging policy, because a carrier reviewing a
+    # Shown on the public terms and conditions, because a carrier reviewing a
     # toll-free registration wants a way to contact somebody, and so does a
     # recipient who wants to be taken off the list.
     contact_email: str = ""

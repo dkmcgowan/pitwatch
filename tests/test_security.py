@@ -197,7 +197,7 @@ def test_changing_a_password_ends_every_other_session(client):
 # -- headers -----------------------------------------------------------------
 
 
-@pytest.mark.parametrize("path", ["/login", "/messaging-policy"])
+@pytest.mark.parametrize("path", ["/login", "/terms"])
 def test_the_security_headers_are_set(client, path):
     headers = client.get(path).headers
 
@@ -331,7 +331,7 @@ def test_changing_your_own_password_does_not_sign_you_out(client):
     assert client.get("/profile").status_code == 200, "signed out by their own change"
 
 
-@pytest.mark.parametrize("path", ["/login", "/messaging-policy", "/privacy"])
+@pytest.mark.parametrize("path", ["/login", "/terms", "/privacy"])
 def test_pages_reference_their_own_assets_by_path_not_by_url(client, path):
     """Behind a proxy that terminates TLS, an absolute URL is a broken page.
 

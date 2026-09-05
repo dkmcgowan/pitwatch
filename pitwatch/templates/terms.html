@@ -1,0 +1,175 @@
+{% extends "public.html" %}
+{# The registration terms and conditions for the SMS Program.
+
+   This is the URL filed with the carrier, and the page a reviewer opens to
+   decide whether the number behind these messages belongs to a real operator
+   sending the kind of message it claims to send.
+
+   The block under the heading is written for that reviewer and is deliberately
+   short: who operates this, what the program sends, how often, what it costs,
+   how to stop, that participation is voluntary, and where the privacy notice
+   is. Several of its sentences are quoted rather than composed. "Message
+   frequency varies based on equipment events", "Msg & data rates may apply",
+   "Reply STOP to opt out" and "Reply HELP for help" are the wordings a review
+   looks for, and a better sentence meaning the same thing is worth nothing to
+   somebody checking for the standard one. They are under test for exactly that
+   reason; see tests/test_auth.py.
+
+   Everything below that block is the same ground at length, for a person
+   rather than a reviewer: the actual messages this installation sends, how
+   consent is taken, and what happens to a phone number. A carrier gets its
+   answer without scrolling and a recipient gets the whole story. #}
+{% block title %}Terms &amp; Conditions{% endblock %}
+
+{% block content %}
+<section class="card prose">
+  <h1>Terms &amp; Conditions</h1>
+  <p class="muted">Last updated {{ terms_updated }}</p>
+
+  <p>
+    PitWatch is a building equipment monitoring application operated by
+    <strong>{% if site.operator %}{{ site.operator }}{% else %}the owner of the
+    building it monitors{% endif %}</strong>. These Terms &amp; Conditions
+    govern the PitWatch SMS notification program.
+  </p>
+
+  <h2>SMS Program</h2>
+  <p>
+    PitWatch sends transactional and informational SMS alerts related to
+    building equipment, including pump faults, high-water conditions,
+    maintenance events, equipment status changes, and recovery notifications.
+  </p>
+  <p>
+    Message frequency varies based on equipment events. Msg &amp; data rates may
+    apply.
+  </p>
+  <p>
+    Reply <strong>STOP</strong> to opt out. Reply <strong>HELP</strong> for
+    help. For additional assistance, contact
+    {% if site.contact_email %}<a href="mailto:{{ site.contact_email }}">{{ site.contact_email }}</a>{% else %}the
+    building administrator who added you to these alerts{% endif %}.
+  </p>
+  <p>
+    Participation is voluntary. Recipients are enrolled only after providing
+    consent. PitWatch does not send marketing or promotional SMS messages.
+  </p>
+  <p>
+    See our Privacy Policy at <a href="{{ privacy_url }}">{{ privacy_url }}</a>.
+  </p>
+
+  <h2>What the alerts are</h2>
+  <p>
+    PitWatch monitors {{ site.public_pumps_at }}. Every message is an
+    operational alert about that equipment, sent because it needs attention:
+  </p>
+  <ul>
+    <li><strong>Pump faults.</strong> A motor overload has tripped, or a pump
+      has drawn more current than it should for long enough to matter.</li>
+    <li><strong>High-water conditions.</strong> The high water float in the pit
+      is wet, meaning water is arriving faster than the pumps are clearing
+      it.</li>
+    <li><strong>Equipment status changes.</strong> Both pumps running at once, a
+      pump running far longer than a normal cycle, or a pump that has not run
+      when it should have.</li>
+    <li><strong>Maintenance events.</strong> The monitoring hardware has stopped
+      reporting, or a pump's typical load has drifted far enough from its own
+      history to be worth looking at.</li>
+    <li><strong>Recovery notifications.</strong> A matching message when a
+      condition clears, so that nobody is left believing a problem is still open
+      when it is not.</li>
+  </ul>
+
+  {% if samples %}
+  <h2>What one looks like</h2>
+  <p>
+    These are the messages this installation is configured to send, filled in
+    with example readings. The same text goes to email and to text messages.
+  </p>
+  <ul class="samples">
+    {% for sample in samples %}
+    <li>
+      <span class="sample-label">{{ sample.title }}</span>
+      <span class="sample-text">{{ sample.text }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  <h2>Consent and enrollment</h2>
+  <p>
+    Recipients give consent before they are enrolled, and can withdraw it at any
+    time. Somebody is added by the building administrator, who enters their name
+    and mobile number and records that the person has agreed to receive text
+    messages. Nobody is added without being asked first, and consent to text
+    messages is not a condition of anything else.
+  </p>
+  <p>
+    There is no public sign up form, no purchased list, and no way for a mobile
+    number to reach this system except by somebody entering it on behalf of a
+    person who agreed to it. Withdrawing consent takes effect on request and
+    needs no reason.
+  </p>
+
+  <h2>How to stop</h2>
+  <p>
+    <strong>STOP</strong> ends all further text messages to that number.
+    <strong>HELP</strong> returns contact details for assistance. Both replies
+    are handled by the mobile carriers and take effect regardless of what is
+    configured here, so neither depends on this system being reachable or
+    working. You can also ask the building administrator to remove you
+    entirely, at any time and for any reason. To stop email alerts, reply to
+    any of them.
+  </p>
+
+  <h2>Message frequency</h2>
+  <p>
+    Messages are event driven, not scheduled. In normal operation the equipment
+    is quiet and no messages are sent at all, sometimes for months. During a
+    fault, several may arrive in a short period. Repeats of the same condition
+    are suppressed, so a fault that comes and goes does not send a message every
+    time it flickers.
+  </p>
+
+  <h2>Cost</h2>
+  <p>Carriers are not liable for delayed or undelivered messages.</p>
+
+  <h2>Privacy</h2>
+  <p>
+    Names, email addresses and mobile numbers are held only to send these
+    alerts. They are stored on the building's own system and are not used for
+    any other purpose. Mobile numbers are passed to the messaging provider
+    solely in order to deliver a message.
+  </p>
+  <p>
+    <strong>SMS consent and mobile information are never sold, rented or shared
+    with third parties or affiliates for marketing or promotional
+    purposes.</strong> Removal is on request. See the
+    <a href="{{ privacy_url }}">privacy notice</a> for what is held and for how
+    long.
+  </p>
+
+  <h2>Support</h2>
+  <p>
+    You never have to reach anybody to stop these messages: replying
+    <strong>STOP</strong> to any text message ends them immediately. For
+    anything else, contact
+    {% if site.operator %}{{ site.operator }}{% else %}the operator of this
+    system{% endif %}:
+  </p>
+  <ul>
+    {% if site.contact_email %}
+    <li>Email:
+      <a href="mailto:{{ site.contact_email }}">{{ site.contact_email }}</a></li>
+    {% endif %}
+    {% if site.contact_phone %}
+    <li>Phone: {{ site.contact_phone }}</li>
+    {% endif %}
+    {% if not site.contact_email and not site.contact_phone %}
+    <li>Through the building administrator, who is the person who added you to
+      these alerts and holds the only copy of this list. There is no public sign
+      up, so everyone receiving these messages already knows who that is.</li>
+    {% endif %}
+  </ul>
+  <p>See also the <a href="/contact">contact page</a>.</p>
+</section>
+{% endblock %}

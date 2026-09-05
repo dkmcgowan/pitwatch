@@ -10,7 +10,7 @@ What is public, and why each one:
 * **Static files.** The stylesheet for the login page, and nothing that is not
   already in the repository.
 * **The health check.** A load balancer cannot sign in.
-* **The home page, the contact page, the messaging policy and the privacy
+* **The home page, the contact page, the terms and conditions and the privacy
   notice.** These are the ones that look like a mistake and are not. A carrier
   reviewing a toll-free number registration has to be able to see who is behind
   the number and how people opt in and out of texts, without an account, and so
@@ -47,6 +47,10 @@ PUBLIC_PATHS = frozenset(
         "/logout",
         "/health",
         "/healthz",
+        "/terms",
+        # Where the terms used to live. Still public, because it is still the
+        # URL on a carrier registration and it has to be able to answer with
+        # the redirect rather than with a login page.
         "/messaging-policy",
         "/privacy",
         "/set-password",

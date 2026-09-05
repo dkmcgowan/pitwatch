@@ -268,9 +268,33 @@ class Debouncer:
         self._stable[channel] = raw
         return raw
 
-    def pending(self) -> bool:
-        """Whether anything is waiting on the clock rather than on a message."""
-        return bool(self._candidate)
+    def next_deadline(self, now: float) -> float | None:
+        """Seconds until the earliest candidate has lasted the hold.
+
+        None when nothing is waiting. This is what lets a change be confirmed
+        by the clock, which is the whole premise of debouncing a source that
+        only speaks when something changes.
+        """
+        if not self._candidate:
+            return None
+        earliest = min(started for _, started in self._candidate.values())
+        return max(0.0, self._hold - (now - earliest))
+
+    def settled(self, now: float) -> dict[int, bool]:
+        """Every candidate that has now lasted the hold, promoted to stable.
+
+        The counterpart to feed. feed answers "did this message settle
+        anything"; this answers "did the passage of time settle anything", and
+        without the second one a change that arrives once and is never
+        contradicted waits forever.
+        """
+        done: dict[int, bool] = {}
+        for channel, (raw, started) in list(self._candidate.items()):
+            if now - started >= self._hold:
+                del self._candidate[channel]
+                self._stable[channel] = raw
+                done[channel] = raw
+        return done
 
 
 class InputsReader:
@@ -292,6 +316,9 @@ class InputsReader:
         # really did change while this was down is still noticed.
         self._known: dict[int, bool] = dict(initial_state or {})
         self._first = True
+        # Set whenever a message leaves something waiting on the clock, so the
+        # settler sleeps until there is a reason to wake rather than on a tick.
+        self._nudge = asyncio.Event()
 
     async def run(self, stop: asyncio.Event) -> None:
         while not stop.is_set():
@@ -331,10 +358,16 @@ class InputsReader:
             await client.subscribe(settings.status_topic)
             await self._report(True, None)
 
-            async for message in client.messages:
-                if stop.is_set():
-                    return
-                await self._handle(message)
+            settler = asyncio.create_task(self._settle(stop))
+            try:
+                async for message in client.messages:
+                    if stop.is_set():
+                        return
+                    await self._handle(message)
+            finally:
+                settler.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await settler
 
     async def _handle(self, message: aiomqtt.Message) -> None:
         payload = message.payload
@@ -353,25 +386,84 @@ class InputsReader:
         if events:
             await self._on_events(events)
 
+    async def _settle(self, stop: asyncio.Event) -> None:
+        """Confirm changes that the clock has settled.
+
+        The debouncer used to be consulted only when a message arrived, which
+        quietly meant a change was confirmed by the *next* message rather than
+        by the hold elapsing. On a source that speaks only when something
+        changes, that is not a debounce: a contact that closes once and stays
+        closed produces exactly one message, the candidate waits for a second
+        one that is never coming, and the change is never recorded at all.
+
+        It was found on the first real panel. A pump's auxiliary contact
+        bounced on the way in, so the two messages that produced confirmed the
+        rise; the clean break on the way out produced one message and was lost,
+        leaving the dashboard holding a pump that had stopped half an hour
+        earlier. A high water float is the same shape and matters far more: it
+        closes and stays closed, so under the old code it would never have been
+        recorded and never have raised an alert.
+        """
+        loop = asyncio.get_running_loop()
+        while not stop.is_set():
+            self._nudge.clear()
+            delay = self._debouncer.next_deadline(loop.time())
+
+            if delay is None:
+                # Nothing is waiting, so there is nothing to wake up for until
+                # a message says otherwise.
+                await self._nudge.wait()
+                continue
+
+            if delay > 0:
+                # A message arriving may change what we are waiting for, so it
+                # cuts the sleep short and the deadline is worked out again.
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(self._nudge.wait(), timeout=delay)
+                continue
+
+            try:
+                events = self._events_for(self._debouncer.settled(loop.time()))
+            except InputsError as error:
+                log.error("Could not record a settled change: %s", error)
+                continue
+            if events:
+                await self._on_events(events)
+
     def _apply(self, states: dict[int, bool]) -> list[IoEvent]:
         """Turn one published body into the events it implies."""
         now = asyncio.get_running_loop().time()
-        stamp = datetime.now(UTC)
-        events = []
+        confirmed: dict[int, bool] = {}
 
         for number, raw in sorted(states.items()):
-            settings = self._channel(number)
+            # Reached for its side effect of raising on an input with no
+            # settings, which is worth hearing about before anything is stored.
+            self._channel(number)
 
             if self._first and self._debouncer.stable_state(number) is None:
                 # The first body after connecting is the truth, not a
                 # transition; there is nothing to debounce it against.
                 self._debouncer.prime(number, raw)
-                changed = raw
+                confirmed[number] = raw
             else:
                 settled = self._debouncer.feed(number, raw, now)
-                if settled is None:
-                    continue
-                changed = settled
+                if settled is not None:
+                    confirmed[number] = settled
+
+        self._first = False
+        # Anything this body left waiting on the clock is the settler's now.
+        if self._debouncer.next_deadline(now) is not None:
+            self._nudge.set()
+        return self._events_for(confirmed)
+
+    def _events_for(self, confirmed: dict[int, bool]) -> list[IoEvent]:
+        """Settled raw readings, inverted where the signal is fail safe, and
+        written down only where they differ from what is already recorded."""
+        stamp = datetime.now(UTC)
+        events = []
+
+        for number, changed in sorted(confirmed.items()):
+            settings = self._channel(number)
 
             state = (not changed) if settings.invert else changed
             if self._known.get(number) == state:
@@ -388,7 +480,7 @@ class InputsReader:
                     channel=number,
                     label=settings.title,
                     state=state,
-                    raw=raw,
+                    raw=changed,
                 )
             )
             log.info(
@@ -396,10 +488,9 @@ class InputsReader:
                 settings.title,
                 "on" if state else "off",
                 number,
-                "closed" if raw else "open",
+                "closed" if changed else "open",
             )
 
-        self._first = False
         return events
 
     def _channel(self, number: int):

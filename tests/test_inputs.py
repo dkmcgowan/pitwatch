@@ -191,6 +191,84 @@ def test_one_channel_bouncing_does_not_hold_up_another():
 # -- what the reader records ------------------------------------------------
 
 
+def test_a_change_nothing_contradicts_is_still_a_change():
+    """The one that cost an evening on the first real panel.
+
+    A source that speaks only when something changes sends exactly one message
+    for a contact that closes and stays closed. The debouncer used to be
+    consulted only when a message arrived, so that candidate waited for a
+    second message that was never coming and the change was never recorded.
+
+    A pump's auxiliary contact bounced on the way in, so the rise was confirmed
+    by its own bounce and looked like it worked. The clean break on the way out
+    produced one message and vanished, leaving a pump shown as running half an
+    hour after it stopped. A high water float is the same shape and matters
+    more: it closes and stays closed, so it would never have alerted at all.
+    """
+    debouncer = Debouncer(hold_ms=500)
+    debouncer.prime(1, False)
+
+    # One message, and nothing after it.
+    assert debouncer.feed(1, True, now=0.0) is None, "not settled yet, correctly"
+
+    # Nothing else arrives. The clock alone has to finish the job.
+    assert debouncer.next_deadline(now=0.0) == pytest.approx(0.5)
+    assert debouncer.settled(now=0.2) == {}, "the hold has not elapsed"
+    assert debouncer.next_deadline(now=0.2) == pytest.approx(0.3)
+    assert debouncer.settled(now=0.6) == {1: True}
+    assert debouncer.stable_state(1) is True
+
+    # And once taken, it is not offered again.
+    assert debouncer.settled(now=1.0) == {}
+    assert debouncer.next_deadline(now=1.0) is None
+
+
+def test_nothing_waiting_means_no_deadline():
+    """The settler sleeps on an event rather than a tick, so a quiet panel
+    costs nothing."""
+    debouncer = Debouncer(hold_ms=500)
+    debouncer.prime(1, False)
+
+    assert debouncer.next_deadline(now=0.0) is None
+
+    # A reading that agrees with the stable state is not a candidate.
+    assert debouncer.feed(1, False, now=0.0) is None
+    assert debouncer.next_deadline(now=0.0) is None
+
+
+def test_the_clock_settles_a_bounce_at_its_last_value():
+    """A float bobbing sends a burst. What lands is where it stopped, once the
+    hold has passed since the last flip, not once it has passed since the
+    first."""
+    debouncer = Debouncer(hold_ms=500)
+    debouncer.prime(2, False)
+
+    debouncer.feed(2, True, now=0.0)
+    debouncer.feed(2, False, now=0.1)
+    debouncer.feed(2, True, now=0.2)
+
+    # The hold runs from the last flip, so nothing at 0.6 even though the
+    # first message was 600ms ago.
+    assert debouncer.settled(now=0.6) == {}
+    assert debouncer.settled(now=0.75) == {2: True}
+
+
+def test_the_earliest_candidate_sets_the_deadline():
+    """Two channels waiting, and the sleep is until the first of them is due
+    rather than the last."""
+    debouncer = Debouncer(hold_ms=500)
+    debouncer.prime(1, False)
+    debouncer.prime(2, False)
+
+    debouncer.feed(1, True, now=0.0)
+    debouncer.feed(2, True, now=0.3)
+
+    assert debouncer.next_deadline(now=0.3) == pytest.approx(0.2)
+    assert debouncer.settled(now=0.55) == {1: True}
+    assert debouncer.next_deadline(now=0.55) == pytest.approx(0.25)
+    assert debouncer.settled(now=0.85) == {2: True}
+
+
 def test_the_first_body_is_the_truth_not_a_transition():
     """There is nothing to debounce the first body against, and a module that
     reconnects mid run would otherwise sit blind for the whole hold."""

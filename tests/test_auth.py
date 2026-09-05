@@ -8,6 +8,7 @@ password can do, and whether guessing is cheap.
 from __future__ import annotations
 
 import re
+from html import unescape
 
 import pytest
 
@@ -27,7 +28,11 @@ def prose(html: str) -> str:
     lines in the template.
     """
     text = re.sub(r"<[^>]+>", " ", html)
-    return re.sub(r"\s+", " ", text).strip()
+    # Entities unescaped, because a reader sees "Msg & data rates may apply"
+    # and the template has to write that ampersand as &amp;. Several of the
+    # sentences on the terms page are quoted exactly and would not match
+    # against the source spelling.
+    return re.sub(r"\s+", " ", unescape(text)).strip()
 
 
 @pytest.fixture(autouse=True)
@@ -75,7 +80,7 @@ def test_the_login_page_is_reachable(client):
     assert client.get("/login").status_code == 200
 
 
-@pytest.mark.parametrize("path", ["/", "/contact", "/messaging-policy", "/privacy"])
+@pytest.mark.parametrize("path", ["/", "/contact", "/terms", "/privacy"])
 def test_the_public_pages_are_public(client, path):
     """Deliberate, and the thing most likely to be "fixed" later.
 
@@ -91,14 +96,114 @@ def test_the_public_pages_are_public(client, path):
     assert "STOP" in response.text or "opt" in response.text.lower()
 
 
-def test_the_messaging_policy_says_what_carriers_look_for(client):
-    page = prose(client.get("/messaging-policy").text)
+# The sentences a carrier review is reading this page for. They are quoted
+# rather than composed: a better sentence that means the same thing is worth
+# nothing to somebody checking for the standard one, and every one of these has
+# a house style it loses to if left alone. "Msg" is not spelled out. "Reply
+# STOP to opt out" is not "you can stop at any time by replying STOP".
+CARRIER_WORDING = (
+    "PitWatch is a building equipment monitoring application operated by",
+    "These Terms & Conditions govern the PitWatch SMS notification program.",
+    "Message frequency varies based on equipment events.",
+    "Msg & data rates may apply.",
+    "Reply STOP to opt out.",
+    "Reply HELP for help.",
+    "Participation is voluntary.",
+    "Recipients are enrolled only after providing consent.",
+    "PitWatch does not send marketing or promotional SMS messages.",
+)
 
-    assert "STOP" in page
-    assert "HELP" in page
-    assert "Message and data rates may apply" in page
-    for phrase in ("not sold", "marketing", "frequency"):
-        assert phrase in page.lower()
+
+def test_the_terms_carry_the_wording_a_carrier_looks_for(client):
+    """Word for word, not in spirit.
+
+    This page is the URL on the registration and it is read by somebody
+    checking for standard sentences. Every one of these has a nicer version
+    that says the same thing and fails the check.
+    """
+    page = prose(client.get("/terms").text)
+
+    for phrase in CARRIER_WORDING:
+        assert phrase in page, phrase
+
+
+def test_the_terms_say_what_the_program_sends(client):
+    """Transactional and informational, and the five kinds by name. A reviewer
+    matching a campaign's stated use case against its terms is looking for the
+    words in the campaign."""
+    page = prose(client.get("/terms").text)
+
+    assert "transactional and informational SMS alerts" in page
+    for kind in (
+        "pump faults",
+        "high-water conditions",
+        "maintenance events",
+        "equipment status changes",
+        "recovery notifications",
+    ):
+        assert kind in page, kind
+
+
+def test_the_terms_call_the_program_by_name(client):
+    """SMS Program, capitalised, as its own heading. A registration names a
+    program and the terms have to be visibly about that program rather than
+    about a website in general."""
+    page = client.get("/terms").text
+
+    assert "<h1>Terms &amp; Conditions</h1>" in page
+    assert "<title>Terms &amp; Conditions</title>" in page
+    assert "SMS Program" in page
+
+
+def test_the_terms_link_the_privacy_notice_by_its_address(client):
+    """Absolute, because a reviewer is reading this as a document rather than
+    clicking around a site, and "see our privacy policy at /privacy" is not an
+    address."""
+    page = prose(client.get("/terms").text)
+
+    assert "See our Privacy Policy at http" in page
+    assert "/privacy" in page
+
+
+def test_the_terms_keep_the_promise_about_selling_numbers(client):
+    """The sentence carriers want and the one this system can actually make:
+    consent and the number itself go nowhere near a marketing list."""
+    page = prose(client.get("/terms").text)
+
+    assert (
+        "SMS consent and mobile information are never sold, rented or shared "
+        "with third parties or affiliates for marketing or promotional purposes." in page
+    )
+
+
+def test_each_document_carries_its_own_date(client):
+    """Two documents, two dates. They shared one, so rewriting the terms
+    claimed the privacy notice had been rewritten on the same day, which on a
+    pair of pages whose whole job is being accurate is a small lie in the first
+    line of both."""
+    terms = prose(client.get("/terms").text)
+    privacy = prose(client.get("/privacy").text)
+
+    assert "Last updated" in terms and "Last updated" in privacy
+
+    def dated(page: str) -> str:
+        return page.split("Last updated ", 1)[1].split(" PitWatch", 1)[0]
+
+    assert dated(terms) != dated(privacy), "one date for both is back"
+
+
+def test_the_old_policy_url_still_answers(client):
+    """It is the URL that was filed with the carrier and printed in messages
+    already delivered. A registration whose terms link 404s is a registration
+    in trouble, so the old path redirects rather than disappearing."""
+    response = client.get("/messaging-policy", follow_redirects=False)
+
+    assert response.status_code == 301
+    assert response.headers["location"] == "/terms"
+
+    # And it does it without asking anybody to sign in, which is the whole
+    # point of it still being on the public list.
+    assert "login" not in response.headers["location"]
 
 
 def test_the_login_page_links_to_the_policies(client):
@@ -106,7 +211,7 @@ def test_the_login_page_links_to_the_policies(client):
     with the carrier. The login page only has to be able to reach them."""
     page = client.get("/login").text
 
-    assert "/messaging-policy" in page
+    assert "/terms" in page
     assert "/privacy" in page
 
 
@@ -119,6 +224,10 @@ def test_the_public_list_is_short_and_deliberate():
         # text about a pump.
         "/",
         "/contact",
+        "/terms",
+        # And where the terms used to live, which is still the URL on a carrier
+        # registration and has to be able to answer with its redirect rather
+        # than with a login page.
         "/messaging-policy",
         "/privacy",
         # Getting in, and the two ways of not being in.
@@ -314,7 +423,7 @@ def test_the_policies_never_print_a_placeholder_location(client):
     something shows up on a page a carrier reads. The application is PitWatch;
     everything else is whatever somebody types, and until they do it is not
     named at all."""
-    for path in ("/messaging-policy", "/privacy"):
+    for path in ("/terms", "/privacy"):
         page = prose(client.get(path).text)
         assert "PitWatch monitors pump equipment." in page, path
         assert "Ejector" not in page, path
@@ -327,7 +436,7 @@ def test_the_policies_give_the_town_once_it_is_set(client):
         data={"site_operator_locality": "New York, NY 10014"},
     )
 
-    page = prose(client.get("/messaging-policy").text)
+    page = prose(client.get("/terms").text)
 
     assert "pump equipment in New York, NY 10014" in page
 
@@ -344,7 +453,7 @@ def test_the_policies_never_name_the_building(client):
 
     client.post("/logout")
 
-    for path in ("/", "/contact", "/messaging-policy", "/privacy", "/login"):
+    for path in ("/", "/contact", "/terms", "/privacy", "/login"):
         assert "822 Greenwich St" not in client.get(path).text, path
 
 
@@ -364,7 +473,7 @@ def test_static_assets_carry_the_version(client):
     and no reason to ask for another. The version in the query string means an
     upgrade changes the URL.
     """
-    for path in ("/login", "/messaging-policy"):
+    for path in ("/login", "/terms"):
         page = client.get(path).text
         assert "style.css?v=" in page, path
 
@@ -380,11 +489,10 @@ def test_the_policy_stands_up_without_any_contact_details(client):
     sign_in_as_admin(client)
     client.post("/settings/site", data={"site_name": "822 Greenwich St"})
 
-    page = prose(client.get("/messaging-policy").text)
+    page = prose(client.get("/terms").text)
 
-    assert "STOP" in page
-    assert "HELP" in page
-    assert "Message and data rates may apply" in page
+    for phrase in CARRIER_WORDING:
+        assert phrase in page, phrase
     assert "You never have to reach anybody to stop these messages" in page
     assert "who added you to these alerts" in page
 
@@ -396,12 +504,12 @@ def test_contact_details_are_shown_when_there_are_some(client):
         data={"site_name": "822 Greenwich St", "site_contact_email": "pumps@example.com"},
     )
 
-    page = prose(client.get("/messaging-policy").text)
+    page = prose(client.get("/terms").text)
 
     assert "pumps@example.com" in page
-    # And STOP is still the first thing offered, because it is the one that
-    # works without asking anybody.
-    assert page.index("never have to reach anybody") < page.index("pumps@example.com")
+    # And STOP is still offered before it, because it is the one that works
+    # without asking anybody. The address is what to do about everything else.
+    assert page.index("Reply STOP to opt out.") < page.index("pumps@example.com")
 
 
 def test_the_policy_shows_the_messages_it_will_actually_send(client):
@@ -411,7 +519,7 @@ def test_the_policy_shows_the_messages_it_will_actually_send(client):
     editing a message on the alerts page cannot leave a public page describing
     something the system stopped sending a year ago.
     """
-    page = prose(client.get("/messaging-policy").text)
+    page = prose(client.get("/terms").text)
 
     assert "High water at" in page
     assert "overload tripped at" in page
@@ -423,7 +531,7 @@ def test_a_sample_message_does_not_leak_the_building(client):
     sign_in_as_admin(client)
     client.post("/settings/site", data={"site_name": "822 Greenwich St"})
 
-    assert "822 Greenwich St" not in client.get("/messaging-policy").text
+    assert "822 Greenwich St" not in client.get("/terms").text
 
 
 def test_a_button_in_prose_is_not_recolored_into_invisibility(client):

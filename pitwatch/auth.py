@@ -9,7 +9,7 @@ dashboard.
 Notes on the decisions, because they are the sort that get quietly undone:
 
 * **Everything is behind sign in** except the login page, the health check, the
-  static files, and the public messaging policy. That last one is not an
+  static files, and the public terms and conditions. That last one is not an
   oversight: a carrier reviewing a toll-free number registration has to be able
   to read the opt-in terms without an account, and so does anybody deciding
   whether to give you their phone number.

@@ -1655,7 +1655,7 @@ def test_the_two_footers_are_the_same_shape():
     assert '<a href="/">Home</a>' not in public_footer
     assert "footer-links" not in public_footer and "footer-version" not in public_footer
 
-    for link in ("/messaging-policy", "/privacy"):
+    for link in ("/terms", "/privacy"):
         assert link in base_footer, link
         assert link in public_footer, link
     # Contact is public only. There is nobody to contact from inside the
@@ -1681,7 +1681,7 @@ def test_the_public_footer_ends_with_the_version():
     footer = page.split("<footer", 1)[1]
 
     assert "A person" in footer
-    assert footer.index("Messaging policy") < footer.index("PitWatch test")
+    assert footer.index("Terms &amp; Conditions") < footer.index("PitWatch test")
     assert ">Home<" not in footer
 
 

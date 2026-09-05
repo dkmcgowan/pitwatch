@@ -27,3 +27,6 @@ Thumbs.db
 .env.*
 !.env.example
 docker-compose.override.yml
+# One operator's push script: a host, an account and the path to a key. Useful
+# to whoever runs this installation and nobody else, and not a thing to publish.
+deploy.sh

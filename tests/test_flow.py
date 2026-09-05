@@ -726,7 +726,7 @@ def test_the_public_contact_and_your_own_are_kept_apart(client):
     assert client.app.state.settings.site.contact_email == "super@building.example.com"
     assert 'value="david@example.com"' in client.get("/profile").text
     # And the public page shows only the public one.
-    policy = client.get("/messaging-policy").text
+    policy = client.get("/terms").text
     assert "super@building.example.com" in policy
     assert "david@example.com" not in policy
 
@@ -962,7 +962,7 @@ def test_the_home_page_is_readable_without_an_account(client):
     assert "PitWatch" in page
     # The three questions the page exists to answer.
     assert "ejector" in page.lower()
-    assert "/messaging-policy" in page
+    assert "/terms" in page
     assert "/contact" in page
 
 
@@ -990,7 +990,7 @@ def test_the_public_pages_carry_the_operator(client):
     )
     client.post("/logout")
 
-    for path in ("/", "/contact", "/messaging-policy", "/privacy"):
+    for path in ("/", "/contact", "/terms", "/privacy"):
         page = client.get(path, follow_redirects=False).text
         assert "Jane Smith, Sole Proprietor" in page, path
         assert "New York, NY 10014" in page, path
@@ -1018,7 +1018,7 @@ def test_the_building_is_never_published(client):
     )
     client.post("/logout")
 
-    for path in ("/", "/contact", "/messaging-policy", "/privacy", "/login"):
+    for path in ("/", "/contact", "/terms", "/privacy", "/login"):
         page = client.get(path, follow_redirects=False).text
         assert "822 Example St" not in page, path
 

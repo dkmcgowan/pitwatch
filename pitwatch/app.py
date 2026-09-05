@@ -188,7 +188,12 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
     templates.env.globals["csrf_token"] = _csrf_token
     # Shown on the policy pages, which are the sort of thing a carrier looks at
     # the date on.
-    templates.env.globals["policy_updated"] = "26 August 2026"
+    # A date each, because they are two documents and they change on different
+    # days. One shared date meant that rewriting the terms silently claimed the
+    # privacy notice had been rewritten too, which on a page whose whole job is
+    # being accurate is a small lie in the first line.
+    templates.env.globals["terms_updated"] = "5 September 2026"
+    templates.env.globals["privacy_updated"] = "26 August 2026"
     app.state.templates = templates
 
     users.register(app)
@@ -239,19 +244,40 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
             return JSONResponse({"status": "unhealthy", "detail": str(error)}, status_code=503)
         return JSONResponse({"status": "ok", "version": __version__})
 
-    @app.get("/messaging-policy", include_in_schema=False)
-    async def messaging_policy(request: Request) -> HTMLResponse:
-        """Public on purpose. See pitwatch.middleware for why."""
+    @app.get("/terms", include_in_schema=False)
+    async def terms(request: Request) -> HTMLResponse:
+        """The SMS Program's terms and conditions. Public on purpose: see
+        pitwatch.middleware for why, and the template for what a carrier
+        reviewing a registration is reading it for."""
         store: SettingsStore = request.app.state.settings
+        # Absolute, because a carrier reviewing a registration is reading this
+        # page as a document rather than clicking around a site, and "see our
+        # privacy policy at /privacy" is not an address. Built the same way an
+        # invitation link is: the configured address if there is one, and what
+        # the request came in on if there is not.
+        base = store.site.base_url.rstrip("/") or str(request.base_url).rstrip("/")
         return templates.TemplateResponse(
             request,
-            "messaging_policy.html",
+            "terms.html",
             {
                 "site": store.site,
                 "user": None,
                 "samples": _sample_messages(store),
+                "privacy_url": base + "/privacy",
             },
         )
+
+    @app.get("/messaging-policy", include_in_schema=False)
+    async def messaging_policy() -> RedirectResponse:
+        """Where this page used to live.
+
+        It is not a link on this site any more, and it cannot simply go. The
+        old path is what was filed with the carrier and printed in messages
+        that have already been delivered, and a URL on a registration that
+        answers 404 is a registration in trouble. Permanent, because it is: the
+        page moved once and is not moving back.
+        """
+        return RedirectResponse("/terms", status_code=301)
 
     @app.get("/privacy", include_in_schema=False)
     async def privacy(request: Request) -> HTMLResponse:

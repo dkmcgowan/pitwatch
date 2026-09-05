@@ -137,15 +137,19 @@ class InputsSettings(BaseModel):
 
     # How long a state has to hold before it counts as a change.
     #
-    # Still needed, and for the same reason as ever: contacts bounce, and
-    # floats bounce longest because a float bobs on the water. What changed is
-    # that a bounce now arrives as a burst of messages rather than as a run of
-    # disagreeing polls, so this waits after a change to see whether it lasts.
+    # Off by default, because the module already does it.
     #
-    # The cost is that every transition is reported this much later than it
-    # happened, which against a run of a few seconds is invisible: the start
-    # and the end move together, so the duration is unchanged.
-    debounce_ms: int = Field(default=500, ge=0, le=30_000)
+    # Contacts bounce and a float bobs on the water, so something has to wait
+    # and see whether a change lasts. The X-408 has that setting per input and
+    # applies it at the contact, which is the better place: the bounce never
+    # becomes eight MQTT messages in the first place. Doing it again here only
+    # adds latency, and this is the path an alarm travels down.
+    #
+    # It stays configurable, and not every module debounces. Set it where the
+    # hardware does not, and leave it at zero where the hardware does, which
+    # makes this a straight passthrough: the first message wins, with no
+    # candidate and no timer.
+    debounce_ms: int = Field(default=0, ge=0, le=30_000)
 
     channels: list[ChannelMap] = Field(default_factory=list)
 

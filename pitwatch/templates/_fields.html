@@ -165,7 +165,9 @@
     <input type="number" id="inputs_debounce_ms" name="inputs_debounce_ms"
            value="{{ inputs.debounce_ms }}" min="0" max="30000" step="50">
     <p class="hint">Contacts bounce, and a float bobs on the water, so a change
-      has to last this long before it counts. Applies to all eight inputs.</p>
+      has to last this long before it counts. Applies to all eight inputs.
+      Leave it at <code>0</code> if the module debounces its own inputs, which
+      the X-408 does: doing it twice only delays the alarm.</p>
   </div>
 </div>
 

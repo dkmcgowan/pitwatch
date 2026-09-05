@@ -44,11 +44,17 @@ def lead_and_lag(inputs: InputsSettings, live_io: LiveIo) -> tuple[str, str]:
     display is that somebody who has stood in front of that panel already knows
     how to read it.
 
-    **A running pump is LEAD.** It holds the word for as long as its contact is
-    closed, and the rotation flips when it stops, not when it starts. So pump 1
-    reads LEAD all the way through its run and becomes LAG the moment it drops
-    out, at which point pump 2 is lead and is the one that answers the next
-    call.
+    **A running pump is ON, and the other one is already LEAD.** Corrected
+    2026-09-05 by watching the real controller rather than reasoning about it.
+    The rotation flips the moment a pump starts, not when it stops: pump 1
+    closing its contact reads ON, and pump 2 becomes LEAD there and then,
+    because pump 2 is the one that will answer the next call. When pump 1 drops
+    out it reads LAG and pump 2 keeps LEAD.
+
+    This used to say a running pump held LEAD for the length of its run. That
+    was a guess, it was wrong, and it made the two words disagree with the
+    panel door for the whole of every run, which is exactly when somebody is
+    standing in front of both of them.
 
     **Both running is ON and ON.** That is the high water case: the pit has
     come up past the lag float and the controller has called both. Neither is
@@ -82,9 +88,9 @@ def lead_and_lag(inputs: InputsSettings, live_io: LiveIo) -> tuple[str, str]:
     if running_1 and running_2:
         return ("ON", "ON")
     if running_1:
-        return ("LEAD", "LAG")
+        return ("ON", "LEAD")
     if running_2:
-        return ("LAG", "LEAD")
+        return ("LEAD", "ON")
 
     # Neither is running, so the rotation decides, and the pump that went last
     # is the one sitting out. came_on_at is when a contact was last seen to

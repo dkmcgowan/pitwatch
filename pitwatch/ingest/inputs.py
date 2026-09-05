@@ -56,6 +56,14 @@ INPUT_COUNT = 8
 # status this cannot read is not a device it can vouch for.
 ONLINE = "online"
 
+# How many heartbeat intervals of silence before the module is called gone.
+#
+# More than two, because one missed beat is a dropped packet and calling that a
+# dead module would make the indicator cry wolf. Not much more than two, because
+# the whole point is to notice. At the module's default of 60 s this is two and
+# a half minutes of silence.
+HEARTBEAT_MISSES = 2.5
+
 # How long to wait before reconnecting to a broker that is not there. Long
 # enough not to hammer it, short enough that a broker restarting during a
 # storm is not the reason nobody heard about the storm.
@@ -319,6 +327,11 @@ class InputsReader:
         # Set whenever a message leaves something waiting on the clock, so the
         # settler sleeps until there is a reason to wake rather than on a tick.
         self._nudge = asyncio.Event()
+        # When the module last proved it was there, and whether we have already
+        # said it stopped. The flag is what keeps a silent module from being
+        # reported offline once per check for the rest of the night.
+        self._heard_at: float | None = None
+        self._stale = False
 
     async def run(self, stop: asyncio.Event) -> None:
         while not stop.is_set():
@@ -356,23 +369,47 @@ class InputsReader:
             # cannot be missed.
             await client.subscribe(settings.topic)
             await client.subscribe(settings.status_topic)
+            if settings.heartbeat_topic:
+                await client.subscribe(settings.heartbeat_topic)
+            # The clock starts now rather than at zero, so a module that is
+            # perfectly healthy is given a full window to say so before
+            # anything is held against it.
+            self._heard_at = asyncio.get_running_loop().time()
+            self._stale = False
             await self._report(True, None)
 
-            settler = asyncio.create_task(self._settle(stop))
+            watchers = [
+                asyncio.create_task(self._settle(stop)),
+                asyncio.create_task(self._watch_heartbeat(stop)),
+            ]
             try:
                 async for message in client.messages:
                     if stop.is_set():
                         return
                     await self._handle(message)
             finally:
-                settler.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await settler
+                for watcher in watchers:
+                    watcher.cancel()
+                for watcher in watchers:
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await watcher
 
     async def _handle(self, message: aiomqtt.Message) -> None:
         payload = message.payload
         text = payload.decode("utf-8", "replace") if isinstance(payload, bytes) else str(payload)
         topic = str(message.topic)
+
+        if self._settings.heartbeat_topic and topic == self._settings.heartbeat_topic:
+            # Proof of life by arriving, not by what it says. The module's own
+            # default body is an id, an uptime and an address, with no status
+            # field in it at all; reading it for one would mark a healthy
+            # module dead every sixty seconds.
+            self._heard_at = asyncio.get_running_loop().time()
+            if self._stale:
+                self._stale = False
+                log.info("The panel module is talking again")
+                await self._report(True, None)
+            return
 
         if topic == self._settings.status_topic:
             # The device's own word for whether it is there, or the broker's
@@ -429,6 +466,44 @@ class InputsReader:
                 continue
             if events:
                 await self._on_events(events)
+
+    async def _watch_heartbeat(self, stop: asyncio.Event) -> None:
+        """Hold the module to its own interval.
+
+        Without this, green means "nothing has contradicted it", which is not
+        the same claim and is the weaker one in the direction that matters. The
+        last will covers a module that dies while PitWatch is listening; it
+        cannot cover a module that dies while PitWatch is down, because the
+        broker publishes a will once, to whoever is connected. Coming back to a
+        healthy broker and an absent module looks exactly like coming back to a
+        healthy everything.
+
+        Expecting a heartbeat is opt in. At zero this does nothing at all,
+        which is right for an installation whose module is not configured to
+        send one: holding silence against a device that was never asked to
+        speak would paint a permanent red and teach somebody to ignore it.
+        """
+        expected = self._settings.heartbeat_s
+        if not expected or not self._settings.heartbeat_topic:
+            return
+
+        loop = asyncio.get_running_loop()
+        limit = expected * HEARTBEAT_MISSES
+        while not stop.is_set():
+            # Checked several times per window rather than once, so the news is
+            # at most a fraction of an interval late.
+            await asyncio.sleep(max(1.0, expected / 2))
+            if self._heard_at is None or self._stale:
+                continue
+            silent = loop.time() - self._heard_at
+            if silent < limit:
+                continue
+            self._stale = True
+            log.warning("No heartbeat from the panel module for %.0f s", silent)
+            await self._report(
+                False,
+                f"No heartbeat for {silent:.0f} s, expected every {expected} s",
+            )
 
     def _apply(self, states: dict[int, bool]) -> list[IoEvent]:
         """Turn one published body into the events it implies."""

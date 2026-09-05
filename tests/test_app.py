@@ -456,17 +456,32 @@ def test_the_display_waits_rather_than_guessing_which_pump_is_lead():
     assert words(io()) == ("--", "--")
 
 
-def test_a_running_pump_holds_lead_until_it_stops():
+def test_a_running_pump_is_on_and_the_other_is_already_lead():
     """Matching the controller on the wall, which is the whole point of this
-    display. The rotation flips when a pump drops out, not when it starts."""
-    assert words(io((P1, True))) == ("LEAD", "LAG")
+    display.
+
+    Corrected against the real panel on 2026-09-05. This used to claim a
+    running pump held LEAD for the length of its run and that the rotation
+    flipped when it dropped out. Watching it, the rotation flips the moment a
+    pump starts: pump 1 reads ON and pump 2 reads LEAD there and then, because
+    pump 2 is what answers the next call. The old reading had the two words
+    disagreeing with the panel door for the whole of every run, which is
+    precisely when somebody is standing in front of both.
+    """
+    assert words(io((P1, True))) == ("ON", "LEAD")
     assert words(io((P1, True), (P1, False))) == ("LAG", "LEAD")
+
+    # And the same the other way round.
+    assert words(io((P2, True))) == ("LEAD", "ON")
+    assert words(io((P2, True), (P2, False))) == ("LEAD", "LAG")
 
 
 def test_the_rotation_alternates_across_calls():
     """Pump 1 runs and hands over, then pump 2 runs and hands back."""
     assert words(io((P1, True), (P1, False))) == ("LAG", "LEAD")
-    assert words(io((P1, True), (P1, False), (P2, True))) == ("LAG", "LEAD")
+    # Pump 2 picks up the call it was lead for, so it reads ON and pump 1 is
+    # lead again from the moment it starts.
+    assert words(io((P1, True), (P1, False), (P2, True))) == ("LEAD", "ON")
     assert words(io((P1, True), (P1, False), (P2, True), (P2, False))) == ("LEAD", "LAG")
 
 
@@ -475,9 +490,9 @@ def test_both_running_is_its_own_state():
     controller called both. Neither is leading anything at that point."""
     assert words(io((P1, True), (P2, True))) == ("ON", "ON")
 
-    # And when the lag pump drops out first, the one still running is lead
-    # again rather than the display jumping straight to the rotation.
-    assert words(io((P1, True), (P2, True), (P2, False))) == ("LEAD", "LAG")
+    # And when the second pump drops out first, the one still running goes
+    # back to reading ON rather than the display jumping to the rotation.
+    assert words(io((P1, True), (P2, True), (P2, False))) == ("ON", "LEAD")
 
 
 def test_one_pump_having_never_run_still_answers():

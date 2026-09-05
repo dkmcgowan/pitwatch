@@ -131,6 +131,27 @@ class InputsSettings(BaseModel):
     topic: str = Field(default="pitwatch/inputs", min_length=1, max_length=200)
     status_topic: str = Field(default="pitwatch/status", min_length=1, max_length=200)
 
+    # The module's own periodic "I am still here", and how often to expect it.
+    #
+    # The birth and last will pair covers the clean cases well: the broker
+    # publishes the will on the module's behalf the moment the socket drops. It
+    # has one hole, and it is the dangerous direction. A will only reaches a
+    # subscriber that is connected when it fires, so if the module dies while
+    # PitWatch is down, PitWatch comes back, finds a healthy broker, and marks
+    # the module online because nothing has contradicted it. Green forever, on a
+    # module in pieces.
+    #
+    # A heartbeat closes it. Anything arriving on this topic is proof of life,
+    # whatever it says: the device's default body carries an id and an uptime
+    # and no status field at all, and it would be wrong to read it for one.
+    #
+    # Expecting one is opt in. Zero means take the heartbeat as good news when
+    # it arrives and never hold its absence against the module, which is what an
+    # installation that has not configured one needs. Set it to the module's own
+    # interval and silence starts counting against it.
+    heartbeat_topic: str = Field(default="pitwatch/heartbeat", max_length=200)
+    heartbeat_s: int = Field(default=0, ge=0, le=3600)
+
     # How this client identifies itself to the broker. Two clients sharing an
     # id knock each other off, so it is worth being able to change.
     client_id: str = Field(default="pitwatch", min_length=1, max_length=64)

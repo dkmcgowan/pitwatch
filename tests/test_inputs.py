@@ -269,6 +269,80 @@ def test_the_earliest_candidate_sets_the_deadline():
     assert debouncer.settled(now=0.85) == {2: True}
 
 
+# -- the heartbeat ----------------------------------------------------------
+
+
+class _Message:
+    """Enough of an aiomqtt message for the handler."""
+
+    def __init__(self, topic: str, payload: str) -> None:
+        self.topic = topic
+        self.payload = payload.encode()
+
+
+def test_a_heartbeat_is_proof_of_life_by_arriving():
+    """Not by what it says. The module's own default body is an id, an uptime
+    and an address, with no status field in it at all, so reading it the way
+    the status topic is read would mark a healthy module dead every sixty
+    seconds."""
+    said: list[tuple[bool, str | None]] = []
+
+    async def on_status(online, error):
+        said.append((online, error))
+
+    async def run():
+        reader = InputsReader(
+            _settings(heartbeat_topic="pitwatch/heartbeat", heartbeat_s=60), _nothing, on_status
+        )
+        # Silent long enough to have been given up on.
+        reader._stale = True
+        reader._heard_at = 0.0
+        await reader._handle(
+            _Message(
+                "pitwatch/heartbeat",
+                '{"id":"x408","upTime":"1630","address":"10.136.1.51:80"}',
+            )
+        )
+        return reader
+
+    reader = asyncio.run(run())
+
+    assert said == [(True, None)], "a heartbeat brings a written off module back"
+    assert reader._stale is False
+    assert reader._heard_at is not None
+
+
+def test_a_heartbeat_is_not_read_as_a_status():
+    """It arrives on its own topic and never reaches says_online, which would
+    return False for it and be right to: that body says nothing about
+    status."""
+    assert says_online('{"id":"x408","upTime":"1630","address":"10.136.1.51:80"}') is False
+
+
+def test_expecting_a_heartbeat_is_opt_in():
+    """Zero means take one as good news when it arrives and never hold its
+    absence against the module. An installation whose module was never
+    configured to send one would otherwise paint a permanent red, which is how
+    somebody learns to ignore the indicator."""
+    assert InputsSettings().heartbeat_s == 0
+    assert InputsSettings().heartbeat_topic == "pitwatch/heartbeat"
+
+    async def run():
+        reader = InputsReader(_settings(heartbeat_s=0), _nothing)
+        # Returns at once rather than watching, so silence costs nothing.
+        await asyncio.wait_for(reader._watch_heartbeat(asyncio.Event()), timeout=1)
+
+    asyncio.run(run())
+
+
+def test_silence_is_given_more_than_one_missed_beat():
+    """One missed beat is a dropped packet. Calling that a dead module would
+    make the indicator cry wolf, which costs more than the delay saves."""
+    from pitwatch.ingest.inputs import HEARTBEAT_MISSES
+
+    assert HEARTBEAT_MISSES > 2
+
+
 def test_the_first_body_is_the_truth_not_a_transition():
     """There is nothing to debounce the first body against, and a module that
     reconnects mid run would otherwise sit blind for the whole hold."""

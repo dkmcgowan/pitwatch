@@ -12,7 +12,7 @@ import asyncio
 
 import pytest
 
-from pitwatch.ingest.inputs import Debouncer, InputsError, InputsReader, parse
+from pitwatch.ingest.inputs import Debouncer, InputsError, InputsReader, parse, says_online
 from pitwatch.schemas import ChannelMap, InputsSettings
 
 
@@ -88,6 +88,59 @@ def test_a_body_that_is_not_an_object_says_so():
 
 
 # -- debounce ---------------------------------------------------------------
+
+
+# -- what counts as the module saying it is there --------------------------
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        # What the README asks somebody to type.
+        "online",
+        " Online ",
+        "ONLINE",
+        '"online"',
+        # What the device ships with, which is a reasonable thing to leave
+        # alone: it names the device, which the bare word does not.
+        '{"id":"00:0C:C8:08:6A:4B","status":"online"}',
+        '{"status":"Online"}',
+        '{"status":" online "}',
+    ],
+)
+def test_a_module_saying_it_is_there_is_believed(payload):
+    assert says_online(payload) is True
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "offline",
+        '{"id":"00:0C:C8:08:6A:4B","status":"offline"}',
+        # An object that says nothing about status is not one saying the module
+        # is up.
+        '{"id":"00:0C:C8:08:6A:4B"}',
+        # Nor is a body nobody can read.
+        "",
+        "{",
+        "[1,2,3]",
+        "1",
+        # And the word has to be the whole of it. A sentence containing it is
+        # not a device reporting in.
+        "the module is online",
+    ],
+)
+def test_anything_else_is_offline(payload):
+    """The direction is the point. Claiming a module is there when nothing says
+    so is the reading that leaves a flooding basement looking fine."""
+    assert says_online(payload) is False
+
+
+def test_only_status_is_read_out_of_an_object():
+    """Not every key that might mean it. Same discipline as the payload
+    parser: a body nobody can read should say so rather than be guessed at."""
+    assert says_online('{"state":"online"}') is False
+    assert says_online('{"online":true}') is False
 
 
 def test_a_bounce_is_not_a_change():

@@ -51,8 +51,8 @@ log = logging.getLogger(__name__)
 
 INPUT_COUNT = 8
 
-# What the birth and last will messages say. The words are typed into the
-# device as well; anything else on that topic is treated as offline, because a
+# What the birth and last will messages mean. Two shapes are understood; see
+# says_online. Anything else on that topic is treated as offline, because a
 # status this cannot read is not a device it can vouch for.
 ONLINE = "online"
 
@@ -169,6 +169,52 @@ def _state_from(value: object) -> bool | None:
         if word in ("0", "false", "off", "no", "open", "low"):
             return False
     return None
+
+
+def says_online(payload: str) -> bool:
+    """Whether a status message means the module is there.
+
+    Two shapes, because the device ships with one and this project's own README
+    asks for the other. A bare ``online`` is what the setup instructions tell
+    you to type. ControlByWeb's default is
+    ``{"id":"${clientID}","status":"online"}``, and leaving that alone is a
+    perfectly reasonable thing to do: it names the device, which the bare word
+    does not.
+
+    Reading only the bare word made the default a silent trap. Inputs arrived,
+    the dashboard was right, and one indicator sat red with nothing on the page
+    to say why, which is the failure that teaches somebody to stop believing
+    the indicator. It cost an evening on the first real module.
+
+    Only ``status`` is read out of an object, not every key that might mean it.
+    This is the same discipline the payload parser follows and for the same
+    reason: a body nobody can read should say so rather than be guessed at.
+
+    Everything else is offline, a body this cannot parse included. The
+    direction is the point. Claiming a module is there when nothing says so is
+    the one mistake this must not make, because that is the reading that leaves
+    a flooding basement looking fine.
+    """
+    text = payload.strip()
+
+    try:
+        body = json.loads(text)
+    except (ValueError, TypeError):
+        return text.lower() == ONLINE
+
+    if isinstance(body, dict):
+        for key, value in body.items():
+            if str(key).strip().lower() == "status" and isinstance(value, str):
+                return value.strip().lower() == ONLINE
+        # An object that says nothing about status is not an object saying the
+        # module is up.
+        return False
+
+    # A quoted bare word is still a bare word.
+    if isinstance(body, str):
+        return body.strip().lower() == ONLINE
+
+    return False
 
 
 class Debouncer:
@@ -298,7 +344,7 @@ class InputsReader:
         if topic == self._settings.status_topic:
             # The device's own word for whether it is there, or the broker's
             # word on its behalf. Either way it is better than a timeout.
-            online = text.strip().lower() == ONLINE
+            online = says_online(text)
             log.info("The panel module reports %s", "online" if online else "offline")
             await self._report(online, None if online else "The module stopped talking")
             return

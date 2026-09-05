@@ -108,30 +108,51 @@ this is typed into the X-408's own web page, under **Setup**.
 | Birth Topic, Birth Message | `pitwatch/status`, `online` |
 | Last Will Topic, Last Will Message | `pitwatch/status`, `offline` |
 
+The module ships with a JSON body for these,
+`{"id":"${clientID}","status":"online"}`. Either form is read, so leaving the
+default alone is fine; the bare word is in the table because it is the shorter
+thing to type. What PitWatch reads is the `status` field, or the whole message
+when it is not JSON. Anything it cannot read counts as offline.
+
+Turn **Retain** on for both, so PitWatch learns whether the module is there the
+moment it subscribes rather than at the next connection.
+
 The birth and last will pair is what makes the module going offline something
 PitWatch is told about rather than something it has to notice: the broker sends
 the `offline` message on the module's behalf when the connection drops.
 
-Then add a publication:
+Then add **eight publications**, one per input. The **I/O** dropdown on a
+publication is what triggers it, not what it sends, so an input with no
+publication of its own is an input whose changes nobody hears about.
 
 | Field | What to put |
 | --- | --- |
-| Publication Name | `inputs` |
+| Publication Name | `inputs1` through `inputs8` |
 | Broker | the one you just added |
 | Publish on Change | **On** |
+| I/O | Digital Input 1, then 2, and so on: the only field that differs |
 | Publish Interval | leave empty |
-| Topic | `pitwatch/inputs` |
+| Topic | `pitwatch/inputs`, the same on all eight |
 | QoS, Retain | `1`, On |
+| Prepend Topic Root | **Off**, unless the topic above is written relative to a root |
 
-and for **Payload**, all eight inputs in one line:
+and for **Payload**, the same line on all eight, carrying every input:
 
 ```
-{"1":${digitalInput1},"2":${digitalInput2},"3":${digitalInput3},"4":${digitalInput4},"5":${digitalInput5},"6":${digitalInput6},"7":${digitalInput7},"8":${digitalInput8}}
+{"1":"${digitalInput1}","2":"${digitalInput2}","3":"${digitalInput3}","4":"${digitalInput4}","5":"${digitalInput5}","6":"${digitalInput6}","7":"${digitalInput7}","8":"${digitalInput8}"}
 ```
 
 Every message carries all eight on purpose. One message per changed input would
-leave PitWatch holding a picture assembled from fragments, and a fragment lost
-across a reconnect would leave it quietly wrong.
+leave PitWatch holding a picture assembled from fragments, and with Retain on
+the stored message would be whichever input moved last, so a reconnect would
+restore one input and know nothing about the other seven.
+
+The keys are yours; PitWatch reads `1` through `8`, and also spellings like
+`di1` or `digitalInput1`. Do not mix the two styles in one body: if any key is
+a bare number, only the bare numbers are read. The tokens on the right are the
+device's own, listed under **View MQTT Payload Tokens**. Quote them as above.
+An unresolved token then costs you one input instead of the whole message,
+which is invalid JSON and is dropped entire.
 
 The two topics also appear on the PitWatch settings page and have to match.
 Nothing warns you if they do not, because a topic nobody publishes to looks

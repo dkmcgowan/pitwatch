@@ -368,7 +368,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
    this page: the duplex rotation is working and something is ready to go.
 
    It was the same blue the brand mark is, which made it read as decoration
-   rather than as a state, and left LAG in the plain grey that everything
+   rather than as a state, and left LAG in the plain gray that everything
    undecided uses. Two pumps, two states, and only one of them coloured. */
 .status-lead {
   color: var(--ok);
@@ -378,7 +378,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 
 /* Sitting this one out, which is the pump that went last. Not a warning and
    not a fault, so it takes the water blue rather than anything with an opinion:
-   a colour that says "this is a state I have been told about" next to a green
+   a color that says "this is a state I have been told about" next to a green
    that says "this one is next". */
 .status-lag {
   color: var(--water);

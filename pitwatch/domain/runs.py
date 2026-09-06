@@ -34,7 +34,7 @@ right, and overlap is exactly what this gets right.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import asyncpg
 
@@ -43,31 +43,51 @@ from pitwatch.schemas import InputsSettings, ShellySettings
 
 log = logging.getLogger(__name__)
 
-# How much of the start of a run to leave out of the average and the median.
+# The inrush is the first reading, not the first two seconds.
 #
-# A motor's inrush is several times its running draw and lasts a moment, so a
-# mean over the whole run is a number about the starting surge rather than
-# about the pump. Peak keeps the surge deliberately: a starting current
-# climbing month over month is a motor with a problem, and it is the first
-# thing to show it.
-INRUSH_S = 2.0
+# A motor's starting surge is several times its running draw and lasts a
+# moment, so a mean over the whole run describes the surge rather than the
+# pump. That was excluded by time to begin with, two seconds of it, and the
+# real meter showed why that does not work here: the Shelly reports on change
+# rather than on a schedule, so a four second run on this pit yields one or two
+# readings and a two second window throws away all of them. Every run came back
+# with a null average and a null median.
+#
+# Dropping the first reading instead is the same intent measured in the units
+# the meter actually delivers. Where a run produced only one reading it is
+# kept, because one running reading is worth more than nothing and the thing it
+# would otherwise be excluded for -- being the inrush -- is not true of a
+# reading that arrived seconds after the start.
+#
+# Peak keeps every reading including the surge, deliberately: a starting
+# current climbing month over month is a motor with a problem and the first
+# place it shows.
+#
+# None of this is the main answer to "is this motor drawing more than it was".
+# That is the typical load on the dashboard, a median across every running
+# reading of the week, and it is sound precisely because it aggregates over
+# many runs. These per run figures are a bonus and will stay thin while the
+# pump runs for four seconds at a time.
 
 RUN_STATS = """
+WITH readings AS (
+    SELECT current,
+           row_number() OVER (ORDER BY ts) AS nth,
+           count(*)     OVER ()            AS total
+    FROM em_sample
+    WHERE channel = $1
+      AND ts >= $2::timestamptz
+      AND ts <= $3::timestamptz
+      AND current IS NOT NULL
+)
 SELECT
-    max(current)                                              AS peak_current,
-    min(current)                                              AS min_current,
-    avg(current)      FILTER (WHERE ts >= $2::timestamptz + $4::interval)
-                                                              AS avg_current,
+    max(current)                                       AS peak_current,
+    min(current)                                       AS min_current,
+    avg(current)      FILTER (WHERE nth > 1 OR total = 1) AS avg_current,
     percentile_cont(0.5) WITHIN GROUP (ORDER BY current)
-                      FILTER (WHERE ts >= $2::timestamptz + $4::interval)
-                                                              AS steady_current,
-    count(*)                                                  AS samples
--- Cast rather than left to inference. Postgres typed the bare $2 in the filter
--- as an interval to match what it was added to, and the whole query then failed
--- with "timestamp with time zone >= interval" at runtime, where a query that is
--- only reached when a pump stops is a query nobody sees fail for a week.
-FROM em_sample
-WHERE channel = $1 AND ts >= $2::timestamptz AND ts <= $3::timestamptz
+                      FILTER (WHERE nth > 1 OR total = 1) AS steady_current,
+    count(*)                                           AS samples
+FROM readings
 """
 
 
@@ -231,9 +251,7 @@ class RunRecorder:
         channel = self._clamp_for(pump)
         if channel is None:
             return {}
-        row = await connection.fetchrow(
-            RUN_STATS, channel, started_at, ended_at, timedelta(seconds=INRUSH_S)
-        )
+        row = await connection.fetchrow(RUN_STATS, channel, started_at, ended_at)
         return dict(row) if row else {}
 
     async def _close_cycle(self, connection, cycle_id: int | None, at: datetime) -> None:

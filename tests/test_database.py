@@ -782,8 +782,56 @@ async def test_the_clamp_describes_the_run_without_deciding_it(pool):
     row = await pool.fetchrow("SELECT * FROM pump_run WHERE pump = 1")
     assert row["peak_current"] == pytest.approx(48.0), "the surge is kept"
     assert row["steady_current"] == pytest.approx(16.0), "and left out of the median"
-    assert row["avg_current"] == pytest.approx(16.0)
+    assert row["avg_current"] == pytest.approx(23.0), "the second reading is still settling"
     assert row["samples"] == 5
+
+
+async def test_a_run_short_enough_to_give_one_reading_still_gets_it(pool):
+    """The real meter reports on change rather than on a schedule, so a four
+    second run on this pit yields one or two readings.
+
+    Excluding the inrush by time threw all of them away and every run came back
+    with a null average and a null median. Dropping the first reading instead
+    is the same intent in the units the meter actually delivers, and a run that
+    produced only one reading keeps it: one running reading beats nothing, and
+    a reading that arrived seconds after the start is not the surge.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.runs import RunRecorder
+
+    began = datetime.now(UTC) - timedelta(minutes=5)
+    await pool.execute(
+        "INSERT INTO em_sample (ts, channel, current) VALUES ($1, 1, 15.5)",
+        began + timedelta(seconds=2),
+    )
+
+    recorder = RunRecorder(pool, _store())
+    await recorder.record([_edge(1, True, began)])
+    await recorder.record([_edge(1, False, began + timedelta(seconds=4))])
+
+    row = await pool.fetchrow("SELECT * FROM pump_run WHERE pump = 1")
+    assert row["samples"] == 1
+    assert row["steady_current"] == pytest.approx(15.5)
+    assert row["avg_current"] == pytest.approx(15.5)
+
+
+async def test_a_run_with_no_reading_at_all_is_still_a_run(pool):
+    """A pump with no clamp fitted, which is where this installation is while
+    the second CT is on order. The contacts alone say it ran and for how long,
+    and those are the two facts a duration is made of."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.runs import RunRecorder
+
+    began = datetime.now(UTC) - timedelta(minutes=5)
+    recorder = RunRecorder(pool, _store())
+    await recorder.record([_edge(2, True, began)])
+    await recorder.record([_edge(2, False, began + timedelta(seconds=6))])
+
+    row = await pool.fetchrow("SELECT * FROM pump_run WHERE pump = 2")
+    assert row["duration_s"] == pytest.approx(6.0)
+    assert row["peak_current"] is None and row["samples"] == 0
 
 
 async def test_a_stop_with_no_start_is_not_a_run(pool):

@@ -241,10 +241,16 @@ FROM edges
 
 @dataclass(frozen=True, slots=True)
 class Recent:
-    """How many times a pump has started lately, and when it last did."""
+    """How many times a pump has started lately, when it last did, and for how
+    long it ran that time."""
 
     runs: int = 0
     last_start: datetime | None = None
+    # How long the last completed run lasted. None while a run is open, and on
+    # an installation whose runs come from the clamp, where there is no honest
+    # duration to give: the meter reports on its own schedule, so the end of a
+    # run is only known to within a reporting interval.
+    last_duration_s: float | None = None
     # Runs on an ordinary day, so today's count has something to be read
     # against. Eighty-nine is a lot or a Tuesday depending on what the month
     # looks like, and only one of those is worth getting out of bed for.
@@ -254,17 +260,77 @@ class Recent:
         return {
             "runs": self.runs,
             "last_start": self.last_start.isoformat() if self.last_start else None,
+            "last_duration_s": (
+                round(self.last_duration_s) if self.last_duration_s is not None else None
+            ),
             "daily_average": (
                 round(self.daily_average) if self.daily_average is not None else None
             ),
         }
 
 
+# The same three answers, off the panel's own run contacts.
+#
+# This is the query that should be used wherever the contacts are wired, and
+# the clamp one below is the fallback. A contact says a pump started at the
+# moment it started, so a count off it is a tally rather than a floor and a
+# duration off it is a measurement rather than an estimate. The clamp cannot
+# match that however carefully it is read: the meter reports on its own
+# schedule, so two runs close together arrive looking like one and a short run
+# can be missed entirely.
+CONTACT_RUNS_QUERY = """
+SELECT
+    count(*) FILTER (
+        WHERE started_at >= date_trunc('day', now() AT TIME ZONE $2::text) AT TIME ZONE $2::text
+    )                        AS runs,
+    max(started_at)          AS last_start,
+    count(*)                 AS baseline_runs,
+    min(started_at)          AS first_seen,
+    (
+        SELECT duration_s FROM pump_run
+        WHERE pump = $1 AND ended_at IS NOT NULL
+        ORDER BY started_at DESC LIMIT 1
+    )                        AS last_duration_s
+FROM pump_run
+WHERE pump = $1 AND started_at > now() - $3::interval
+"""
+
+
 class RecentRuns:
-    """Run counts and last start, cached for a minute."""
+    """Run counts, last start and last duration, cached for a minute.
+
+    Two sources, and the contacts win wherever they are wired. Which one an
+    installation gets is decided by the caller, because only it knows whether a
+    run signal has been assigned to an input; running on the clamps alone is a
+    normal way to run and has to keep working.
+    """
 
     def __init__(self) -> None:
-        self._cache: dict[tuple[int, float, str], tuple[datetime, Recent]] = {}
+        self._cache: dict[tuple, tuple[datetime, Recent]] = {}
+
+    async def from_contacts(self, pool: asyncpg.Pool, pump: int, timezone: str = "UTC") -> Recent:
+        """What the panel said this pump did."""
+        key = ("contact", pump, timezone)
+        now = datetime.now(UTC)
+        cached = self._cache.get(key)
+        if cached is not None and now - cached[0] < REFRESH_RUNS:
+            return cached[1]
+        self._cache[key] = (now, cached[1] if cached else Recent())
+
+        try:
+            row = await pool.fetchrow(CONTACT_RUNS_QUERY, pump, timezone, RUN_BASELINE)
+        except (asyncpg.PostgresError, OSError) as error:
+            log.warning("Could not count recent runs for pump %d: %s", pump, error)
+            return self._cache[key][1]
+
+        recent = Recent(
+            runs=int(row["runs"] or 0),
+            last_start=row["last_start"],
+            last_duration_s=row["last_duration_s"],
+            daily_average=_daily_average(row["baseline_runs"], row["first_seen"], now),
+        )
+        self._cache[key] = (now, recent)
+        return recent
 
     async def recent(
         self,
@@ -273,7 +339,7 @@ class RecentRuns:
         running_amps: float,
         timezone: str = "UTC",
     ) -> Recent:
-        key = (channel, running_amps, timezone)
+        key = ("clamp", channel, running_amps, timezone)
         now = datetime.now(UTC)
         cached = self._cache.get(key)
         if cached is not None and now - cached[0] < REFRESH_RUNS:

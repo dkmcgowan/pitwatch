@@ -48,6 +48,23 @@
     return Math.round(seconds / 86400) + " d ago";
   }
 
+  // How long a run lasted, in the units somebody would say it in. A pit that
+  // runs for seconds at a time deserves seconds; a run into the minutes is one
+  // worth noticing, and the whole point of showing this is that a run getting
+  // longer is a pump getting tired.
+  function duration(seconds) {
+    if (typeof seconds !== "number" || seconds < 1) {
+      return null;
+    }
+    if (seconds < 90) {
+      return Math.round(seconds) + " s";
+    }
+    if (seconds < 5400) {
+      return Math.round(seconds / 60) + " min";
+    }
+    return (seconds / 3600).toFixed(1) + " h";
+  }
+
   // -- rendering ------------------------------------------------------------
 
   // One way of saying there is nothing to say, so four fields cannot drift
@@ -106,10 +123,17 @@
     // identical from this side, so neither gets to claim a confident zero.
     const heard = Boolean(recent.last_start || recent.runs || pump.drawing_current);
 
-    if (pump.drawing_current) {
+    if (pump.running) {
       setFact(last, "running now");
+    } else if (recent.last_start) {
+      // How long it ran, beside when it ran. The duration is the answer to
+      // "is this pump working harder than it was", and it only exists where
+      // the panel's own run contact is wired: a clamp cannot say when a run
+      // ended to better than its own reporting interval.
+      const lasted = duration(recent.last_duration_s);
+      setFact(last, lasted ? since(recent.last_start) + " for " + lasted : since(recent.last_start));
     } else {
-      setFact(last, recent.last_start ? since(recent.last_start) : null);
+      setFact(last, null);
     }
 
     // One n/a on this row rather than three with punctuation between them. The

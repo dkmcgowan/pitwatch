@@ -669,3 +669,175 @@ async def test_the_load_series_can_leave_out_the_starting_surge(pool):
     assert max(peak for _, peak, _ in points) == pytest.approx(40.0)
     settled = [value for _, _, value in points if value is not None]
     assert max(settled) == pytest.approx(15.2), "the 40 A start is left out"
+
+
+# -- runs recorded from the panel's own contacts -----------------------------
+#
+# The layer that replaced inferring runs from current. A contact says a pump
+# started at the moment it started, so these are tallies and measurements
+# rather than floors and estimates, and that only holds if the recorder gets
+# the edges right.
+
+
+def _store(pump1_run=1, pump2_run=2, high_water=3, clamp1=1, clamp2=0):
+    """Just enough settings for the recorder: which input is which, and which
+    clamp belongs to which pump."""
+    from types import SimpleNamespace
+
+    from pitwatch.schemas import ChannelMap, InputsSettings, ShellySettings
+
+    return SimpleNamespace(
+        inputs=InputsSettings(
+            channels=[
+                ChannelMap(channel=pump1_run, role="pump1_run"),
+                ChannelMap(channel=pump2_run, role="pump2_run"),
+                ChannelMap(channel=high_water, role="high_water"),
+            ]
+        ),
+        shelly=ShellySettings(pump1_channel=clamp1, pump2_channel=clamp2),
+    )
+
+
+def _edge(channel, state, at):
+    from pitwatch.ingest.inputs import IoEvent
+
+    return IoEvent(ts=at, channel=channel, label=f"DI{channel}", state=state, raw=state)
+
+
+async def test_a_run_is_the_contact_closing_and_opening(pool):
+    """Start to stop, measured. Not inferred from the load rising off nothing,
+    which could only ever give a floor."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.runs import RunRecorder
+
+    began = datetime.now(UTC) - timedelta(minutes=5)
+    recorder = RunRecorder(pool, _store())
+
+    await recorder.record([_edge(1, True, began)])
+    await recorder.record([_edge(1, False, began + timedelta(seconds=41))])
+
+    row = await pool.fetchrow("SELECT * FROM pump_run WHERE pump = 1")
+    assert row["duration_s"] == pytest.approx(41.0)
+    assert row["started_by"] == "contact" and row["ended_by"] == "contact"
+    assert row["role"] == "lead", "the first pump on a call is the lead one"
+
+    cycle = await pool.fetchrow("SELECT * FROM pump_cycle WHERE id = $1", row["cycle_id"])
+    assert cycle["ended_at"] is not None, "the cycle closes when its last run does"
+    assert cycle["both_ran"] is False
+
+
+async def test_both_pumps_on_one_call_is_one_cycle(pool):
+    """The question that matters on a duplex panel. Two pumps running together
+    is the pit winning, and it is only answerable if they share a cycle."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.runs import RunRecorder
+
+    began = datetime.now(UTC) - timedelta(minutes=5)
+    recorder = RunRecorder(pool, _store())
+
+    await recorder.record([_edge(1, True, began)])
+    # The pit is still filling, so the controller calls the lag pump too.
+    await recorder.record([_edge(2, True, began + timedelta(seconds=10))])
+    await recorder.record([_edge(1, False, began + timedelta(seconds=60))])
+    await recorder.record([_edge(2, False, began + timedelta(seconds=70))])
+
+    cycles = await pool.fetch("SELECT * FROM pump_cycle")
+    assert len(cycles) == 1, "one call for water, not two"
+    assert cycles[0]["both_ran"] is True
+    assert cycles[0]["first_pump"] == 1
+    # Open until the second of them stopped, not the first.
+    assert cycles[0]["ended_at"] == began + timedelta(seconds=70)
+
+    roles = dict(await pool.fetch("SELECT pump, role FROM pump_run"))
+    assert roles == {1: "lead", 2: "lag"}
+
+
+async def test_the_clamp_describes_the_run_without_deciding_it(pool):
+    """Amps are recorded against the run and no longer say whether it
+    happened. The inrush is kept in peak, because a starting current climbing
+    month over month is a motor with a problem, and left out of the average and
+    the median, which are about the pump rather than about the surge."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.runs import RunRecorder
+
+    began = datetime.now(UTC) - timedelta(minutes=5)
+    await pool.executemany(
+        "INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)",
+        [
+            (began, 1, 48.0),
+            (began + timedelta(seconds=1), 1, 44.0),
+            (began + timedelta(seconds=5), 1, 16.0),
+            (began + timedelta(seconds=10), 1, 16.0),
+            (began + timedelta(seconds=15), 1, 16.0),
+        ],
+    )
+
+    recorder = RunRecorder(pool, _store())
+    await recorder.record([_edge(1, True, began)])
+    await recorder.record([_edge(1, False, began + timedelta(seconds=20))])
+
+    row = await pool.fetchrow("SELECT * FROM pump_run WHERE pump = 1")
+    assert row["peak_current"] == pytest.approx(48.0), "the surge is kept"
+    assert row["steady_current"] == pytest.approx(16.0), "and left out of the median"
+    assert row["avg_current"] == pytest.approx(16.0)
+    assert row["samples"] == 5
+
+
+async def test_a_stop_with_no_start_is_not_a_run(pool):
+    """The usual cause is a restart across a run: the contact was already
+    closed when this came up, so the opening edge belonged to the process
+    before. Inventing a run with no beginning would put a wrong duration on
+    every page that reads it."""
+    from datetime import UTC, datetime
+
+    from pitwatch.domain.runs import RunRecorder
+
+    await RunRecorder(pool, _store()).record([_edge(1, False, datetime.now(UTC))])
+
+    assert await pool.fetchval("SELECT count(*) FROM pump_run") == 0
+    assert await pool.fetchval("SELECT count(*) FROM pump_cycle") == 0
+
+
+async def test_a_second_start_closes_the_run_left_open(pool):
+    """A missed stop edge would otherwise leave a run open forever, and the
+    unique index would refuse the new one. A pump that is running now matters
+    more than tidying up one that is not, so the orphan is closed and said
+    so."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.runs import RunRecorder
+
+    began = datetime.now(UTC) - timedelta(minutes=10)
+    recorder = RunRecorder(pool, _store())
+
+    await recorder.record([_edge(1, True, began)])
+    await recorder.record([_edge(1, True, began + timedelta(minutes=5))])
+
+    rows = await pool.fetch("SELECT ended_by, ended_at FROM pump_run ORDER BY started_at")
+    assert len(rows) == 2
+    assert rows[0]["ended_by"] == "timeout" and rows[0]["ended_at"] is not None
+    assert rows[1]["ended_at"] is None, "the run that is actually happening stays open"
+
+
+async def test_a_cycle_remembers_the_pit_came_up_high(pool):
+    """Read off the float's own history rather than from whatever it says once
+    the pumps have finished, because by then it has usually dropped again,
+    which is the system working."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.runs import RunRecorder
+
+    began = datetime.now(UTC) - timedelta(minutes=5)
+    await pool.execute(
+        "INSERT INTO io_event (ts, channel, label, state, raw) VALUES ($1, 3, 'High water', true, true)",
+        began + timedelta(seconds=5),
+    )
+
+    recorder = RunRecorder(pool, _store())
+    await recorder.record([_edge(1, True, began)])
+    await recorder.record([_edge(1, False, began + timedelta(seconds=90))])
+
+    assert await pool.fetchval("SELECT high_water FROM pump_cycle") is True

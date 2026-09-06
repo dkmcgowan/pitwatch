@@ -1,0 +1,277 @@
+"""What the pumps actually did, recorded from the panel's own run contacts.
+
+The clamp says how many amps flowed at 3:04:11. This says "pump 2 ran for 41
+seconds at 3:04, drawing 7.2 A steady with a 46 A inrush, and it was the lag
+pump". That is the layer the dashboard and the alert rules read.
+
+**The contact decides, and the clamp describes.** A run starts when the panel
+closes the run contact and ends when it opens it, and nothing about the timing
+comes from current any more. It used to: runs were inferred from the load
+rising off nothing, which made a count a floor rather than a tally, because two
+runs close together arrive from the meter looking like one and a meter that
+reports on its own schedule can miss a short run entirely. The contact has none
+of those problems. It is the panel telling us, at the moment it happens, and it
+is exact.
+
+Amps keep the job they are good at. Peak, average and steady current are
+recorded against the run once it closes, and they are what says a motor is on
+its way out. They no longer decide whether it ran, how long for, or how many
+times.
+
+**A cycle is one call for water**: the floats rose, one or both pumps ran, the
+pit emptied. A run joins the cycle that is open, and the cycle closes when its
+last run does. That makes "both pumps ran on one call" answerable, which is the
+question that matters on a duplex panel, because two pumps running together is
+the pit winning.
+
+The cost of that rule is at the seam: a lag pump that starts a second after the
+lead pump stops is recorded as its own cycle rather than as the same call. That
+is the honest reading of what the contacts said, and inventing a grace period
+would be guessing at the controller's intent. Overlap is the case worth getting
+right, and overlap is exactly what this gets right.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timedelta
+
+import asyncpg
+
+from pitwatch.ingest.inputs import IoEvent
+from pitwatch.schemas import InputsSettings, ShellySettings
+
+log = logging.getLogger(__name__)
+
+# How much of the start of a run to leave out of the average and the median.
+#
+# A motor's inrush is several times its running draw and lasts a moment, so a
+# mean over the whole run is a number about the starting surge rather than
+# about the pump. Peak keeps the surge deliberately: a starting current
+# climbing month over month is a motor with a problem, and it is the first
+# thing to show it.
+INRUSH_S = 2.0
+
+RUN_STATS = """
+SELECT
+    max(current)                                              AS peak_current,
+    min(current)                                              AS min_current,
+    avg(current)      FILTER (WHERE ts >= $2::timestamptz + $4::interval)
+                                                              AS avg_current,
+    percentile_cont(0.5) WITHIN GROUP (ORDER BY current)
+                      FILTER (WHERE ts >= $2::timestamptz + $4::interval)
+                                                              AS steady_current,
+    count(*)                                                  AS samples
+-- Cast rather than left to inference. Postgres typed the bare $2 in the filter
+-- as an interval to match what it was added to, and the whole query then failed
+-- with "timestamp with time zone >= interval" at runtime, where a query that is
+-- only reached when a pump stops is a query nobody sees fail for a week.
+FROM em_sample
+WHERE channel = $1 AND ts >= $2::timestamptz AND ts <= $3::timestamptz
+"""
+
+
+class RunRecorder:
+    """Opens a pump_run when a run contact closes and completes it when it
+    opens, grouping runs into cycles as it goes.
+
+    Every write is guarded rather than assumed. A missed edge is a real
+    possibility on a panel that can lose power mid run, and the failure it
+    would otherwise cause is silent and lasting: a run left open forever, whose
+    duration is then wrong on every page that reads it. The unique index on one
+    open run per pump is the backstop, and this tries not to need it.
+    """
+
+    def __init__(self, pool: asyncpg.Pool, store) -> None:
+        self._pool = pool
+        self._store = store
+
+    # -- what the settings say --------------------------------------------
+
+    def _pump_for(self, channel: int) -> int | None:
+        """Which pump's run contact this input carries, if it carries one."""
+        inputs: InputsSettings = self._store.inputs
+        for pump in (1, 2):
+            if inputs.channel_for(f"pump{pump}_run") == channel:
+                return pump
+        return None
+
+    def _clamp_for(self, pump: int) -> int | None:
+        shelly: ShellySettings = self._store.shelly
+        return shelly.clamp_for_pump.get(pump)
+
+    # -- the edges ---------------------------------------------------------
+
+    async def record(self, events: list[IoEvent]) -> None:
+        """Take whatever the reader just confirmed and write the runs it
+        implies. Called after the events themselves are stored, so a failure
+        here costs the derived layer and not the record of what happened."""
+        for event in sorted(events, key=lambda event: (event.ts, event.channel)):
+            pump = self._pump_for(event.channel)
+            if pump is None:
+                continue
+            try:
+                if event.state:
+                    await self._begin(pump, event.ts)
+                else:
+                    await self._finish(pump, event.ts)
+            except (asyncpg.PostgresError, OSError) as error:
+                log.error("Could not record pump %d %s: %s", pump, event.ts, error)
+
+    async def _begin(self, pump: int, at: datetime) -> None:
+        async with self._pool.acquire() as connection, connection.transaction():
+            open_run = await connection.fetchval(
+                "SELECT id FROM pump_run WHERE pump = $1 AND ended_at IS NULL", pump
+            )
+            if open_run is not None:
+                # The panel said start twice with no stop between. Believe the
+                # panel and close the orphan rather than dropping the new run:
+                # the unique index would refuse it, and a pump that is running
+                # now matters more than tidying up one that is not.
+                log.warning("Pump %d started again with run %d still open", pump, open_run)
+                await connection.execute(
+                    """
+                    UPDATE pump_run
+                    SET ended_at = $2, duration_s = extract(epoch FROM $2 - started_at),
+                        ended_by = 'timeout'
+                    WHERE id = $1
+                    """,
+                    open_run,
+                    at,
+                )
+
+            cycle_id = await connection.fetchval(
+                "SELECT id FROM pump_cycle WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1"
+            )
+            if cycle_id is None:
+                cycle_id = await connection.fetchval(
+                    """
+                    INSERT INTO pump_cycle (started_at, first_pump)
+                    VALUES ($1, $2) RETURNING id
+                    """,
+                    at,
+                    pump,
+                )
+                role = "lead"
+            else:
+                # Somebody else is already answering this call, so this is the
+                # lag pump joining it. Recorded rather than worked out on read,
+                # so a later correction to the inference cannot silently
+                # rewrite what the dashboard said at the time.
+                await connection.execute(
+                    "UPDATE pump_cycle SET both_ran = true WHERE id = $1 AND first_pump <> $2",
+                    cycle_id,
+                    pump,
+                )
+                first = await connection.fetchval(
+                    "SELECT first_pump FROM pump_cycle WHERE id = $1", cycle_id
+                )
+                role = "lead" if first == pump else "lag"
+
+            await connection.execute(
+                """
+                INSERT INTO pump_run (cycle_id, pump, started_at, role, started_by)
+                VALUES ($1, $2, $3, $4, 'contact')
+                """,
+                cycle_id,
+                pump,
+                at,
+                role,
+            )
+        log.info("Pump %d started (%s)", pump, role)
+
+    async def _finish(self, pump: int, at: datetime) -> None:
+        async with self._pool.acquire() as connection, connection.transaction():
+            run = await connection.fetchrow(
+                """
+                SELECT id, cycle_id, started_at FROM pump_run
+                WHERE pump = $1 AND ended_at IS NULL
+                """,
+                pump,
+            )
+            if run is None:
+                # A stop with no start. The usual cause is a restart across a
+                # run, where the contact was already closed when this came up
+                # and the opening edge belonged to the previous process.
+                log.info("Pump %d stopped with no run open", pump)
+                return
+
+            duration = (at - run["started_at"]).total_seconds()
+            stats = await self._stats(connection, pump, run["started_at"], at)
+
+            await connection.execute(
+                """
+                UPDATE pump_run
+                SET ended_at = $2, duration_s = $3, ended_by = 'contact',
+                    peak_current = $4, avg_current = $5, steady_current = $6,
+                    min_current = $7, samples = $8
+                WHERE id = $1
+                """,
+                run["id"],
+                at,
+                duration,
+                stats.get("peak_current"),
+                stats.get("avg_current"),
+                stats.get("steady_current"),
+                stats.get("min_current"),
+                stats.get("samples") or 0,
+            )
+            await self._close_cycle(connection, run["cycle_id"], at)
+
+        log.info("Pump %d ran for %.0f s", pump, duration)
+
+    async def _stats(self, connection, pump: int, started_at: datetime, ended_at: datetime) -> dict:
+        """What the clamp saw while the contact was closed.
+
+        Empty when there is no clamp for this pump or the meter said nothing,
+        which is a normal way to run: the contacts alone are enough to know
+        that a pump ran and for how long, and those are the two facts a
+        duration is made of.
+        """
+        channel = self._clamp_for(pump)
+        if channel is None:
+            return {}
+        row = await connection.fetchrow(
+            RUN_STATS, channel, started_at, ended_at, timedelta(seconds=INRUSH_S)
+        )
+        return dict(row) if row else {}
+
+    async def _close_cycle(self, connection, cycle_id: int | None, at: datetime) -> None:
+        """Close the cycle once nothing in it is still running."""
+        if cycle_id is None:
+            return
+        still_running = await connection.fetchval(
+            "SELECT count(*) FROM pump_run WHERE cycle_id = $1 AND ended_at IS NULL", cycle_id
+        )
+        if still_running:
+            return
+
+        # Whether the pit came up past the high float at any point during the
+        # call. Read off the contact's own history rather than from whatever it
+        # happens to say now, because by the time the pumps have finished the
+        # float has usually dropped again, which is the system working.
+        high_channel = self._store.inputs.channel_for("high_water")
+        high_water = False
+        if high_channel:
+            high_water = bool(
+                await connection.fetchval(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1 FROM io_event
+                        WHERE channel = $1 AND state
+                          AND ts >= (SELECT started_at FROM pump_cycle WHERE id = $2)
+                          AND ts <= $3
+                    )
+                    """,
+                    high_channel,
+                    cycle_id,
+                    at,
+                )
+            )
+
+        await connection.execute(
+            "UPDATE pump_cycle SET ended_at = $2, high_water = high_water OR $3 WHERE id = $1",
+            cycle_id,
+            at,
+            high_water,
+        )

@@ -206,11 +206,27 @@ async def build_state(app) -> dict:
         )
         # The site's own timezone, because today is a word about where the pit
         # is and not about where the server is.
-        recent[number] = (
-            Recent()
-            if counter is None
-            else await counter.recent(pool, clamp[number], domain.RUNNING_AMPS, store.site.timezone)
-        )
+        # The panel's own run contact wherever one is assigned, and the clamp
+        # only where one is not. A contact says a pump started at the moment it
+        # started, so the count is a tally rather than a floor and the duration
+        # is measured rather than estimated. Running on the clamps alone stays
+        # a supported way to run, and it is the only reason the second path is
+        # still here.
+        if counter is None:
+            recent[number] = Recent()
+        elif store.inputs.channel_for(f"pump{number}_run"):
+            recent[number] = await counter.from_contacts(pool, number, store.site.timezone)
+        else:
+            recent[number] = await counter.recent(
+                pool, clamp[number], domain.RUNNING_AMPS, store.site.timezone
+            )
+
+    def running_now(number: int, drawing: bool) -> bool:
+        channel = store.inputs.channel_for(f"pump{number}_run")
+        if not channel:
+            return drawing
+        said = live_io.state_of(channel)
+        return bool(said) if said is not None else drawing
 
     def pump_state(number: int) -> dict:
         channel = clamp[number]
@@ -237,8 +253,15 @@ async def build_state(app) -> dict:
             # carrying the run contact, which did not exist while inputs were
             # free text. It does now, as inputs.channel_for("pump1_run"), so
             # this is buildable whenever the detector wants it. See NOTES.md.
+            # Whether the clamp is seeing current, which is not the same
+            # question as whether the panel called the pump. Keeping them apart
+            # is the point: a closed contactor drawing nothing is a motor that
+            # is not turning, and that disagreement is worth an alert of its
+            # own one day.
             "drawing_current": drawing,
-            "running": drawing,
+            # Running is the panel's word wherever the contact is wired, and
+            # the clamp's only where it is not.
+            "running": running_now(number, drawing),
             "typical": typical[number].as_json(),
             # The query behind this is cached for a minute, which is right for
             # a count and wrong for a clock. The live state knows exactly when

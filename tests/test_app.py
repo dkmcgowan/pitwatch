@@ -1171,17 +1171,23 @@ def test_runs_today_means_today():
     assert not hasattr(history, "RUN_WINDOW")
     # Midnight in the site's timezone, drawn in the database so that the day
     # and the rows it filters are decided at the same instant.
-    assert "date_trunc('day', now() AT TIME ZONE" in history.RUNS_QUERY
-    assert "interval" not in history.RUNS_QUERY.split("FILTER", 1)[1].split(")", 1)[0]
+    # Both sources draw the day the same way: the contacts, which is what a
+    # wired panel reads, and the clamp fallback for one without.
+    for query in (history.CONTACT_RUNS_QUERY, history.RUNS_QUERY):
+        assert "date_trunc('day', now() AT TIME ZONE" in query
+        assert "interval" not in query.split("FILTER", 1)[1].split(")", 1)[0]
 
     # And the timezone reaches it from the site's own settings rather than the
-    # server's clock. It is part of the cache key, because a cached count is a
-    # count of somebody's day.
+    # server's clock. It is part of both cache keys, because a cached count is
+    # a count of somebody's day.
     live = Path("pitwatch/api/live.py").read_text(encoding="utf-8")
     assert "store.site.timezone" in live
-    assert "key = (channel, running_amps, timezone)" in (
-        Path("pitwatch/domain/history.py").read_text(encoding="utf-8")
-    )
+    source = Path("pitwatch/domain/history.py").read_text(encoding="utf-8")
+    for key in (
+        'key = ("clamp", channel, running_amps, timezone)',
+        'key = ("contact", pump, timezone)',
+    ):
+        assert key in source, key
 
 
 def test_a_running_pump_is_shown_by_the_whole_section():
@@ -1424,22 +1430,24 @@ def test_the_live_state_records_a_rise_and_not_a_level():
     assert live.rose_at(0) == base + timedelta(seconds=40)
 
 
-def test_the_run_count_is_described_as_a_floor():
-    """It was described as a tally, on the strength of an inference that does
-    not hold: two readings above the running threshold with no zero between
-    them do not prove the pump never stopped, because a zero that was never
-    reported is not a zero that never happened.
+def test_the_run_count_says_which_source_it_came_from():
+    """A count off the panel's run contact is a tally. A count off the clamp is
+    a floor, and the page has to say which one it is showing.
 
-    The operator who has stood in front of the panel says the pumps run in
-    short bursts and nothing longer, so runs close together are arriving here
-    looking like one.
+    The clamp reading was described as a tally once, on the strength of an
+    inference that does not hold: two readings above the running threshold with
+    no zero between them do not prove the pump never stopped, because a zero
+    that was never reported is not a zero that never happened. The contacts
+    have none of that problem, and are the source wherever they are wired.
     """
     # Compared against what the page says, not against how the template wraps.
     prose = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", render_dashboard()))
 
-    assert "count as a floor" in prose
-    # And why it is one, which is the half somebody has to believe: two runs
-    # close together arrive here looking like a single longer one.
+    assert "come from the panel's own run contact" in prose
+    assert "a tally rather than an estimate" in prose
+    # And the fallback still admits what it is, including why no duration is
+    # offered when the clamp is all there is.
+    assert "count is a floor rather than a tally" in prose
     assert "two close runs can arrive as one" in prose
 
 

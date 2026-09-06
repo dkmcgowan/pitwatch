@@ -18,6 +18,7 @@ import logging
 
 import asyncpg
 
+from pitwatch.domain.runs import RunRecorder
 from pitwatch.ingest.inputs import InputsReader
 from pitwatch.ingest.shelly import ShellyReader
 from pitwatch.ingest.sink import IoSink, LiveIo, LiveState, SampleSink, record_device_status
@@ -100,7 +101,18 @@ class Supervisor:
             await record_device_status(self._pool, "inputs", online, error)
 
         known = await self.io_sink.prime()
-        reader = InputsReader(settings, self.io_sink.submit, on_status, initial_state=known)
+
+        # The contacts are what a run is made of now, so every batch goes to
+        # the recorder as well as to the event log. Recorded after, not
+        # instead: if the derived layer fails, what the panel actually said is
+        # already safely written down.
+        recorder = RunRecorder(self._pool, self._store)
+
+        async def on_events(events) -> None:
+            await self.io_sink.submit(events)
+            await recorder.record(events)
+
+        reader = InputsReader(settings, on_events, on_status, initial_state=known)
         self._spawn("inputs", reader.run)
         log.info(
             "Panel input ingest listening to the broker at %s:%d", settings.host, settings.port

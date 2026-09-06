@@ -18,6 +18,7 @@ import logging
 
 import asyncpg
 
+from pitwatch.domain.engine import AlertEngine
 from pitwatch.domain.runs import RunRecorder
 from pitwatch.ingest.inputs import InputsReader
 from pitwatch.ingest.shelly import ShellyReader
@@ -35,12 +36,21 @@ INPUT_KEYS = {InputsSettings.KEY}
 
 class Supervisor:
     def __init__(
-        self, pool: asyncpg.Pool, store: SettingsStore, live: LiveState, live_io: LiveIo
+        self,
+        pool: asyncpg.Pool,
+        store: SettingsStore,
+        live: LiveState,
+        live_io: LiveIo,
+        engine: AlertEngine | None = None,
     ) -> None:
         self._pool = pool
         self._store = store
         self._live = live
         self._live_io = live_io
+        # The rules. Optional so a test can run the ingest without them, and
+        # so a failure to build one cannot stop the panel being read: knowing
+        # is worth having even on a day when telling is broken.
+        self._engine = engine
         self.sink = SampleSink(pool, live)
         self.io_sink = IoSink(pool, live_io)
 
@@ -57,6 +67,8 @@ class Supervisor:
     async def start(self) -> None:
         await self.sink.prime()
         self._spawn("sink", self.sink.run)
+        if self._engine is not None:
+            self._spawn("alerts", self._engine.run)
         await self._start_shelly()
         await self._start_inputs()
 
@@ -121,6 +133,13 @@ class Supervisor:
             await self.io_sink.submit(events)
             await recorder.record(events)
             self._watch_the_clamps()
+            if self._engine is not None:
+                # The moments first, then a sweep. A closing float should not
+                # wait up to thirty seconds to become a message: the whole
+                # argument for reading contacts rather than current was that
+                # the panel says so the instant it happens.
+                await self._engine.on_events(events)
+                self._engine.nudge()
 
         reader = InputsReader(settings, on_events, on_status, initial_state=known)
         self._spawn("inputs", reader.run)

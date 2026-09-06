@@ -28,6 +28,7 @@ from pitwatch.api import live as live_api
 from pitwatch.api import pages, stream, users
 from pitwatch.config import Config, get_config
 from pitwatch.db import lifespan_pool
+from pitwatch.domain.engine import AlertEngine
 from pitwatch.domain.history import CurrentHistory, RecentRuns, SignalHistory
 from pitwatch.ingest.sink import LiveIo, LiveState
 from pitwatch.ingest.supervisor import Supervisor
@@ -129,16 +130,22 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
 
             live = LiveState()
             live_io = LiveIo()
-            supervisor = Supervisor(pool, store, live, live_io)
+            history = CurrentHistory()
+            recent_runs = RecentRuns()
+            # The rules read the same cached histories the dashboard does,
+            # rather than a second copy that would answer differently.
+            engine = AlertEngine(pool, store, live, live_io, history, recent_runs)
+            supervisor = Supervisor(pool, store, live, live_io, engine)
 
             app.state.config = config
             app.state.pool = pool
             app.state.settings = store
             app.state.live = live
             app.state.live_io = live_io
-            app.state.history = CurrentHistory()
-            app.state.recent_runs = RecentRuns()
+            app.state.history = history
+            app.state.recent_runs = recent_runs
             app.state.signal_history = SignalHistory()
+            app.state.engine = engine
             app.state.supervisor = supervisor
 
             await supervisor.start()

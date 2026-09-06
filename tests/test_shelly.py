@@ -7,6 +7,8 @@ device, and it is the half that fails loudly.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
@@ -194,3 +196,116 @@ def test_every_http_client_ignores_the_environment_proxy():
     for line in source.splitlines():
         if "httpx2.AsyncClient(" in line:
             assert "trust_env=False" in line, line.strip()
+
+
+# -- looking closely while a pump runs ---------------------------------------
+#
+# The meter publishes on change, which on a pit that runs for twelve seconds
+# means two or three readings in the first four and nothing after. The panel's
+# run contact says a pump started within milliseconds, so the reader is told
+# when to ask rather than left to wait.
+
+
+class _FakeConnection:
+    """Answers EM1.GetStatus and counts how often it was asked."""
+
+    def __init__(self) -> None:
+        self.asked = 0
+        self.closed = False
+
+    async def request(self, method, params=None):
+        self.asked += 1
+        return {"id": (params or {}).get("id", 0), "current": 15.4, "voltage": 121.0}
+
+    async def close(self):
+        self.closed = True
+
+
+def _reader(collected):
+    from pitwatch.ingest.shelly import ShellyReader
+    from pitwatch.schemas import ShellySettings
+
+    async def on_samples(samples):
+        collected.extend(samples)
+
+    return ShellyReader(ShellySettings(host="10.0.0.1"), on_samples)
+
+
+def test_a_quiet_pit_is_never_polled():
+    """The whole reason this is affordable. Nothing is asked while no pump is
+    running, which is nearly all of the time, so this is not the poll loop the
+    Modbus design was rejected for."""
+    collected = []
+    reader = _reader(collected)
+    connection = _FakeConnection()
+
+    async def run():
+        stop = asyncio.Event()
+        task = asyncio.create_task(reader._burst(connection, stop))
+        await asyncio.sleep(0.05)
+        stop.set()
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(run())
+
+    assert connection.asked == 0, "a quiet pit costs nothing"
+    assert collected == []
+
+
+def test_a_running_pump_is_read_repeatedly():
+    """Two or three readings a run was never going to describe a curve."""
+    from pitwatch.ingest import shelly
+
+    collected = []
+    reader = _reader(collected)
+    connection = _FakeConnection()
+
+    async def run():
+        stop = asyncio.Event()
+        # Wound right down so the test does not sit through real seconds.
+        shelly.BURST_EVERY_S, shelly.BURST_TAIL_S = 0.01, 0.02
+        reader.watch_run(True)
+        task = asyncio.create_task(reader._burst(connection, stop))
+        await asyncio.sleep(0.15)
+        stop.set()
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(run())
+
+    # Both clamps every time round, so readings come in pairs.
+    assert connection.asked >= 6, connection.asked
+    assert len(collected) >= 6
+
+
+def test_the_reading_keeps_going_briefly_after_the_contact_opens():
+    """For the decay. A motor coasting down draws less than it did and the
+    contact has already opened, so stopping on the edge would throw away the
+    interesting half of the curve."""
+    from pitwatch.ingest import shelly
+
+    collected = []
+    reader = _reader(collected)
+    connection = _FakeConnection()
+
+    async def run():
+        stop = asyncio.Event()
+        shelly.BURST_EVERY_S, shelly.BURST_TAIL_S = 0.01, 0.08
+        reader.watch_run(True)
+        task = asyncio.create_task(reader._burst(connection, stop))
+        await asyncio.sleep(0.03)
+        reader.watch_run(False)
+        during = connection.asked
+        await asyncio.sleep(0.12)
+        stop.set()
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        return during
+
+    during = asyncio.run(run())
+
+    assert connection.asked > during, "the tail keeps reading after the contact opens"

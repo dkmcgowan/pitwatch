@@ -127,6 +127,29 @@ def digest_response(challenge: dict, password: str, cnonce: str, nc: int) -> dic
     }
 
 
+# How often to ask the meter for a reading while a pump is actually running,
+# and how long to keep asking after it stops.
+#
+# The meter publishes on change, and on this pit that means two or three
+# readings in the first four seconds of a twelve second run and nothing after:
+# once the current settles the device has nothing to say, so the plateau and
+# the whole wind down are invisible, and the starting surge is caught about one
+# run in five. Every per run figure was being computed from two samples.
+#
+# The panel's run contact says a pump started within milliseconds, so the fix
+# is to ask rather than wait, and only for as long as it matters. Nothing is
+# polled while the pit is quiet, which is nearly all of the time: twenty runs a
+# day at twelve seconds each is about four minutes of asking in twenty four
+# hours. That is a different thing from the Modbus design this project rejected,
+# which had to ask five times a second forever because nothing could tell it
+# when to look.
+#
+# The tail is for the decay. A motor coasting down draws less than it did and
+# the contact has already opened, so without it the interesting half of the
+# curve falls outside the window.
+BURST_EVERY_S = 1.0
+BURST_TAIL_S = 4.0
+
 # How often a working connection refreshes its "last seen".
 #
 # Frames arrive every few seconds and this is a single row that nobody reads
@@ -379,6 +402,10 @@ class ShellyReader:
         self._settings = settings
         self._on_samples = on_samples
         self._last_seen_written = 0.0
+        # Set by the panel's run contacts, through the supervisor. While it is
+        # set the meter is asked for a reading every second instead of being
+        # waited on.
+        self._running = asyncio.Event()
         self._on_status = on_status
         self._last_frame_at = 0.0
 
@@ -432,6 +459,7 @@ class ShellyReader:
         self._last_frame_at = time.monotonic()
         self._last_seen_written = time.monotonic()
         heartbeat = asyncio.create_task(self._heartbeat(connection, stop))
+        burst = asyncio.create_task(self._burst(connection, stop))
         try:
             async for frame in connection.frames():
                 self._last_frame_at = time.monotonic()
@@ -453,11 +481,25 @@ class ShellyReader:
                 if stop.is_set():
                     return
         finally:
-            heartbeat.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await heartbeat
+            for task in (heartbeat, burst):
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
-    async def _seed_current_readings(self, connection: ShellyConnection) -> None:
+    def watch_run(self, running: bool) -> None:
+        """Told by the panel whether a pump is turning.
+
+        Not a guess from the current, which is the thing being measured. The
+        run contact is what decides, and this only decides how closely to
+        look.
+        """
+        if running:
+            self._running.set()
+        else:
+            self._running.clear()
+
+    async def _read_now(self, connection: ShellyConnection) -> None:
+        """One reading from each clamp, asked for rather than waited on."""
         now = datetime.now(UTC)
         samples = []
         for channel in (0, 1):
@@ -466,6 +508,36 @@ class ShellyReader:
                 samples.append(EmSample.from_status(channel, status, now))
         if samples:
             await self._on_samples(samples)
+
+    async def _seed_current_readings(self, connection: ShellyConnection) -> None:
+        await self._read_now(connection)
+
+    async def _burst(self, connection: ShellyConnection, stop: asyncio.Event) -> None:
+        """Ask once a second while a pump runs, and for a moment after.
+
+        Costs nothing while the pit is quiet: this sits on an event and wakes
+        when a contact closes. A failure here closes the socket the same way
+        the heartbeat does, because raising out of this task would not reach
+        the reader loop.
+        """
+        loop = asyncio.get_running_loop()
+        while not stop.is_set():
+            await self._running.wait()
+            tail_from: float | None = None
+            while not stop.is_set():
+                try:
+                    await self._read_now(connection)
+                except (ShellyError, WebSocketException, OSError) as error:
+                    log.warning("Could not read the meter during a run: %s", error)
+                    await connection.close()
+                    return
+                if self._running.is_set():
+                    tail_from = None
+                elif tail_from is None:
+                    tail_from = loop.time()
+                elif loop.time() - tail_from >= BURST_TAIL_S:
+                    break
+                await asyncio.sleep(BURST_EVERY_S)
 
     async def _heartbeat(self, connection: ShellyConnection, stop: asyncio.Event) -> None:
         """Notice a socket that is open but has stopped carrying anything.

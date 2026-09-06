@@ -44,6 +44,11 @@ class Supervisor:
         self.sink = SampleSink(pool, live)
         self.io_sink = IoSink(pool, live_io)
 
+        # The live Shelly reader, so the panel's run contacts can tell it when
+        # to look closely. None whenever the meter is not configured or is
+        # between reconnections, which is why every use is guarded.
+        self._shelly: ShellyReader | None = None
+
         self._tasks: dict[str, asyncio.Task] = {}
         self._stops: dict[str, asyncio.Event] = {}
         self._watcher: asyncio.Task | None = None
@@ -77,6 +82,9 @@ class Supervisor:
     # -- readers ------------------------------------------------------------
 
     async def _start_shelly(self) -> None:
+        # Dropped first, so a restart or a disabled meter cannot leave the run
+        # contacts talking to a reader whose socket has gone.
+        self._shelly = None
         settings = self._store.shelly
         if not settings.enabled or not settings.host:
             log.info("Shelly ingest is off: no address configured")
@@ -87,6 +95,7 @@ class Supervisor:
             await record_device_status(self._pool, "shelly", online, error)
 
         reader = ShellyReader(settings, self.sink.submit, on_status)
+        self._shelly = reader
         self._spawn("shelly", reader.run)
         log.info("Shelly ingest started for %s", settings.host)
 
@@ -111,12 +120,36 @@ class Supervisor:
         async def on_events(events) -> None:
             await self.io_sink.submit(events)
             await recorder.record(events)
+            self._watch_the_clamps()
 
         reader = InputsReader(settings, on_events, on_status, initial_state=known)
         self._spawn("inputs", reader.run)
         log.info(
             "Panel input ingest listening to the broker at %s:%d", settings.host, settings.port
         )
+
+    def _watch_the_clamps(self) -> None:
+        """Tell the meter to look closely while a pump is turning.
+
+        The meter publishes on change, which on a pit that runs for twelve
+        seconds means two or three readings in the first four and nothing
+        after. The panel knows when a pump started, so the reader is asked to
+        poll for the length of the run rather than being left to notice.
+
+        Read from the live contact state rather than from the events just
+        handled, because a body carries every input and what matters here is
+        whether either pump is running now, not which one changed.
+        """
+        reader = self._shelly
+        if reader is None:
+            return
+        inputs = self._store.inputs
+        running = False
+        for pump in (1, 2):
+            channel = inputs.channel_for(f"pump{pump}_run")
+            if channel and self._live_io.state_of(channel):
+                running = True
+        reader.watch_run(running)
 
     # -- task plumbing ------------------------------------------------------
 

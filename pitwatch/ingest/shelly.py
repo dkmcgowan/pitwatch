@@ -136,16 +136,34 @@ def parse_notify_status(frame: dict) -> list[EmSample]:
     readings, and this is a meter.
     """
     params = frame.get("params") or {}
-    # The device timestamps its own notifications in Unix seconds. Trusting it
-    # keeps the readings in the order the device saw them even when a burst
-    # arrives together, and the clock check in ShellyReader catches a device
-    # whose time is wrong.
-    reported = params.get("ts")
-    ts = (
-        datetime.fromtimestamp(reported, tz=UTC)
-        if isinstance(reported, int | float)
-        else datetime.now(UTC)
-    )
+    # Stamped on arrival, deliberately, and not with the device's own ``ts``.
+    #
+    # That field was trusted until 2026-09-06, on the reasoning that the device
+    # knows when it measured something better than we know when we heard about
+    # it. It does not. Measured against the meter and the panel module polled
+    # side by side on one clock, during a run that the contacts timed exactly:
+    #
+    #   value      really measured   ``ts`` claimed   out by
+    #   19.793 A   02:50:05.0        02:49:28         37 s
+    #   15.226 A   02:50:07.0        02:50:06          1 s
+    #   0 A        02:50:13.0        02:50:08          5 s
+    #
+    # The errors are not a constant, so this is not a clock that is wrong; a
+    # wrong clock would be a fixed offset and could be corrected for. The
+    # timestamp simply does not describe the reading it arrives with. The 37
+    # second one landed exactly on the device's previous periodic tick, which
+    # is the shape of a notification reusing the last scheduled timestamp.
+    #
+    # What it cost: current is joined to a run by time, so readings were
+    # attached to the wrong run or to no run, and the dashboard showed a motor
+    # drawing sixteen amps half a minute before the contactor closed. An hour
+    # went into looking for that in the panel, where there was nothing wrong.
+    #
+    # Arrival time is a worse measurement of when the current flowed, by the
+    # network and the parse, which is milliseconds. It has the one property
+    # that matters more: it is the same clock every other table in this
+    # database is stamped with.
+    ts = datetime.now(UTC)
 
     samples = []
     for key, value in params.items():

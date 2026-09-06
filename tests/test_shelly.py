@@ -37,7 +37,10 @@ def test_notify_status_yields_a_sample_per_clamp():
     assert [sample.channel for sample in samples] == [0, 1]
     assert samples[0].current == 7.21
     assert samples[1].current == 0.0
-    assert samples[0].ts == datetime.fromtimestamp(1_755_000_000.0, tz=UTC)
+    # One timestamp for the whole frame, and it is ours rather than the
+    # device's. See test_the_devices_own_timestamp_is_not_believed.
+    assert samples[0].ts == samples[1].ts
+    assert samples[0].ts != datetime.fromtimestamp(1_755_000_000.0, tz=UTC)
 
 
 def test_notify_status_ignores_components_that_are_not_clamps():
@@ -72,13 +75,36 @@ def test_a_partial_notification_produces_nulls_rather_than_invented_readings():
     assert sample.current is None
 
 
-def test_a_notification_with_no_timestamp_is_stamped_on_arrival():
+def test_every_notification_is_stamped_on_arrival():
     frame = {"method": "NotifyStatus", "params": {"em1:0": {"current": 2.0}}}
 
     before = datetime.now(UTC)
     sample = parse_notify_status(frame)[0]
 
     assert sample.ts >= before
+
+
+def test_the_devices_own_timestamp_is_not_believed():
+    """It was, and it does not describe the reading it arrives with.
+
+    Measured against the meter and the panel module polled side by side on one
+    clock, during a run the contacts timed exactly: a reading of 19.793 A taken
+    at 02:50:05 arrived claiming 02:49:28, thirty-seven seconds earlier and
+    exactly on the device's previous periodic tick. Two more readings in the
+    same run were out by one second and five.
+
+    Not a wrong clock, which would be a fixed offset and could be corrected
+    for. Current is joined to a run by time, so this attached readings to the
+    wrong run and put a motor drawing sixteen amps on the dashboard half a
+    minute before its contactor closed.
+    """
+    stale = datetime(2020, 1, 1, tzinfo=UTC).timestamp()
+    frame = {"method": "NotifyStatus", "params": {"ts": stale, "em1:0": {"current": 2.0}}}
+
+    before = datetime.now(UTC)
+    sample = parse_notify_status(frame)[0]
+
+    assert sample.ts >= before, "the frame's own ts must not reach the database"
 
 
 def test_frames_that_are_not_status_notifications_yield_nothing():

@@ -392,14 +392,46 @@ SIGNAL_TODAY = timedelta(hours=24)
 SIGNAL_MONTH = timedelta(days=30)
 
 SIGNAL_QUERY = """
-SELECT
-    channel,
-    max(ts)                                          AS last_on,
-    count(*) FILTER (WHERE ts > now() - $2::interval) AS today,
-    count(*) FILTER (WHERE ts > now() - $3::interval) AS month
-FROM io_event
-WHERE state AND channel = ANY($1::smallint[])
-GROUP BY channel
+WITH edges AS (
+    SELECT channel, ts, state,
+           lead(ts)    OVER (PARTITION BY channel ORDER BY ts) AS next_ts,
+           lead(state) OVER (PARTITION BY channel ORDER BY ts) AS next_state
+    FROM io_event
+    WHERE channel = ANY($1::smallint[])
+), closures AS (
+    -- One row per closing, carrying how long it stayed closed. Null while a
+    -- contact is still held, which is the honest answer: a float that is wet
+    -- right now has no duration yet.
+    SELECT channel, ts,
+           CASE WHEN next_state IS FALSE THEN extract(epoch FROM next_ts - ts) END AS held_s
+    FROM edges WHERE state
+), summed AS (
+    SELECT channel,
+           max(ts)                                           AS last_on,
+           min(ts)                                           AS first_on,
+           count(*) FILTER (WHERE ts > now() - $2::interval) AS today,
+           count(*) FILTER (WHERE ts > now() - $3::interval) AS month,
+           (array_agg(held_s ORDER BY ts DESC)
+                FILTER (WHERE held_s IS NOT NULL))[1]        AS last_held_s
+    FROM closures GROUP BY channel
+), seen AS (
+    -- Every input there is any evidence PitWatch has read. Either source is
+    -- enough: a current state, or a transition in the log.
+    SELECT channel FROM io_state WHERE channel = ANY($1::smallint[])
+    UNION
+    SELECT DISTINCT channel FROM io_event WHERE channel = ANY($1::smallint[])
+)
+-- Driven off what has been read rather than off the closings, so an input that
+-- is being watched and has simply never closed gets a row of zeros instead of
+-- no row at all. That distinction is the whole point of `known`: a high water
+-- float that has stayed dry all month should say never and none, not n/a. It
+-- said n/a, because "has never closed" and "we have no data" arrived here
+-- looking identical.
+SELECT s.channel,
+       m.last_on, m.first_on, m.last_held_s,
+       coalesce(m.today, 0) AS today,
+       coalesce(m.month, 0) AS month
+FROM seen s LEFT JOIN summed m ON m.channel = s.channel
 """
 
 
@@ -410,6 +442,14 @@ class Closings:
     last_on: datetime | None = None
     today: int = 0
     month: int = 0
+    # How long it stayed closed the last time it closed. None while it is still
+    # held, and on a contact that has never closed at all.
+    last_held_s: float | None = None
+    # Closings on an ordinary day, so today's count has something to be read
+    # against. Only meaningful on the contacts counted by the day; an alarm is
+    # counted by the month and an average of those would be a decimal nobody
+    # can act on.
+    daily_average: float | None = None
     # False when nothing has ever been recorded for this input, which is not
     # the same as a contact that has sat open. One means nobody has wired it or
     # the module has never been reachable; the other is a quiet week.
@@ -418,6 +458,10 @@ class Closings:
     def as_json(self) -> dict:
         return {
             "last_on": self.last_on.isoformat() if self.last_on else None,
+            "last_held_s": (round(self.last_held_s) if self.last_held_s is not None else None),
+            "daily_average": (
+                round(self.daily_average) if self.daily_average is not None else None
+            ),
             "today": self.today if self.known else None,
             "month": self.month if self.known else None,
         }
@@ -450,6 +494,8 @@ class SignalHistory:
                 last_on=row["last_on"],
                 today=int(row["today"] or 0),
                 month=int(row["month"] or 0),
+                last_held_s=row["last_held_s"],
+                daily_average=_daily_average(row["month"], row["first_on"], now),
                 known=True,
             )
             for row in rows

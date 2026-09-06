@@ -28,6 +28,12 @@
      alarm colors above are spoken for: a float rising is not a fault, and
      painting its heading in the same red as an overload would say it was. */
   --water: #0e7490;
+  /* The pump that answers the next call. Its own hue on purpose: it has to be
+     told apart at a glance from the green of one that is running and from the
+     water blue of one sitting out, and green against green was the version
+     that could not be. Violet is nowhere else on this page, carries no
+     inherited meaning of good or bad, and reads as "designated". */
+  --lead: #6d28d9;
 
   --radius: 10px;
   --gap: 1rem;
@@ -53,6 +59,7 @@
     --series-2: #b083f0;
 
     --water: #4bbcd8;
+    --lead: #a78bfa;
   }
 }
 
@@ -364,16 +371,19 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   font-variant-numeric: tabular-nums;
 }
 
-/* The pump that answers the next call. Green, because it is the good news on
-   this page: the duplex rotation is working and something is ready to go.
+/* The pump that answers the next call.
 
-   It was the same blue the brand mark is, which made it read as decoration
-   rather than as a state, and left LAG in the plain gray that everything
-   undecided uses. Two pumps, two states, and only one of them coloured. */
+   Three states have to be told apart at a glance and there are only ever two
+   badges on the page, so the colors carry the whole distinction. This was the
+   brand blue, which read as decoration; then green, which was worse, because
+   green is what a running pump wears and LEAD next to ON was two greens
+   meaning different things. Violet appears nowhere else here, has no
+   inherited sense of good or bad, and says "this is the one" without saying
+   anything is happening. */
 .status-lead {
-  color: var(--ok);
-  border-color: color-mix(in srgb, var(--ok) 50%, transparent);
-  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  color: var(--lead);
+  border-color: color-mix(in srgb, var(--lead) 50%, transparent);
+  background: color-mix(in srgb, var(--lead) 14%, transparent);
 }
 
 /* Sitting this one out, which is the pump that went last. Not a warning and

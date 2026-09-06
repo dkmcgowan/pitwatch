@@ -369,7 +369,11 @@
       const counted = times !== null && times !== undefined;
 
       if (history.last_on) {
-        setFact(last, since(history.last_on));
+        // How long it stayed closed, beside when it closed. A float that is
+        // wet for sixteen seconds and one wet for six minutes are the same
+        // row without it, and they are not the same news.
+        const held = duration(history.last_held_s);
+        setFact(last, held ? since(history.last_on) + " for " + held : since(history.last_on));
       } else {
         // Never is an answer; n/a is the absence of one. A contact that has
         // been read all month and has not closed says never. One nobody has
@@ -381,6 +385,20 @@
       // and with some inputs wired and some not the sections stop lining up
       // with each other.
       setFact(count, counted ? times + " " + (COUNTED[window_] || window_) : null);
+
+      // An ordinary day beside today's count, on the sections counted by the
+      // day. Not on the ones counted by the month: an alarm's average is a
+      // decimal nobody can act on, and "2 this month" is already the whole
+      // story.
+      const average = row.querySelector("[data-history-average]");
+      if (average) {
+        const known =
+          window_ === "today" &&
+          history.daily_average !== null &&
+          history.daily_average !== undefined;
+        average.textContent = known ? "avg " + history.daily_average : "";
+        average.hidden = !known;
+      }
     });
   }
 

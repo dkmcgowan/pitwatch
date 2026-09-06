@@ -423,7 +423,13 @@ async def test_counting_what_a_contact_has_done(pool):
     assert 5 not in closings
     from pitwatch.domain.history import Closings
 
-    assert Closings().as_json() == {"last_on": None, "today": None, "month": None}
+    assert Closings().as_json() == {
+        "last_on": None,
+        "last_held_s": None,
+        "daily_average": None,
+        "today": None,
+        "month": None,
+    }
 
 
 async def test_the_history_ignores_contacts_opening(pool):
@@ -889,3 +895,88 @@ async def test_a_cycle_remembers_the_pit_came_up_high(pool):
     await recorder.record([_edge(1, False, began + timedelta(seconds=90))])
 
     assert await pool.fetchval("SELECT high_water FROM pump_cycle") is True
+
+
+# -- what a contact has been doing -------------------------------------------
+
+
+async def test_a_contact_that_never_closed_still_has_a_row(pool):
+    """A high water float that stayed dry all month should read never and
+    none, not n/a.
+
+    It read n/a, because the query was driven off the closings and "has never
+    closed" and "we have no data" arrived looking identical. `known` exists to
+    tell those apart and could not, since a contact with no closings produced
+    no row at all.
+    """
+    from pitwatch.domain.history import SignalHistory
+
+    await pool.execute(
+        """
+        INSERT INTO io_state (channel, label, state, raw, changed_at, updated_at)
+        VALUES (4, 'High water', false, false, now(), now())
+        """
+    )
+
+    closings = await SignalHistory().closings(pool, [4])
+
+    assert 4 in closings, "an input being read has a row even with nothing to show"
+    assert closings[4].known is True
+    assert closings[4].today == 0 and closings[4].month == 0
+    assert closings[4].last_on is None
+    assert closings[4].last_held_s is None
+    assert closings[4].as_json()["today"] == 0, "zero, not null: this is a real count"
+
+
+async def test_a_closing_carries_how_long_it_was_held(pool):
+    """A float wet for sixteen seconds and one wet for six minutes are the same
+    row without it, and they are not the same news."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.history import SignalHistory
+
+    began = datetime.now(UTC) - timedelta(minutes=10)
+    await pool.execute(
+        "INSERT INTO io_state (channel, label, state, raw, changed_at, updated_at)"
+        " VALUES (5, 'Lead float', false, false, now(), now())"
+    )
+    await pool.executemany(
+        "INSERT INTO io_event (ts, channel, label, state, raw) VALUES ($1, 5, 'Lead float', $2, $2)",
+        [
+            (began, True),
+            (began + timedelta(seconds=90), False),
+            # The most recent one is the one reported.
+            (began + timedelta(minutes=5), True),
+            (began + timedelta(minutes=5, seconds=16), False),
+        ],
+    )
+
+    closings = await SignalHistory().closings(pool, [5])
+
+    assert closings[5].today == 2
+    assert closings[5].last_held_s == pytest.approx(16.0), "the latest, not the longest"
+    assert closings[5].last_on == began + timedelta(minutes=5)
+
+
+async def test_a_contact_still_held_has_no_duration_yet(pool):
+    """Null rather than a number counted up to now. A float that is wet right
+    now has not finished being wet."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.history import SignalHistory
+
+    began = datetime.now(UTC) - timedelta(minutes=2)
+    await pool.execute(
+        "INSERT INTO io_state (channel, label, state, raw, changed_at, updated_at)"
+        " VALUES (5, 'Lead float', true, true, now(), now())"
+    )
+    await pool.execute(
+        "INSERT INTO io_event (ts, channel, label, state, raw)"
+        " VALUES ($1, 5, 'Lead float', true, true)",
+        began,
+    )
+
+    closings = await SignalHistory().closings(pool, [5])
+
+    assert closings[5].last_on == began
+    assert closings[5].last_held_s is None

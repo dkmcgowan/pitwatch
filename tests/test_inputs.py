@@ -319,13 +319,23 @@ def test_a_heartbeat_is_not_read_as_a_status():
     assert says_online('{"id":"x408","upTime":"1630","address":"10.136.1.51:80"}') is False
 
 
-def test_expecting_a_heartbeat_is_opt_in():
-    """Zero means take one as good news when it arrives and never hold its
-    absence against the module. An installation whose module was never
-    configured to send one would otherwise paint a permanent red, which is how
-    somebody learns to ignore the indicator."""
-    assert InputsSettings().heartbeat_s == 0
+def test_a_heartbeat_is_expected_by_default():
+    """Sixty, matching the module's own default, so the two agree out of the
+    box.
+
+    It was zero, on the argument that an installation sending no heartbeat
+    would sit permanently red. What the red says is "No heartbeat for 180 s,
+    expected every 60 s", which names the problem and the fix; an unexplained
+    red teaches people to stop looking, a legible one is a setup step asking to
+    be finished. A check that only protects installations whose owner knew to
+    switch it on protects the wrong half of them.
+    """
+    assert InputsSettings().heartbeat_s == 60
     assert InputsSettings().heartbeat_topic == "pitwatch/heartbeat"
+
+
+def test_the_check_can_still_be_turned_off():
+    """Zero for a module that genuinely cannot send one."""
 
     async def run():
         reader = InputsReader(_settings(heartbeat_s=0), _nothing)

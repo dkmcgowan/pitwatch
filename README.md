@@ -121,6 +121,17 @@ The birth and last will pair is what makes the module going offline something
 PitWatch is told about rather than something it has to notice: the broker sends
 the `offline` message on the module's behalf when the connection drops.
 
+**Turn the heartbeat on as well**, on the same page: topic `pitwatch/heartbeat`,
+the default payload and the default 60 second interval, and **Prepend Topic
+Root off**. The birth and will have one hole between them, and it is in the
+dangerous direction: a will reaches whoever is subscribed at the moment it
+fires and nobody else, so a module that dies while PitWatch is stopped is one
+PitWatch comes back to, finds a healthy broker, and marks online because
+nothing has contradicted it. The heartbeat closes that. Anything arriving on
+that topic counts as proof of life whatever it says, and about two and a half
+missed intervals of silence marks the module offline. PitWatch expects one
+every 60 seconds by default, so the two agree without changing either.
+
 Then add **eight publications**, one per input. The **I/O** dropdown on a
 publication is what triggers it, not what it sends, so an input with no
 publication of its own is an input whose changes nobody hears about.

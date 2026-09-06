@@ -145,7 +145,7 @@ def inputs_from(form: FormData, existing: InputsSettings | None = None) -> Input
         client_id=text(form, "inputs_client_id", "pitwatch") or "pitwatch",
         heartbeat_topic=text(form, "inputs_heartbeat_topic", "pitwatch/heartbeat")
         or "pitwatch/heartbeat",
-        heartbeat_s=integer(form, "inputs_heartbeat_s", 0),
+        heartbeat_s=integer(form, "inputs_heartbeat_s", 60),
         debounce_ms=integer(form, "inputs_debounce_ms", 0),
         channels=channels,
     )

@@ -145,12 +145,22 @@ class InputsSettings(BaseModel):
     # whatever it says: the device's default body carries an id and an uptime
     # and no status field at all, and it would be wrong to read it for one.
     #
-    # Expecting one is opt in. Zero means take the heartbeat as good news when
-    # it arrives and never hold its absence against the module, which is what an
-    # installation that has not configured one needs. Set it to the module's own
-    # interval and silence starts counting against it.
+    # Sixty because that is the module's own default, so the two agree out of
+    # the box and the README asks for both in the same breath.
+    #
+    # This was zero to begin with, on the argument that an installation whose
+    # module sends no heartbeat would sit permanently red and teach somebody to
+    # ignore the indicator. That argument does not survive contact with what the
+    # red actually says: "No heartbeat for 180 s, expected every 60 s", which
+    # names the problem and the fix. An unexplained red is what teaches people
+    # to stop looking; a legible one is a setup step asking to be finished. And
+    # a check that only protects the installations whose owner knew to switch it
+    # on protects the wrong half of them.
+    #
+    # Zero still means never hold silence against the module, for a module that
+    # genuinely cannot send one.
     heartbeat_topic: str = Field(default="pitwatch/heartbeat", max_length=200)
-    heartbeat_s: int = Field(default=0, ge=0, le=3600)
+    heartbeat_s: int = Field(default=60, ge=0, le=3600)
 
     # How this client identifies itself to the broker. Two clients sharing an
     # id knock each other off, so it is worth being able to change.

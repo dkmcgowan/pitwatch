@@ -22,6 +22,7 @@ from pitwatch.schemas import (
     InputsSettings,
     PumpSettings,
     PumpsSettings,
+    Severity,
     ShellySettings,
     ShortCyclingRule,
 )
@@ -213,11 +214,20 @@ def test_there_is_no_inrush_window():
     assert domain.DISCARD_FIRST_READING is True
 
 
-def test_run_length_is_off_until_something_can_measure_it():
-    """The clamps report the start and the end of a run and nothing in between,
-    so two readings four minutes apart and two four seconds apart look the
-    same. A default here would fire on a sampling gap."""
-    assert AlertsSettings().run_too_long.longer_than_ms is None
+def test_run_length_ships_with_a_number_now_that_it_is_measured():
+    """It was off with no default, and that was right at the time: the clamps
+    report the start and the end of a run and nothing in between, so two
+    readings four minutes apart and two four seconds apart looked the same.
+
+    The panel's run contact measures it exactly now. Twenty runs on the
+    reference pit came in between 11.6 and 13.3 seconds, so a minute is five
+    times anything normal and means the pit is not clearing: a stuck check
+    valve, a blocked discharge, or inflow beating the pump.
+    """
+    rule = AlertsSettings().run_too_long
+
+    assert rule.enabled is True
+    assert rule.longer_than_ms == 60_000
 
 
 def test_short_cycling_is_on_because_there_is_finally_a_measurement():
@@ -248,10 +258,17 @@ def test_short_cycling_is_measured_by_the_gap_not_by_a_rate():
     assert "starts_window_min" not in fields
 
 
-def test_silence_is_noticed_within_a_working_day():
-    """A pit that has not run in hours is either dry or blind, and four hours
-    was most of a day before anybody heard the clamp had fallen off."""
-    assert AlertsSettings().nothing_has_run.quiet_minutes == 120
+def test_silence_is_given_longer_than_the_longest_gap_ever_seen():
+    """Two hours was a guess made before anything had been measured.
+
+    The reference pit calls every thirty to forty five minutes overnight and
+    every seven to fifteen in the morning, so two hours does look wrong there.
+    It would also fire on a quiet week, an empty building or a dry spell, and a
+    rule that cries wolf is a rule somebody switches off -- which costs more
+    than the rule was ever worth. Six hours is eight times the longest gap
+    recorded and still catches a panel that died overnight.
+    """
+    assert AlertsSettings().nothing_has_run.quiet_minutes == 360
 
 
 def test_a_run_can_end_before_the_next_one_starts():
@@ -417,3 +434,43 @@ def test_a_rule_that_cannot_fire_yet_does_not_ship_ticked():
         unset = [t.field for t in spec.thresholds if getattr(rule, t.field, 0) is None]
         if unset:
             assert not rule.enabled, f"{key} is ticked but {unset} would stop it firing"
+
+
+def test_the_rules_the_real_panel_asked_for():
+    """Three added after the panel was wired and a fortnight of runs recorded.
+
+    Each exists because something happened that no existing rule would have
+    caught.
+    """
+    rules = AlertsSettings()
+
+    # Both pumps called at once. Not the high water float: the float can be wet
+    # without the controller deciding it needs both, and where the high float
+    # is not wired this is the only thing that says the pit is winning.
+    assert rules.both_pumps.enabled is True
+    assert rules.both_pumps.severity is Severity.WARNING
+
+    # A pump that has stopped taking its turn. The safety net for overload
+    # contacts wired normally open, where a broken sense wire reads as no
+    # overload forever and the pump going quiet is the only symptom left.
+    assert rules.pump_idle.enabled is True
+    assert rules.pump_idle.idle_hours == 24
+
+    # Runs getting longer, which is the duration's half of the load drift and
+    # the better half where run contacts are wired.
+    assert rules.run_drift.enabled is True
+    assert rules.run_drift.longer_by_s == 5.0
+    assert rules.run_drift.severity is Severity.INFO, "a wearing out signal, not an alarm"
+
+
+def test_every_rule_has_prose_and_every_prose_has_a_rule():
+    """The settings page renders from the specs and saves into the model, so a
+    rule in one and not the other is a row that cannot be saved or a setting
+    nobody can find."""
+    from pitwatch.domain import alerts as specs
+
+    assert {spec.key for spec in specs.SPECS} == set(ALERT_ORDER)
+    for spec in specs.SPECS:
+        rule = getattr(AlertsSettings(), spec.key)
+        for threshold in spec.thresholds:
+            assert threshold.field in type(rule).model_fields, (spec.key, threshold.field)

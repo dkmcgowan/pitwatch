@@ -490,7 +490,12 @@ class RunTooLongRule(AlertRule):
     between.
     """
 
-    longer_than_ms: int | None = Field(default=None, ge=1_000, le=86_400_000)
+    # A minute, which is five times the twelve seconds the reference pit takes.
+    #
+    # It had no default at all and was off, because before the contacts were
+    # wired a duration could only be guessed at from current. It is measured
+    # now, so the rule can ship with a number and switched on.
+    longer_than_ms: int | None = Field(default=60_000, ge=1_000, le=86_400_000)
 
 
 class ShortCyclingRule(AlertRule):
@@ -509,7 +514,61 @@ class ShortCyclingRule(AlertRule):
 class NothingHasRunRule(AlertRule):
     """Silence, which is a dry spell or a blind monitor."""
 
-    quiet_minutes: int | None = Field(default=120, ge=5, le=525_600)
+    # Six hours, not two.
+    #
+    # Two was a guess made before anything had been measured. The reference pit
+    # calls every thirty to forty five minutes through the night and every
+    # seven to fifteen in the morning, so two hours of silence does look wrong
+    # there -- but a quiet week, an empty building or a dry spell would trip it
+    # repeatedly, and a rule that cries wolf is a rule somebody turns off. Six
+    # hours is eight times the longest gap ever recorded there and still
+    # catches a panel that died overnight.
+    #
+    # This is the rule most in need of tuning per building, and the settings
+    # page says so.
+    quiet_minutes: int | None = Field(default=360, ge=5, le=525_600)
+
+
+class RunDriftRule(AlertRule):
+    """A pump taking longer to shift the same pit.
+
+    The duration's half of the load drift, and on hardware with run contacts it
+    is the better half: a duration is measured from the panel's own signal and
+    is exact, where amps are whatever the meter happened to report. A worn
+    impeller, a partial blockage or a check valve starting to pass all show
+    here first, and none of them shows in any single run.
+    """
+
+    # Seconds longer than the weeks before. Five on a pit that runs for twelve
+    # is a run half again as long, which is well past anything a float's
+    # position accounts for.
+    longer_by_s: float | None = Field(default=5.0, gt=0, le=3600)
+
+
+class BothPumpsRule(AlertRule):
+    """The controller called the lag pump as well.
+
+    Not the same event as the high water float, which is why it is not the same
+    rule. The float can be wet without the controller deciding it needs both,
+    and on a panel where the high float is not wired this is the only thing
+    that says the pit is beating one pump.
+    """
+
+
+class PumpIdleRule(AlertRule):
+    """One pump has not run while the other has been working.
+
+    A duplex panel alternates, so the two counts should stay close. One pump
+    sitting out while the other does everything is a pump that is not starting:
+    a tripped overload nobody saw, a failed contactor coil, a seized motor.
+
+    This matters more where the overload contacts are wired normally open, as
+    they are on the reference panel, because then a broken sense wire reads as
+    "no overload" forever and the trip itself is invisible. The pump going
+    quiet is the symptom that is left.
+    """
+
+    idle_hours: int | None = Field(default=24, ge=1, le=8760)
 
 
 class LoadDriftRule(AlertRule):
@@ -576,7 +635,6 @@ class AlertsSettings(BaseModel):
     )
     run_too_long: RunTooLongRule = Field(
         default_factory=lambda: RunTooLongRule(
-            enabled=False,
             message="{pump} at {site} ran for {duration} without stopping. Time {time}.",
         )
     )
@@ -594,6 +652,32 @@ class AlertsSettings(BaseModel):
             message=(
                 "No pump has run at {site} for {quiet}. Either a very dry spell "
                 "or something has stopped watching the pit."
+            ),
+        )
+    )
+    run_drift: RunDriftRule = Field(
+        default_factory=lambda: RunDriftRule(
+            severity=Severity.INFO,
+            tell_when_it_clears=False,
+            message=(
+                "{pump} at {site} is taking {seconds} s to run, up from {was} s a few weeks ago."
+            ),
+        )
+    )
+    both_pumps: BothPumpsRule = Field(
+        default_factory=lambda: BothPumpsRule(
+            severity=Severity.WARNING,
+            message=(
+                "Both pumps are running at {site}: one could not keep up with the pit. Time {time}."
+            ),
+        )
+    )
+    pump_idle: PumpIdleRule = Field(
+        default_factory=lambda: PumpIdleRule(
+            severity=Severity.WARNING,
+            message=(
+                "{pump} at {site} has not run in {hours} h while the other one "
+                "has. It may not be starting."
             ),
         )
     )
@@ -648,6 +732,9 @@ ALERT_ORDER: tuple[str, ...] = (
     "run_too_long",
     "short_cycling",
     "nothing_has_run",
+    "both_pumps",
+    "pump_idle",
+    "run_drift",
     "load_drift",
     "device_offline",
     "float_activity",

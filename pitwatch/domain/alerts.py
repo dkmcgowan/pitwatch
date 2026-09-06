@@ -183,6 +183,56 @@ SPECS: tuple[Spec, ...] = (
         clears="a pump runs",
     ),
     Spec(
+        key="both_pumps",
+        title="Both pumps running",
+        what=(
+            "The controller called the lag pump as well, which means one could "
+            "not keep up with the pit. Not the same event as the high water "
+            "float and not the same rule: the float can be wet without the "
+            "controller deciding it needs both, and on a panel where the high "
+            "float is not wired this is the only thing that says the pit is "
+            "winning. Expect both to arrive together during a storm."
+        ),
+        needs=CONTACTS,
+        placeholders=COMMON,
+        clears="one of them stops",
+    ),
+    Spec(
+        key="pump_idle",
+        title="A pump has stopped taking its turn",
+        what=(
+            "A duplex panel alternates, so the two run counts should stay "
+            "close. One pump sitting out while the other does all the work is "
+            "a pump that is not starting: an overload nobody saw, a failed "
+            "contactor coil, a seized motor.\n\n"
+            "This is the safety net where the overload contacts are wired "
+            "normally open, because then a broken sense wire reads as no "
+            "overload forever and the trip itself never reaches here. The pump "
+            "going quiet is the symptom that is left."
+        ),
+        needs=CONTACTS,
+        placeholders=(*COMMON, "{pump}", "{hours}"),
+        thresholds=(Threshold("idle_hours", "Idle for (hours)", minimum="1"),),
+        clears="it runs again",
+    ),
+    Spec(
+        key="run_drift",
+        title="Taking longer than it used to",
+        what=(
+            "A pump needing longer to shift the same pit is one losing "
+            "capacity: a worn impeller, a partial blockage, a check valve "
+            "starting to pass. Measured from the panel's own run contact, so "
+            "it is exact, and compared with the weeks before rather than with "
+            "a number somebody typed.\n\n"
+            "The slowest of the warnings and the most useful. Nothing in a "
+            "single run shows this, and by the time a run has doubled the pump "
+            "is most of the way to not clearing the pit at all."
+        ),
+        needs=CONTACTS,
+        placeholders=(*COMMON, "{pump}", "{seconds}", "{was}"),
+        thresholds=(Threshold("longer_by_s", "Longer by (s)", step="0.5", minimum="0.5"),),
+    ),
+    Spec(
         key="load_drift",
         title="Drawing more than it used to",
         what=(

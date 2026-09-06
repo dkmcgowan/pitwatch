@@ -113,6 +113,7 @@ def panel_state(
     inputs: InputsSettings,
     live_io: LiveIo,
     closings: dict[int, Closings] | None = None,
+    both_ran: Closings | None = None,
 ) -> dict:
     """The lamps and the display, laid out the way the panel door is."""
     closings = closings or {}
@@ -136,6 +137,26 @@ def panel_state(
         }
 
     first, second = lead_and_lag(inputs, live_io)
+    # Both pumps on one call: the pit winning.
+    #
+    # Not a contact, so it has no input of its own. It is the two run signals
+    # closed at the same time, which is the one thing on this panel that no
+    # single wire reports and the reason the cycle layer exists. It sits with
+    # the alarms because that is what it is: the high water float can be wet
+    # without the controller calling the lag pump, but the controller calling
+    # both is the pit beating one of them.
+    run_1 = inputs.channel_for("pump1_run")
+    run_2 = inputs.channel_for("pump2_run")
+    watched = bool(run_1 and run_2)
+    lamps["both_pumps"] = {
+        "title": "Both pumps",
+        "channel": None,
+        "watched": watched,
+        "label": "Both run signals closed at once",
+        "state": bool(live_io.state_of(run_1) and live_io.state_of(run_2)) if watched else None,
+        "history": (both_ran or Closings()).as_json(),
+    }
+
     lamps["display"] = {"1": first, "2": second}
     return lamps
 
@@ -277,11 +298,12 @@ async def build_state(app) -> dict:
 
     signals: SignalHistory | None = getattr(app.state, "signal_history", None)
     closings = await signals.closings(pool, sorted(assigned)) if signals else {}
+    both_ran = await signals.both_ran(pool) if signals else None
 
     return {
         "site": store.site.model_dump(mode="json"),
         "pumps": {"1": pump_state(1), "2": pump_state(2)},
-        "panel": panel_state(inputs, live_io, closings),
+        "panel": panel_state(inputs, live_io, closings, both_ran),
         # No list of inputs carrying nothing. The panel brings out eight
         # contacts and the module has eight inputs, so every one of them is a
         # lamp or a run signal and the list was always empty. An input with no

@@ -136,6 +136,8 @@
       setFact(last, null);
     }
 
+    renderDurationDrift(card, recent);
+
     // The second line, which says n/a when there is nothing rather than
     // disappearing. Every other second line on this board does the same, and a
     // row that is one line tall next to one that is two stops the sections
@@ -152,6 +154,39 @@
       average.textContent = known ? "avg " + recent.daily_average : "";
       average.hidden = !known;
     }
+  }
+
+  // Whether a run is taking longer than it used to.
+  //
+  // The duration's half of the question the typical load answers about amps,
+  // and on this hardware the better half: a duration comes from the contacts
+  // and is exact, where amps are whatever the meter happened to report. A pump
+  // taking longer to shift the same pit is one losing capacity, and no single
+  // run shows it.
+  //
+  // Shown only when it has moved, so it costs nothing on a pump that is fine,
+  // and what it moved against is in the tooltip rather than on the line.
+  function renderDurationDrift(card, recent) {
+    const drift = card.querySelector("[data-duration-drift]");
+    if (!drift) {
+      return;
+    }
+    const moved = recent.duration_drift_s;
+    const usual = recent.typical_duration_s;
+    const known = typeof moved === "number" && typeof usual === "number";
+
+    if (known) {
+      const up = moved > 0;
+      drift.className = up ? "beside drift-up" : "beside";
+      drift.textContent = (up ? "up " : "down ") + duration(Math.abs(moved));
+      drift.title =
+        "Runs last " +
+        duration(usual) +
+        " this week, against " +
+        duration(usual - moved) +
+        " over the weeks before.";
+    }
+    drift.hidden = !known;
   }
 
   // What the pump draws when it is actually running, and whether that is
@@ -230,7 +265,10 @@
       // An unassigned lamp still draws dimmer, which is the one piece of that
       // distinction worth keeping without words: dark because nobody wired it
       // reads differently from dark because the contact is open.
-      const wired = Boolean(lamp && lamp.channel);
+      // Watched, rather than wired: one row on this board is not an input at
+      // all but two of them read together, and it is watched exactly when both
+      // of those have been assigned.
+      const wired = Boolean(lamp && (lamp.channel || lamp.watched));
       node.classList.toggle("unset", !wired);
       node.classList.toggle("on", wired && lamp.state === true);
 

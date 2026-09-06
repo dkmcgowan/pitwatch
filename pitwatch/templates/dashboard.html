@@ -124,7 +124,8 @@
       <div class="fact">
         <dt>Runs</dt>
         <dd>
-          <span class="answer" data-fact-last>--</span>
+          <span class="answer"><span data-fact-last>--</span><span class="beside"
+                data-duration-drift hidden></span></span>
           <span class="aside"><span data-fact-runs>--</span><span class="beside" data-fact-average hidden></span></span>
         </dd>
       </div>
@@ -256,6 +257,22 @@
                 hidden></span></span>
         </span>
       </div>
+      {# Not a contact. It is the two run signals closed at once, which is the
+         one thing on this panel no single wire reports, and the reason the
+         cycle layer exists. It belongs with the alarms because that is what it
+         is: the high float can be wet without the controller calling the lag
+         pump, but the controller calling both is the pit beating one of
+         them. #}
+      <div class="lamp lamp-red" data-lamp="both_pumps" data-history="both_pumps">
+        <span class="bulb" aria-hidden="true"></span>
+        <span class="lamp-title">Both pumps</span>
+        <span class="lamp-when">
+          <span class="lamp-last" data-history-last title="When they last ran together">--</span>
+          <span class="lamp-count"><span data-history-count
+                title="Times this month">--</span><span class="beside" data-history-average
+                hidden></span></span>
+        </span>
+      </div>
     </div>
     <dialog class="note" id="note-alerts">
       <h3 class="note-title">Alerts</h3>
@@ -279,6 +296,11 @@
           <strong>AO</strong> are those two with a stop button.</p>
         <p>It tripped for a reason, and a pump drawing more than it used to
           will show that in its typical load.</p>
+        <p><strong>Both pumps</strong> is the pit winning: the controller
+          called the lag pump as well because one could not keep up. It is not
+          a contact and has no wire of its own, it is the two run signals
+          closed at the same time. The high float can be wet without this
+          happening; this happening usually means the float was wet too.</p>
         <p>Counted by the month. An alarm counted by the day reads zero
           forever.</p>
         <p>The words beside the heading are the four rows added up.

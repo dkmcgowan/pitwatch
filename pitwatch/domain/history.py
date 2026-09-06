@@ -251,10 +251,29 @@ class Recent:
     # duration to give: the meter reports on its own schedule, so the end of a
     # run is only known to within a reporting interval.
     last_duration_s: float | None = None
+    # What a run usually lasts this week, and over the weeks before it.
+    typical_duration_s: float | None = None
+    earlier_duration_s: float | None = None
     # Runs on an ordinary day, so today's count has something to be read
     # against. Eighty-nine is a lot or a Tuesday depending on what the month
     # looks like, and only one of those is worth getting out of bed for.
     daily_average: float | None = None
+
+    @property
+    def duration_drift_s(self) -> float | None:
+        """How much longer a run has been taking, or None with no baseline.
+
+        Positive is a pump taking longer to shift the same pit, which is the
+        direction worth a phone call. Nothing is read into a change smaller
+        than a sixth, because a pit does not fill to the same millimetre twice
+        and a second either way is the float, not the pump.
+        """
+        if self.typical_duration_s is None or self.earlier_duration_s is None:
+            return None
+        moved = self.typical_duration_s - self.earlier_duration_s
+        if abs(moved) < max(1.0, self.earlier_duration_s * 0.15):
+            return None
+        return moved
 
     def as_json(self) -> dict:
         return {
@@ -262,6 +281,12 @@ class Recent:
             "last_start": self.last_start.isoformat() if self.last_start else None,
             "last_duration_s": (
                 round(self.last_duration_s) if self.last_duration_s is not None else None
+            ),
+            "typical_duration_s": (
+                round(self.typical_duration_s) if self.typical_duration_s is not None else None
+            ),
+            "duration_drift_s": (
+                round(self.duration_drift_s) if self.duration_drift_s is not None else None
             ),
             "daily_average": (
                 round(self.daily_average) if self.daily_average is not None else None
@@ -290,7 +315,21 @@ SELECT
         SELECT duration_s FROM pump_run
         WHERE pump = $1 AND ended_at IS NOT NULL
         ORDER BY started_at DESC LIMIT 1
-    )                        AS last_duration_s
+    )                        AS last_duration_s,
+    -- How long a run usually lasts, this week against the weeks before it.
+    --
+    -- The twin of the typical load, and on this hardware the better half of
+    -- the pair: a duration comes from the contacts and is exact, where amps
+    -- are whatever the meter happened to report. A pump whose runs are getting
+    -- longer is one losing capacity -- a worn impeller, a partial blockage, a
+    -- check valve starting to pass -- and it is a slow failure that no single
+    -- run shows.
+    percentile_cont(0.5) WITHIN GROUP (ORDER BY duration_s)
+        FILTER (WHERE ended_at IS NOT NULL
+                  AND started_at > now() - $4::interval)     AS typical_duration_s,
+    percentile_cont(0.5) WITHIN GROUP (ORDER BY duration_s)
+        FILTER (WHERE ended_at IS NOT NULL
+                  AND started_at <= now() - $4::interval)    AS earlier_duration_s
 FROM pump_run
 WHERE pump = $1 AND started_at > now() - $3::interval
 """
@@ -318,7 +357,7 @@ class RecentRuns:
         self._cache[key] = (now, cached[1] if cached else Recent())
 
         try:
-            row = await pool.fetchrow(CONTACT_RUNS_QUERY, pump, timezone, RUN_BASELINE)
+            row = await pool.fetchrow(CONTACT_RUNS_QUERY, pump, timezone, RUN_BASELINE, RECENT)
         except (asyncpg.PostgresError, OSError) as error:
             log.warning("Could not count recent runs for pump %d: %s", pump, error)
             return self._cache[key][1]
@@ -327,6 +366,8 @@ class RecentRuns:
             runs=int(row["runs"] or 0),
             last_start=row["last_start"],
             last_duration_s=row["last_duration_s"],
+            typical_duration_s=row["typical_duration_s"],
+            earlier_duration_s=row["earlier_duration_s"],
             daily_average=_daily_average(row["baseline_runs"], row["first_seen"], now),
         )
         self._cache[key] = (now, recent)
@@ -435,6 +476,28 @@ FROM seen s LEFT JOIN summed m ON m.channel = s.channel
 """
 
 
+# Calls for water that took both pumps.
+#
+# The question a duplex panel exists to answer, and the one the cycle layer was
+# built for. It is not a contact, so it has no lamp of its own to read: it is
+# two contacts closed at once, which the panel records as a cycle with both_ran
+# set. Counted by the month like the alarms it sits beside, because a pit that
+# needs both pumps twice in thirty days is telling you something and counting
+# that by the day would read zero forever.
+BOTH_RAN_QUERY = """
+SELECT
+    max(started_at)                                                AS last_on,
+    count(*) FILTER (WHERE started_at > now() - $1::interval)      AS month,
+    (
+        SELECT extract(epoch FROM ended_at - started_at) FROM pump_cycle
+        WHERE both_ran AND ended_at IS NOT NULL
+        ORDER BY started_at DESC LIMIT 1
+    )                                                              AS last_held_s
+FROM pump_cycle
+WHERE both_ran
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class Closings:
     """What one contact has been doing."""
@@ -473,6 +536,31 @@ class SignalHistory:
     def __init__(self) -> None:
         self._at: datetime | None = None
         self._by_channel: dict[int, Closings] = {}
+        self._both_at: datetime | None = None
+        self._both = Closings()
+
+    async def both_ran(self, pool: asyncpg.Pool) -> Closings:
+        """Calls for water that took both pumps, in the shape a lamp reads."""
+        now = datetime.now(UTC)
+        if self._both_at is not None and now - self._both_at < REFRESH_RUNS:
+            return self._both
+
+        self._both_at = now
+        try:
+            row = await pool.fetchrow(BOTH_RAN_QUERY, SIGNAL_MONTH)
+        except (asyncpg.PostgresError, OSError) as error:
+            log.warning("Could not read the cycles that took both pumps: %s", error)
+            return self._both
+
+        self._both = Closings(
+            last_on=row["last_on"] if row else None,
+            month=int((row["month"] if row else 0) or 0),
+            last_held_s=row["last_held_s"] if row else None,
+            # A cycle is recorded whether or not it needed both pumps, so
+            # having none is a real zero rather than an absence of data.
+            known=True,
+        )
+        return self._both
 
     async def closings(self, pool: asyncpg.Pool, channels: list[int]) -> dict[int, Closings]:
         now = datetime.now(UTC)

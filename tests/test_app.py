@@ -942,7 +942,9 @@ def test_a_float_going_is_the_equipment_working():
     assert floats.count("lamp lamp-green") == 2
 
     alerts = page.split('aria-label="Alerts"', 1)[1].split("</section>", 1)[0]
-    assert alerts.count("lamp lamp-red") == 4
+    # Four alarms and the pit winning, which is the fifth thing worth a red
+    # bulb in that section even though no wire reports it.
+    assert alerts.count("lamp lamp-red") == 5
 
     # Two colors on the lamps, and nothing left of the third.
     assert "lamp-amber" not in css and "lamp-amber" not in page
@@ -958,8 +960,12 @@ def test_the_history_covers_every_lamp():
         if role in ("pump1_run", "pump2_run"):
             continue  # those are the pump columns' own runs today
         assert 'data-history="' + role + '"' in page, role
-    assert page.count("data-history-last") == 6
-    assert page.count("data-history-count") == 6
+
+    # Six contacts, plus the one row that is not a contact: both pumps running
+    # at once, which is two of them read together.
+    assert 'data-history="both_pumps"' in page
+    assert page.count("data-history-last") == 7
+    assert page.count("data-history-count") == 7
 
 
 def test_floats_are_counted_by_the_day_and_alarms_by_the_month():

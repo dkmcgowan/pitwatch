@@ -136,15 +136,11 @@
       setFact(last, null);
     }
 
-    // One n/a on this row rather than three with punctuation between them. The
-    // count and the dot are the same answer as the clock beside them, so they
-    // go when it has nothing to say rather than each saying so themselves.
+    // The second line, which says n/a when there is nothing rather than
+    // disappearing. Every other second line on this board does the same, and a
+    // row that is one line tall next to one that is two stops the sections
+    // lining up with each other.
     setFact(runs, heard ? recent.runs + " today" : null);
-    runs.hidden = !heard;
-    const separator = card.querySelector("[data-runs-sep]");
-    if (separator) {
-      separator.hidden = !heard;
-    }
 
     // An ordinary day beside today's count. Eighty-nine is a lot or a Tuesday
     // depending on what the month looks like, and only one of those is worth
@@ -182,8 +178,10 @@
     // With its unit. Every other amp reading on this card carries one, and a
     // bare "typical 15.4" beside "0.00 A" reads as a different kind of number
     // rather than the same measurement at a different moment.
-    value.textContent = known ? "typical " + typical.median.toFixed(1) + " A" : "";
-    value.hidden = !known;
+    // The second line of the load row, so it answers n/a when there is nothing
+    // rather than vanishing. It hid itself while it shared a line with the
+    // amps, where a second n/a would have said the same nothing twice.
+    setFact(value, known ? "typical " + typical.median.toFixed(1) + " A" : null);
     value.title = known
       ? "The middle reading while the pump was running this week, less the starting surge."
       : "";

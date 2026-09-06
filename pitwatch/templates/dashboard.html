@@ -117,18 +117,15 @@
       <div class="fact">
         <dt>Load</dt>
         <dd>
-          <span class="amps" data-amps>--</span><span class="unit">A</span>
-          <span class="beside" data-typical hidden></span>
-          <span class="beside" data-drift hidden></span>
+          <span class="answer"><span class="amps" data-amps>--</span><span class="unit">A</span></span>
+          <span class="aside"><span data-typical>--</span><span class="beside" data-drift hidden></span></span>
         </dd>
       </div>
       <div class="fact">
         <dt>Runs</dt>
         <dd>
-          <span data-fact-last>--</span>
-          <span class="runs-sep" data-runs-sep aria-hidden="true" hidden>·</span>
-          <span data-fact-runs hidden></span>
-          <span class="beside" data-fact-average hidden></span>
+          <span class="answer" data-fact-last>--</span>
+          <span class="aside"><span data-fact-runs>--</span><span class="beside" data-fact-average hidden></span></span>
         </dd>
       </div>
     </dl>
@@ -224,7 +221,9 @@
         <span class="lamp-title">System alert</span>
         <span class="lamp-when">
           <span class="lamp-last" data-history-last title="When it was last raised">--</span>
-          <span class="lamp-count" data-history-count title="Times this month">--</span>
+          <span class="lamp-count"><span data-history-count
+                title="Times this month">--</span><span class="beside" data-history-average
+                hidden></span></span>
         </span>
       </div>
       <div class="lamp lamp-red" data-lamp="high_water" data-history="high_water">
@@ -232,7 +231,9 @@
         <span class="lamp-title">High water</span>
         <span class="lamp-when">
           <span class="lamp-last" data-history-last title="When it was last raised">--</span>
-          <span class="lamp-count" data-history-count title="Times this month">--</span>
+          <span class="lamp-count"><span data-history-count
+                title="Times this month">--</span><span class="beside" data-history-average
+                hidden></span></span>
         </span>
       </div>
       <div class="lamp lamp-red" data-lamp="pump1_fault" data-history="pump1_fault">
@@ -240,7 +241,9 @@
         <span class="lamp-title">Pump 1 overload</span>
         <span class="lamp-when">
           <span class="lamp-last" data-history-last title="When it last tripped">--</span>
-          <span class="lamp-count" data-history-count title="Times this month">--</span>
+          <span class="lamp-count"><span data-history-count
+                title="Times this month">--</span><span class="beside" data-history-average
+                hidden></span></span>
         </span>
       </div>
       <div class="lamp lamp-red" data-lamp="pump2_fault" data-history="pump2_fault">
@@ -248,7 +251,9 @@
         <span class="lamp-title">Pump 2 overload</span>
         <span class="lamp-when">
           <span class="lamp-last" data-history-last title="When it last tripped">--</span>
-          <span class="lamp-count" data-history-count title="Times this month">--</span>
+          <span class="lamp-count"><span data-history-count
+                title="Times this month">--</span><span class="beside" data-history-average
+                hidden></span></span>
         </span>
       </div>
     </div>
@@ -298,8 +303,9 @@
         <span class="lamp-title">Lead float</span>
         <span class="lamp-when">
           <span class="lamp-last" data-history-last title="When it was last on">--</span>
-          <span class="lamp-count" data-history-count title="Times today">--</span><span
-                class="beside" data-history-average hidden></span>
+          <span class="lamp-count"><span data-history-count
+                title="Times today">--</span><span class="beside" data-history-average
+                hidden></span></span>
         </span>
       </div>
       <div class="lamp lamp-green" data-lamp="lag_float" data-history="lag_float">
@@ -307,8 +313,9 @@
         <span class="lamp-title">Lag float</span>
         <span class="lamp-when">
           <span class="lamp-last" data-history-last title="When it was last on">--</span>
-          <span class="lamp-count" data-history-count title="Times today">--</span><span
-                class="beside" data-history-average hidden></span>
+          <span class="lamp-count"><span data-history-count
+                title="Times today">--</span><span class="beside" data-history-average
+                hidden></span></span>
         </span>
       </div>
     </div>

@@ -415,11 +415,18 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   background: color-mix(in srgb, var(--crit) 14%, transparent);
 }
 
-/* Nothing raised, which is what this says nearly all of the time. Quiet
-   rather than green, because the page already has a green and it means a pump
-   is running. The word does the work; the color is only there to not shout. */
+/* Nothing raised, which is what this says nearly all of the time.
+   
+   Green, and it was muted gray on the reasoning that the page already had a
+   green for a running pump. Gray is what everything undecided wears here, so
+   the one badge that is genuinely reporting good news looked like a badge with
+   no opinion. Red and green on the same spot is the pairing everybody already
+   reads without being taught, and this badge is the only place on the board
+   that answers yes or no. */
 .status-clear {
-  color: var(--text-muted);
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
   letter-spacing: 0.02em;
 }
 
@@ -450,11 +457,14 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 
 .fact dt { color: var(--text-muted); }
 
+/* Two lines to the right, exactly as a lamp row has: the answer, and what it
+   has been doing lately under it in the muted weight.
+   
+   The pump was one line with the second half tucked in beside it, which made
+   four sections down a page read as two typographies. A dt on the left and a
+   pair of lines on the right is now the only row shape this board has. */
 .fact dd {
   margin: 0;
-  text-align: right;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
 }
 
 /* Nothing to report, in every field that can have nothing to report. Same
@@ -465,8 +475,11 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
    It used to drop a weight as well, which is why an n/a sat in a column of
    answers looking like it belonged to some other page. */
 .fact .none,
+.fact .answer.none,
+.fact .aside.none,
 .lamp-last.none,
-.lamp-count.none {
+.lamp-count.none,
+.lamp-count .none {
   color: var(--text-muted);
   opacity: 0.75;
 }
@@ -558,21 +571,24 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
    and neither is a note on the other. The count is muted and the last time is
    not, which is the same difference a label and its number have on a pump, and
    it is enough. */
-.lamp-when {
+.lamp-when,
+.fact dd {
   display: grid;
   flex: none;
   text-align: right;
   line-height: 1.3;
 }
 
-.lamp-last {
+.lamp-last,
+.fact .answer {
   font-size: 1.05rem;
   font-weight: 600;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
-.lamp-count {
+.lamp-count,
+.fact .aside {
   font-size: 1.05rem;
   font-weight: 400;
   color: var(--text-muted);
@@ -1032,15 +1048,6 @@ dialog.note .hint p:last-child { margin-bottom: 0; }
   font-size: 0.9rem;
   font-weight: 400;
   color: var(--text-muted);
-}
-
-/* Between when it last ran and how many times it has today. A dot rather than
-   a gap, because three values right aligned on one line with nothing between
-   them read as one number that has been spaced out. */
-.runs-sep {
-  margin: 0 0.35rem;
-  color: var(--text-muted);
-  opacity: 0.55;
 }
 
 /* Alerts ------------------------------------------------------------------ */

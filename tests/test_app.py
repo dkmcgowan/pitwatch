@@ -841,7 +841,12 @@ def test_both_lines_beside_a_lamp_are_the_same_size():
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
 
     def rule(selector: str) -> str:
-        return css.split(selector + " {", 1)[1].split("}", 1)[0]
+        # A selector may share its block with the pump rows, which take the
+        # same shape on purpose, so match it before a brace or before a comma.
+        for token in (selector + " {", selector + ",\n"):
+            if token in css:
+                return css.split(token, 1)[1].split("}", 1)[0]
+        raise AssertionError(f"no rule for {selector}")
 
     def size(selector: str) -> str:
         return rule(selector).split("font-size:", 1)[1].split(";", 1)[0].strip()
@@ -1129,33 +1134,41 @@ def test_a_pump_is_two_rows_and_not_four():
     # When it last went, how many times today, and an ordinary day, in that
     # order, share the runs row.
     runs = section.split("<dt>Runs</dt>", 1)[1].split("</div>", 1)[0]
-    for marker in ("data-fact-last", "data-runs-sep", "data-fact-runs", "data-fact-average"):
+    for marker in ("data-fact-last", "data-fact-runs", "data-fact-average"):
         assert marker in runs, marker
     order = [runs.index(marker) for marker in ("data-fact-last", "data-fact-runs")]
     assert order == sorted(order)
 
 
-def test_a_row_with_nothing_behind_it_says_so_once():
-    """Three values on the runs row and one n/a between them, not three with
-    punctuation in between. The count and the dot are the same answer as the
-    clock beside them, so they go when it has nothing to say."""
+def test_every_row_on_the_board_is_the_same_two_lines():
+    """A dt on the left and a pair of lines on the right, in every section.
+
+    The pumps were one line with the second half tucked in beside it, so four
+    sections down a page read as two typographies. Both lines say n/a when
+    there is nothing behind them, for the same reason the lamp rows do: a row
+    one line tall next to one that is two stops the sections lining up.
+    """
     page = render_dashboard()
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
     js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
 
-    # Nothing but the clock is drawn until a reading has arrived.
-    runs = page.split("<dt>Runs</dt>", 1)[1].split("</div>", 1)[0]
-    assert "data-fact-runs hidden" in runs
-    assert "data-runs-sep" in runs and "hidden>" in runs
+    # One definition of the shape, shared rather than copied, so the two kinds
+    # of row cannot drift apart.
+    assert ".lamp-when,\n.fact dd {" in css
+    assert ".lamp-last,\n.fact .answer {" in css
+    assert ".lamp-count,\n.fact .aside {" in css
 
-    recent = js.split("function renderRecent", 1)[1].split("function renderTypical", 1)[0]
-    assert "runs.hidden = !heard" in recent
-    assert "separator.hidden = !heard" in recent
+    for section in ("<dt>Load</dt>", "<dt>Runs</dt>"):
+        row = page.split(section, 1)[1].split("</div>", 1)[0]
+        assert 'class="answer"' in row, section
+        assert 'class="aside"' in row, section
 
-    # And the typical load goes rather than adding a second n/a to the load
-    # row, which already has one in the amps.
+    # Nothing on a pump row hides itself any more; the second line answers n/a
+    # like every other second line.
+    assert "data-runs-sep" not in page and "data-runs-sep" not in js
+    assert "runs.hidden" not in js
     typical = js.split("function renderTypical", 1)[1].split("// The panel door.", 1)[0]
-    assert "value.hidden = !known" in typical
-    assert "setFact(value" not in typical
+    assert "setFact(value" in typical and "value.hidden" not in typical
 
 
 def test_runs_today_means_today():

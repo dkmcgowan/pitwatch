@@ -408,7 +408,13 @@ class InputsReader:
             if self._stale:
                 self._stale = False
                 log.info("The panel module is talking again")
-                await self._report(True, None)
+            # Reported every time, not only on the way back from silence. This
+            # is what "last seen" means, and it was only ever written on a
+            # change of state, so a module that stayed up for fourteen hours
+            # showed as last seen fourteen hours ago. The number was true of
+            # the last transition and read as the last sighting, which is the
+            # sort of stale figure somebody eventually makes a decision on.
+            await self._report(True, None)
             return
 
         if topic == self._settings.status_topic:

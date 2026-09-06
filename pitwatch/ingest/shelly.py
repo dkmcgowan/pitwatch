@@ -127,6 +127,14 @@ def digest_response(challenge: dict, password: str, cnonce: str, nc: int) -> dic
     }
 
 
+# How often a working connection refreshes its "last seen".
+#
+# Frames arrive every few seconds and this is a single row that nobody reads
+# more than once a page load, so writing it on every frame would be a lot of
+# database traffic to answer a question asked once a minute.
+SEEN_EVERY_S = 30.0
+
+
 def parse_notify_status(frame: dict) -> list[EmSample]:
     """Pull clamp readings out of a NotifyStatus or NotifyFullStatus frame.
 
@@ -370,6 +378,7 @@ class ShellyReader:
     ) -> None:
         self._settings = settings
         self._on_samples = on_samples
+        self._last_seen_written = 0.0
         self._on_status = on_status
         self._last_frame_at = 0.0
 
@@ -421,10 +430,19 @@ class ShellyReader:
         await self._seed_current_readings(connection)
 
         self._last_frame_at = time.monotonic()
+        self._last_seen_written = time.monotonic()
         heartbeat = asyncio.create_task(self._heartbeat(connection, stop))
         try:
             async for frame in connection.frames():
                 self._last_frame_at = time.monotonic()
+                # "Last seen" has to mean the last time we heard from it, and
+                # it was only written when the connection changed state, so a
+                # meter that stayed up for fourteen hours reported as last seen
+                # fourteen hours ago. Throttled, because a frame arrives every
+                # few seconds and this is a row nobody reads that often.
+                if time.monotonic() - self._last_seen_written >= SEEN_EVERY_S:
+                    self._last_seen_written = time.monotonic()
+                    await self._report(True, None)
                 method = frame.get("method")
                 if method in ("NotifyStatus", "NotifyFullStatus"):
                     samples = parse_notify_status(frame)

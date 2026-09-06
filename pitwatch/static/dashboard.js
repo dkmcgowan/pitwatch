@@ -179,7 +179,10 @@
     }
 
     const known = typical.median !== null && typical.median !== undefined;
-    value.textContent = known ? "typical " + typical.median.toFixed(1) : "";
+    // With its unit. Every other amp reading on this card carries one, and a
+    // bare "typical 15.4" beside "0.00 A" reads as a different kind of number
+    // rather than the same measurement at a different moment.
+    value.textContent = known ? "typical " + typical.median.toFixed(1) + " A" : "";
     value.hidden = !known;
     value.title = known
       ? "The middle reading while the pump was running this week, less the starting surge."

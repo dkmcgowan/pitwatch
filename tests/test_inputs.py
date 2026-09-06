@@ -312,6 +312,33 @@ def test_a_heartbeat_is_proof_of_life_by_arriving():
     assert reader._heard_at is not None
 
 
+def test_every_heartbeat_refreshes_when_the_module_was_last_seen():
+    """Not only the one that ends a silence.
+
+    "Last seen" was written on a change of state and nothing else, so a module
+    that stayed up all night reported as last seen when it connected. The
+    number was true of the last transition and reads as the last sighting,
+    which is the sort of stale figure somebody eventually makes a decision on.
+    """
+    said = []
+
+    async def on_status(online, error):
+        said.append((online, error))
+
+    async def run():
+        reader = InputsReader(
+            _settings(heartbeat_topic="pitwatch/heartbeat", heartbeat_s=60), _nothing, on_status
+        )
+        # Never been silent, so nothing is recovering here.
+        reader._stale = False
+        for _ in range(3):
+            await reader._handle(_Message("pitwatch/heartbeat", '{"id":"x408","upTime":"90"}'))
+
+    asyncio.run(run())
+
+    assert said == [(True, None)] * 3, "each beat is a sighting"
+
+
 def test_a_heartbeat_is_not_read_as_a_status():
     """It arrives on its own topic and never reaches says_online, which would
     return False for it and be right to: that body says nothing about

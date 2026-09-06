@@ -364,18 +364,35 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   font-variant-numeric: tabular-nums;
 }
 
-/* Running, or next to run. The one somebody is looking for. */
-.status-lead {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
+/* The pump that answers the next call. Green, because it is the good news on
+   this page: the duplex rotation is working and something is ready to go.
 
-/* Both called at once, which happens when the pit is winning. */
-.status-on {
+   It was the same blue the brand mark is, which made it read as decoration
+   rather than as a state, and left LAG in the plain grey that everything
+   undecided uses. Two pumps, two states, and only one of them coloured. */
+.status-lead {
   color: var(--ok);
   border-color: color-mix(in srgb, var(--ok) 50%, transparent);
   background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+
+/* Sitting this one out, which is the pump that went last. Not a warning and
+   not a fault, so it takes the water blue rather than anything with an opinion:
+   a colour that says "this is a state I have been told about" next to a green
+   that says "this one is next". */
+.status-lag {
+  color: var(--water);
+  border-color: color-mix(in srgb, var(--water) 45%, transparent);
+  background: color-mix(in srgb, var(--water) 12%, transparent);
+}
+
+/* Running right now. The strongest thing on the card, because it is the answer
+   to the question somebody opened the page with. */
+.status-on {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 70%, transparent);
+  background: color-mix(in srgb, var(--ok) 22%, transparent);
+  font-weight: 800;
 }
 
 /* Off and staying off, and the alerts section with something raised. Two
@@ -1198,18 +1215,47 @@ dialog.confirm .row-actions { margin-top: 1.25rem; }
 
 /* The live feed has dropped. Everything on screen is still the last thing we
    knew, which is worth showing, but it must not look current. */
-body.stale main { opacity: 0.55; }
+/* Losing the feed, said without moving anything.
+ *
+ * This used to insert a line of text above the board, which pushed every
+ * number down the page at the exact moment somebody was reading one, and
+ * pushed them back up when it reconnected. A dropped websocket on a phone
+ * changing cells is a second of nothing; it should not rearrange the page
+ * twice.
+ *
+ * So the board dims and a spinner sits over it. The dimming is the message:
+ * these numbers are the last ones received. Nothing reflows, and when the
+ * socket comes back the page is exactly where it was. */
+body.stale main {
+  opacity: 0.45;
+  transition: opacity 200ms linear;
+  pointer-events: none;
+}
 
-body.stale main::before {
-  content: "Not connected to PitWatch. These readings are the last ones received.";
-  display: block;
-  padding: 0.7rem 1rem;
-  margin-bottom: var(--gap);
-  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
-  border-radius: var(--radius);
-  color: var(--warn);
-  font-weight: 600;
-  opacity: 1;
+body.stale::after {
+  content: "";
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 2.2rem;
+  height: 2.2rem;
+  margin: -1.1rem 0 0 -1.1rem;
+  border: 3px solid color-mix(in srgb, var(--text-muted) 35%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: stale-spin 900ms linear infinite;
+  z-index: 50;
+}
+
+@keyframes stale-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* A spinner that cannot be seen still says "wait", and a reader who has asked
+   for less movement should not be given a rotating one. */
+@media (prefers-reduced-motion: reduce) {
+  body.stale::after { animation: none; border-top-color: var(--text-muted); }
+  body.stale main { transition: none; }
 }
 
 table.clamps, table.steps { min-width: 0; }

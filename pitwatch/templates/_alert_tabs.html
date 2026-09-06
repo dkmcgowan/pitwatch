@@ -1,0 +1,10 @@
+{# Two faces of one thing, so they share a header icon rather than taking two.
+
+   History first, because it is what somebody opening the bell wants: what has
+   happened, not what the thresholds are. The settings are a thing you set once
+   and revisit when a rule turns out to be wrong, which is rarer than wanting
+   to know whether the pit did anything last night. #}
+<nav class="subtabs" aria-label="Alerts">
+  <a href="/alerts" class="{% if tab == 'history' %}on{% endif %}">History</a>
+  <a href="/alerts/settings" class="{% if tab == 'settings' %}on{% endif %}">Rules</a>
+</nav>

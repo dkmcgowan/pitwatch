@@ -3,6 +3,7 @@
 {% block title %}Alerts{% endblock %}
 
 {% block content %}
+{% include "_alert_tabs.html" %}
 
 {% if error %}
 <p class="error" role="alert">{{ error }}</p>
@@ -17,7 +18,7 @@
    the list. The heading went with them: the navigation shows which page this
    is and the browser tab says Alerts, so a word at the top of a page you
    reached by clicking Alerts is telling you what you already know. #}
-<form method="post" action="/alerts">
+<form method="post" action="/alerts/settings">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
   {% for spec in specs %}

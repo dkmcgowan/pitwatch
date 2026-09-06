@@ -772,8 +772,10 @@ def test_the_narrow_screen_gives_up_padding_and_not_type():
     # A stack, not a grid of columns: nothing here is beside anything else.
     assert "grid-template-columns" not in rule(".board")
 
-    # The phone block, which is the last thing in the board section.
-    phone = css.split("@media (max-width: 700px) {", 1)[1].split("/* The history", 1)[0]
+    # The phone block itself, read to its own closing brace rather than to
+    # whatever section happens to follow it. Anchoring on the next comment made
+    # this fail the day something unrelated was written underneath it.
+    phone = css.split("@media (max-width: 700px) {", 1)[1].split("\n}", 1)[0]
     assert "font-size" not in phone
     assert "grid-template-columns" not in phone
     assert "grid-area" not in phone
@@ -1918,3 +1920,84 @@ def test_the_notes_are_wired_from_one_file_for_every_page():
     assert "/static/notes.js" in base
     assert "function wireNotes" not in dashboard
     assert Path("pitwatch/static/notes.js").exists()
+
+
+# -- the alert history page --------------------------------------------------
+
+
+def _alert(title, detail, severity="critical", lasted="open", bad=True, when="6 Sep 18:34"):
+    return {
+        "severity": severity,
+        "title": title,
+        "detail": detail,
+        "raised_local": when,
+        "lasted": lasted,
+        "bad": bad,
+    }
+
+
+def test_the_history_separates_what_is_open_from_what_is_over():
+    """Whether anything is wrong right now, and what this pit has been doing,
+    are different questions. The second is much the longer list, and mixed
+    together the urgent one is answered somewhere in the middle of it."""
+    page = render_page(
+        "alert_history.html",
+        tab="history",
+        open=[_alert("High water", "The pit is full.")],
+        past=[_alert("Overload tripped", "Pump 1 tripped.", lasted="1.0 h", bad=False)],
+        messages=[],
+    )
+
+    assert page.index("Open now") < page.index("High water")
+    assert page.index("High water") < page.index("Overload tripped")
+    assert "1.0 h" in page, "how long the finished one lasted"
+
+
+def test_an_empty_history_is_a_sentence_rather_than_an_empty_table():
+    """On a panel that has behaved itself this is the normal state, and it
+    deserves a sentence rather than furniture with no rows in it."""
+    page = render_page("alert_history.html", tab="history", open=[], past=[], messages=[])
+
+    assert "Nothing is raised" in page
+    assert "Nothing has been raised yet" in page
+    assert "<table" not in page
+
+
+def test_the_history_says_when_a_message_did_not_get_through():
+    """An alert nobody was told about is the failure this page exists to make
+    visible, and it is invisible among the alerts themselves: a raised one
+    looks the same whether it reached a phone or died in a mail server."""
+    page = render_page(
+        "alert_history.html",
+        tab="history",
+        open=[],
+        past=[],
+        messages=[
+            {
+                "channel": "sms",
+                "target": "+12125550142",
+                "status": "failed",
+                "error": "connection refused",
+                "detail": "",
+                "when_local": "6 Sep 16:52",
+            }
+        ],
+    )
+
+    assert "failed" in page and "connection refused" in page
+    assert "+12125550142" in page
+
+
+def test_the_severity_is_a_bar_rather_than_a_column_of_words():
+    """A column repeating the word critical is read once and then skipped. A
+    color at the edge of the row is still doing its job on the twentieth."""
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+
+    for level, token in (("critical", "--crit"), ("warning", "--warn"), ("info", "--water")):
+        rule = css.split(f".alert.sev-{level} {{", 1)[1].split("}", 1)[0]
+        assert token in rule, level
+
+    # And the rows are not a table, because a three column table of prose
+    # cannot fit a phone without clipping the third one.
+    page = render_page("alert_history.html", tab="history", open=[], past=[], messages=[])
+    assert "table-scroll" not in page

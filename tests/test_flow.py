@@ -861,10 +861,10 @@ def test_the_alerts_page_is_for_administrators(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
-    assert client.get("/alerts").status_code == 200
+    assert client.get("/alerts/settings").status_code == 200
 
     client.post("/logout")
-    page = client.get("/alerts", follow_redirects=False)
+    page = client.get("/alerts/settings", follow_redirects=False)
     assert page.status_code == 303
     assert page.headers["location"].startswith("/login")
 
@@ -875,7 +875,7 @@ def test_every_rule_is_on_the_page_with_what_it_says(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
-    page = client.get("/alerts").text
+    page = client.get("/alerts/settings").text
 
     for spec in specs.SPECS:
         assert f"{spec.key}_enabled" in page, spec.key
@@ -890,7 +890,7 @@ def test_the_thresholds_moved_off_the_pumps_page(client):
     client.post("/setup", data=SETUP_FORM)
 
     pumps = client.get("/settings").text
-    alerts = client.get("/alerts").text
+    alerts = client.get("/alerts/settings").text
 
     for field in ("max_runtime_ms", "restart_gap_ms", "quiet_minutes_before_flag"):
         assert field not in pumps, field
@@ -908,7 +908,7 @@ def test_saving_a_rule_keeps_it(client):
     client.post("/setup", data=SETUP_FORM)
 
     response = client.post(
-        "/alerts",
+        "/alerts/settings",
         data={
             "high_water_enabled": "on",
             "high_water_severity": "warning",
@@ -923,6 +923,9 @@ def test_saving_a_rule_keeps_it(client):
     )
 
     assert response.status_code == 303
+    assert response.headers["location"] == "/alerts/settings?saved=1", (
+        "saving the rules comes back to the rules, not to the history"
+    )
     alerts = client.app.state.settings.alerts
     assert alerts.high_water.message == "The pit is full at {site}."
     assert alerts.high_water.severity.value == "warning"
@@ -939,7 +942,7 @@ def test_a_rule_keeps_its_words_when_the_box_is_left_empty(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
-    client.post("/alerts", data={"high_water_enabled": "on", "high_water_message": ""})
+    client.post("/alerts/settings", data={"high_water_enabled": "on", "high_water_message": ""})
 
     assert "{site}" in client.app.state.settings.alerts.high_water.message
 
@@ -1216,3 +1219,22 @@ def test_the_summary_settings_survive_a_save(client):
         },
     )
     assert client.app.state.settings.summary.api_key == ""
+
+
+def test_the_bell_shows_what_happened_before_it_shows_the_thresholds(client):
+    """Opening the bell asks "did anything happen", not "what are the limits".
+
+    The rules are a tab rather than a header icon of their own: seven icons
+    already compete for the top of a phone, and an eighth for a page somebody
+    opens twice a year would cost that row for nothing.
+    """
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    page = client.get("/alerts").text
+
+    assert "Open now" in page or "Nothing is raised" in page
+    assert 'href="/alerts/settings"' in page, "the rules are one tab away"
+    assert 'class="subtabs"' in page
+    # Not the settings form, which is the thing that used to be here.
+    assert "Save all alerts" not in page

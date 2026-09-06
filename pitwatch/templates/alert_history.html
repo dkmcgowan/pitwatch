@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% set active = 'alerts' %}
+{% block title %}Alerts{% endblock %}
+
+{% block content %}
+{% include "_alert_tabs.html" %}
+
+{# What has actually happened, which until now could only be read with SQL.
+
+   Open ones first and separately, because "is anything wrong right now" and
+   "what has this pit been doing" are different questions and the second one is
+   a great deal longer. A page that mixed them would answer the urgent one
+   somewhere in the middle of the list. #}
+{% if open %}
+<section class="card">
+  <h2 class="section-heading">Open now</h2>
+  <ul class="alert-list">
+    {% for row in open %}
+    <li class="alert sev-{{ row.severity }}">
+      <p class="alert-head"><span class="alert-when">{{ row.raised_local }}</span><span
+         class="alert-for{{ ' bad' if row.bad }}">{{ row.lasted }}</span></p>
+      <p class="alert-title">{{ row.title }}</p>
+      <p class="alert-detail">{{ row.detail }}</p>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% else %}
+<section class="card">
+  <p class="all-clear">Nothing is raised.</p>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2 class="section-heading">Earlier</h2>
+  {% if past %}
+  <ul class="alert-list">
+    {% for row in past %}
+    <li class="alert sev-{{ row.severity }}">
+      <p class="alert-head"><span class="alert-when">{{ row.raised_local }}</span><span
+         class="alert-for{{ ' bad' if row.bad }}">{{ row.lasted }}</span></p>
+      <p class="alert-title">{{ row.title }}</p>
+      <p class="alert-detail">{{ row.detail }}</p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  {# Not an empty table with a header row. On an install whose panel has behaved
+     itself this is the normal state and it deserves a sentence, not furniture. #}
+  <p class="muted">Nothing has been raised yet.</p>
+  {% endif %}
+</section>
+
+{# Whether the message actually left. An alert nobody was told about is the
+   failure this page exists to make visible, and it is invisible in the list
+   above: a raised alert looks identical whether it reached a phone or died in
+   a mail server. #}
+<section class="card">
+  <h2 class="section-heading">Messages</h2>
+  {% if messages %}
+  <ul class="alert-list">
+    {% for row in messages %}
+    <li class="alert {{ 'sev-critical' if row.status == 'failed' }}">
+      <p class="alert-head"><span class="alert-when">{{ row.when_local }}</span><span
+         class="alert-for{{ ' bad' if row.status == 'failed' }}">{{ row.status }}</span></p>
+      <p class="alert-title">{{ row.channel }} to {{ row.target }}</p>
+      <p class="alert-detail">{% if row.error %}{{ row.error }}{% else %}{{ row.detail }}{% endif %}</p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">Nothing has been sent yet.</p>
+  {% endif %}
+</section>
+
+{% endblock %}

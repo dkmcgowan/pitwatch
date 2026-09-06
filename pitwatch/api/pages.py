@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 from urllib.parse import quote
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -143,7 +144,93 @@ async def settings_page(request: Request, admin: auth.IsAdmin, saved: str | None
 # beside its own message tells you everything.
 
 
+def _local(when, zone: str) -> str:
+    """A timestamp in the building's own clock.
+
+    Storage is UTC everywhere, which is right, and a page that showed it would
+    be asking somebody standing in a basement to do arithmetic about a flood.
+    """
+    if when is None:
+        return ""
+    try:
+        here = when.astimezone(ZoneInfo(zone))
+    except (ZoneInfoNotFoundError, ValueError):
+        here = when
+    return here.strftime("%-d %b %H:%M")
+
+
+def _spoken(seconds: float | None) -> str:
+    """How long something lasted, in the units somebody would say it in."""
+    if seconds is None or seconds < 1:
+        return ""
+    if seconds < 90:
+        return f"{seconds:.0f} s"
+    if seconds < 5400:
+        return f"{seconds / 60:.0f} min"
+    if seconds < 172_800:
+        return f"{seconds / 3600:.1f} h"
+    return f"{seconds / 86_400:.0f} d"
+
+
 @router.get("/alerts", include_in_schema=False)
+async def alert_history(request: Request, admin: auth.IsAdmin):
+    """What has happened, which is what somebody opening the bell wants.
+
+    The rules are a tab away rather than a header icon of their own: they are
+    set once and revisited when one turns out wrong, which is rarer than
+    wanting to know whether the pit did anything last night.
+    """
+    pool = request.app.state.pool
+    zone = request.app.state.settings.site.timezone
+
+    def shape(row, *, ended):
+        lasted = row["cleared_at"] - row["raised_at"] if ended else None
+        return {
+            "severity": row["severity"],
+            "title": row["title"],
+            "detail": row["detail"],
+            "raised_local": _local(row["raised_at"], zone),
+            "lasted": _spoken(lasted.total_seconds() if lasted else None) or "open",
+            "bad": not ended,
+        }
+
+    rows = await pool.fetch(
+        """
+        SELECT severity, title, detail, raised_at, cleared_at
+        FROM alert ORDER BY raised_at DESC LIMIT 200
+        """
+    )
+    sent = await pool.fetch(
+        """
+        SELECT n.channel, n.target, n.status, n.error, n.created_at, a.detail
+        FROM notification n LEFT JOIN alert a ON a.id = n.alert_id
+        ORDER BY n.created_at DESC LIMIT 50
+        """
+    )
+    return _templates(request).TemplateResponse(
+        request,
+        "alert_history.html",
+        _context(
+            request,
+            tab="history",
+            open=[shape(row, ended=False) for row in rows if row["cleared_at"] is None],
+            past=[shape(row, ended=True) for row in rows if row["cleared_at"] is not None],
+            messages=[
+                {
+                    "channel": row["channel"],
+                    "target": row["target"],
+                    "status": row["status"],
+                    "error": row["error"],
+                    "detail": row["detail"] or "",
+                    "when_local": _local(row["created_at"], zone),
+                }
+                for row in sent
+            ],
+        ),
+    )
+
+
+@router.get("/alerts/settings", include_in_schema=False)
 async def alerts_page(request: Request, admin: auth.IsAdmin, saved: str | None = None):
     store: SettingsStore = request.app.state.settings
     return _templates(request).TemplateResponse(
@@ -151,6 +238,7 @@ async def alerts_page(request: Request, admin: auth.IsAdmin, saved: str | None =
         "alerts.html",
         _context(
             request,
+            tab="settings",
             specs=alert_specs.SPECS,
             rules=store.alerts.by_key,
             saved=saved is not None,
@@ -159,7 +247,7 @@ async def alerts_page(request: Request, admin: auth.IsAdmin, saved: str | None =
     )
 
 
-@router.post("/alerts", include_in_schema=False)
+@router.post("/alerts/settings", include_in_schema=False)
 async def alerts_save(request: Request, admin: auth.IsAdmin):
     store: SettingsStore = request.app.state.settings
     form = await request.form()
@@ -171,6 +259,7 @@ async def alerts_save(request: Request, admin: auth.IsAdmin):
             "alerts.html",
             _context(
                 request,
+                tab="settings",
                 specs=alert_specs.SPECS,
                 rules=store.alerts.by_key,
                 saved=False,
@@ -179,7 +268,7 @@ async def alerts_save(request: Request, admin: auth.IsAdmin):
             status_code=400,
         )
     log.info("%s updated the alert rules", admin.username)
-    return RedirectResponse("/alerts?saved=1", status_code=303)
+    return RedirectResponse("/alerts/settings?saved=1", status_code=303)
 
 
 # -- history and the written summary -----------------------------------------

@@ -654,6 +654,74 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   .card-top { gap: 0.5rem; }
 }
 
+/* Two faces of one thing ---------------------------------------------------
+ *
+ * Alerts are a history and a set of rules, and they share a header icon rather
+ * than taking two. Seven icons already compete for a phone's top row, and an
+ * eighth for a page somebody opens twice a year would have cost the row for
+ * nothing.
+ */
+.subtabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: var(--gap);
+  border-bottom: 1px solid var(--border);
+}
+
+.subtabs a {
+  padding: 0.55rem 1rem;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.subtabs a.on {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* One alert per block, not per table row.
+ *
+ * It was a three column table and the third column -- how long it lasted --
+ * was pushed off the right of a phone. A table of prose cannot fit 390 pixels
+ * without either scrolling sideways or clipping, and the same argument settled
+ * the dashboard: the narrow screen is the one this gets read on.
+ *
+ * So the times sit on their own line above the text, which wraps. The severity
+ * is a bar down the left rather than a word: a column of the word "critical"
+ * is read once and skipped, where a color at the edge is still working on the
+ * twentieth row. */
+.alert-list { list-style: none; margin: 0; padding: 0; }
+
+.alert {
+  padding: 0.7rem 0 0.7rem 0.85rem;
+  border-top: 1px solid var(--border);
+  border-left: 3px solid transparent;
+}
+
+.alert:first-child { border-top: none; }
+
+.alert-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 0 0.15rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.alert-title { margin: 0; font-weight: 650; }
+.alert-detail { margin: 0.1rem 0 0; color: var(--text-muted); }
+.alert-for.bad { color: var(--crit); font-weight: 700; }
+
+.alert.sev-critical { border-left-color: var(--crit); }
+.alert.sev-warning { border-left-color: var(--warn); }
+.alert.sev-info { border-left-color: var(--water); }
+
+.all-clear { color: var(--ok); font-weight: 600; margin: 0; }
+
 /* The history page --------------------------------------------------------- */
 
 /* A small quiet heading over a chart or a written summary. It names what is

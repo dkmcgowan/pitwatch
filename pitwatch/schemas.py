@@ -461,10 +461,21 @@ class MqttSource(BaseModel):
     profile: str = Field(default="", max_length=40)
     path: str = Field(default="", max_length=200)
 
-    # For a device that publishes one contact per topic rather than all of them
-    # together: which of the eight inputs this topic is. Ignored by a profile
-    # that carries its own numbering.
-    channel: int | None = Field(default=None, ge=1, le=8)
+    # Two different "which numbered thing", kept apart on purpose. They were
+    # one field for about an hour and the migration caught it: an input is
+    # numbered from one and a meter channel from zero, so one range cannot
+    # honestly cover both, and a field whose meaning depends on the role beside
+    # it is a field somebody will read wrong.
+    #
+    # Which of the eight inputs this topic carries, for a device that publishes
+    # one contact per topic rather than all of them together. Ignored by a
+    # profile that carries its own numbering.
+    input_number: int | None = Field(default=None, ge=1, le=8)
+    # Which channel a reading is recorded under. Not derived from the role,
+    # because the readings already stored are filed under whatever the meter
+    # called its clamps, and renumbering them would leave last month's amps
+    # describing the other pump.
+    channel: int | None = Field(default=None, ge=0, le=63)
 
     # Silence longer than this and the source is reported offline.
     #

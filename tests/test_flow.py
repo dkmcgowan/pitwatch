@@ -406,17 +406,22 @@ def test_health_is_healthy_once_the_database_is_up(client):
 
 
 def test_the_state_endpoint_reports_every_source(client):
-    """Three, and the weather poller is one of them. It gets no lamp on the
-    dashboard, because rain a quarter of an hour stale is not a fault and a red
-    dot beside "the Shelly is offline" would say it was, but a firewall that
-    blocks Open-Meteo should be findable somewhere other than a container
-    log."""
+    """Every source reports itself by name, and the list is no longer a closed
+    set of device names. It was widened once to add the weather poller and
+    would have needed widening again per device, which is the wart the MQTT
+    sources exist to remove.
+
+    Mid transition, so the two old device rows are still here. They go when the
+    readers that write them go, and this failing then is the reminder.
+    """
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     state = client.get("/api/state").json()
 
-    assert set(state["devices"]) == {"shelly", "inputs", "weather"}
+    assert {"clamp1", "clamp2", "contacts", "heartbeat"} <= set(state["devices"]), "the sources"
+    assert "weather" in state["devices"]
+    assert {"shelly", "inputs"} <= set(state["devices"]), "still here until their readers go"
     assert state["site"]["name"] == "Basement pit"
 
 

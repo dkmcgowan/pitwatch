@@ -941,6 +941,134 @@ async def test_a_run_with_no_reading_at_all_is_still_a_run(pool):
     assert row["peak_current"] is None and row["samples"] == 0
 
 
+async def test_a_blip_too_short_to_be_a_pump_is_not_recorded_as_one(pool):
+    """A contactor takes ten to thirty milliseconds just to pull in, and a run
+    on this pit is twelve seconds. There is nothing real in between, so a
+    closure of a few milliseconds is noise that got past the debounce rather
+    than a very short run."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.runs import RunRecorder
+
+    began = datetime.now(UTC) - timedelta(minutes=5)
+    recorder = RunRecorder(pool, _store())
+
+    await recorder.record([_edge(1, True, began)])
+    await recorder.record([_edge(1, False, began + timedelta(milliseconds=9))])
+
+    assert await pool.fetchval("SELECT count(*) FROM pump_run") == 0
+    # And the call it invented goes with it. A filling of the pit that no pump
+    # answered was never a filling of the pit.
+    assert await pool.fetchval("SELECT count(*) FROM pump_cycle") == 0
+
+
+async def test_the_phantom_that_actually_happened_stops_being_a_both_pumps_call(pool):
+    """The one this exists for, replayed from the real panel.
+
+    On 2026-09-06 pump 2 ran a normal twelve second call. Nineteen milliseconds
+    before it finished, pump 1's contact closed and opened again inside nine
+    milliseconds, with the clamp reading nothing at all. That set `both_ran` on
+    the cycle, which is an alert condition: it is on the dashboard, it is a
+    figure on the history page, and it sends messages.
+
+    `both_ran` is set the instant a second pump joins an open cycle, which is
+    before anything can know how long that pump will stay. So it cannot be
+    prevented on the way in; it has to be put back on the way out.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.runs import RunRecorder
+
+    began = datetime.now(UTC) - timedelta(minutes=5)
+    recorder = RunRecorder(pool, _store())
+
+    # The real call.
+    await recorder.record([_edge(2, True, began)])
+    # The blip, near the end of it and inside it.
+    await recorder.record([_edge(1, True, began + timedelta(seconds=12.13))])
+    await recorder.record([_edge(1, False, began + timedelta(seconds=12.139))])
+    # And the real call finishing.
+    await recorder.record([_edge(2, False, began + timedelta(seconds=12.15))])
+
+    runs = await pool.fetch("SELECT pump, duration_s FROM pump_run ORDER BY pump")
+    assert [run["pump"] for run in runs] == [2], "only the pump that really ran"
+    assert runs[0]["duration_s"] == pytest.approx(12.15, abs=0.01)
+
+    cycle = await pool.fetchrow("SELECT * FROM pump_cycle")
+    assert cycle["both_ran"] is False, "nobody gets woken up for this"
+    assert cycle["ended_at"] is not None, "and the call still closes"
+
+
+async def test_a_real_call_that_took_both_pumps_still_says_so(pool):
+    """The floor has to leave the true case alone. A lag pump that genuinely
+    joined the lead one is the thing this panel exists to report."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.runs import RunRecorder
+
+    began = datetime.now(UTC) - timedelta(minutes=5)
+    recorder = RunRecorder(pool, _store())
+
+    await recorder.record([_edge(1, True, began)])
+    await recorder.record([_edge(2, True, began + timedelta(seconds=8))])
+    await recorder.record([_edge(1, False, began + timedelta(seconds=30))])
+    await recorder.record([_edge(2, False, began + timedelta(seconds=44))])
+
+    cycle = await pool.fetchrow("SELECT * FROM pump_cycle")
+    assert cycle["both_ran"] is True
+    assert await pool.fetchval("SELECT count(*) FROM pump_run") == 2
+
+
+async def test_a_blip_leaves_the_call_it_interrupted_alone(pool):
+    """Discarding the blip must not take the real run's cycle with it, and must
+    not leave that cycle open either."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.runs import RunRecorder
+
+    began = datetime.now(UTC) - timedelta(minutes=5)
+    recorder = RunRecorder(pool, _store())
+
+    await recorder.record([_edge(1, True, began)])
+    await recorder.record([_edge(2, True, began + timedelta(seconds=3))])
+    await recorder.record([_edge(2, False, began + timedelta(seconds=3.05))])
+    await recorder.record([_edge(1, False, began + timedelta(seconds=20))])
+
+    runs = await pool.fetch("SELECT pump, duration_s FROM pump_run")
+    assert [run["pump"] for run in runs] == [1]
+    assert runs[0]["duration_s"] == pytest.approx(20.0, abs=0.01)
+
+    cycle = await pool.fetchrow("SELECT * FROM pump_cycle")
+    assert cycle["both_ran"] is False
+    assert cycle["ended_at"] is not None
+
+
+async def test_what_the_panel_said_survives_the_run_being_discarded(pool):
+    """The floor is a rule about the derived layer, not about the record. The
+    raw edges keep their real timestamps in io_event, so the blip is still
+    there to be found by anybody asking what the panel actually said."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.domain.runs import RunRecorder
+
+    began = datetime.now(UTC) - timedelta(minutes=5)
+    recorder = RunRecorder(pool, _store())
+
+    # The reader writes io_event; the recorder is handed the same edges.
+    await pool.executemany(
+        "INSERT INTO io_event (ts, channel, label, state, raw) VALUES ($1, $2, $3, $4, $4)",
+        [
+            (began, 1, "Pump 1 running", True),
+            (began + timedelta(milliseconds=9), 1, "Pump 1 running", False),
+        ],
+    )
+    await recorder.record([_edge(1, True, began)])
+    await recorder.record([_edge(1, False, began + timedelta(milliseconds=9))])
+
+    assert await pool.fetchval("SELECT count(*) FROM pump_run") == 0
+    assert await pool.fetchval("SELECT count(*) FROM io_event WHERE channel = 1") == 2
+
+
 async def test_a_stop_with_no_start_is_not_a_run(pool):
     """The usual cause is a restart across a run: the contact was already
     closed when this came up, so the opening edge belonged to the process

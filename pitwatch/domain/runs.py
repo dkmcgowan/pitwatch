@@ -43,6 +43,31 @@ from pitwatch.schemas import InputsSettings, ShellySettings
 
 log = logging.getLogger(__name__)
 
+# Shorter than this and it was not a pump running.
+#
+# The debounce in the reader already throws away electrical noise, and it is
+# the right place for that: it filters on the gap between messages arriving. It
+# cannot filter on what the closure meant, because at the moment an input
+# closes there is no way to know how long it will stay closed. So a transient
+# that holds an input for a fifth of a second passes it cleanly and arrives
+# here looking like a run.
+#
+# It is not one. A contactor takes ten to thirty milliseconds just to pull in,
+# and a run on this pit that actually moves water is twelve seconds. There is
+# nothing real between those two numbers, which is what makes a floor safe.
+#
+# This is not paranoia about a tidy table. `both_ran` is set the instant a
+# second pump joins an open cycle, before anything knows how long it will last,
+# and `both_ran` is an alert: it is on the dashboard, it is a figure on the
+# history page, and it sends messages. A contact that bounced for nine
+# milliseconds during a normal call has already done that once on the real
+# panel. The cost of a false one is somebody woken at two in the morning.
+#
+# A quarter of a second rather than a whole one. Half a second of HAND on the
+# panel switch is a real motor start, hard on the motor and worth recording,
+# and a floor high enough to swallow that would be hiding something true.
+MINIMUM_RUN_S = 0.25
+
 # The inrush is the first reading, not the first two seconds.
 #
 # A motor's starting surge is several times its running draw and lasts a
@@ -217,6 +242,15 @@ class RunRecorder:
                 return
 
             duration = (at - run["started_at"]).total_seconds()
+
+            # Too short to have been a pump. Thrown away here rather than left
+            # in the table, because everything downstream reads this layer as
+            # "what the pumps did" and a nine millisecond run is not something
+            # a pump did.
+            if duration < MINIMUM_RUN_S:
+                await self._discard(connection, pump, run, at, duration)
+                return
+
             stats = await self._stats(connection, pump, run["started_at"], at)
 
             await connection.execute(
@@ -239,6 +273,56 @@ class RunRecorder:
             await self._close_cycle(connection, run["cycle_id"], at)
 
         log.info("Pump %d ran for %.0f s", pump, duration)
+
+    async def _discard(self, connection, pump: int, run, at: datetime, duration: float) -> None:
+        """Undo a contact closure that was too short to have been a run.
+
+        The raw edges stay in `io_event` with their real timestamps, so nothing
+        about what the panel said is lost and the blip is still there to be
+        found. What gets undone is the claim built on top of it.
+
+        Three things to put back, in this order, because each depends on the
+        one before:
+
+        1. The run itself.
+        2. The cycle's `both_ran`, which was set the moment this joined an open
+           cycle and could not have known better at the time. Recomputed from
+           the runs that survived rather than cleared, because a cycle can
+           legitimately have had both pumps for other reasons.
+        3. The cycle, if this was the only run in it. A call for water that
+           nothing answered was never a call for water.
+        """
+        log.warning(
+            "Pump %d closed for %.0f ms, under the %.0f ms floor. Discarding it: "
+            "a contactor takes longer than that to pull in.",
+            pump,
+            duration * 1000,
+            MINIMUM_RUN_S * 1000,
+        )
+        await connection.execute("DELETE FROM pump_run WHERE id = $1", run["id"])
+
+        cycle_id = run["cycle_id"]
+        if cycle_id is None:
+            return
+
+        remaining = await connection.fetchval(
+            "SELECT count(*) FROM pump_run WHERE cycle_id = $1", cycle_id
+        )
+        if not remaining:
+            await connection.execute("DELETE FROM pump_cycle WHERE id = $1", cycle_id)
+            return
+
+        await connection.execute(
+            """
+            UPDATE pump_cycle
+            SET both_ran = (SELECT count(DISTINCT pump) > 1 FROM pump_run WHERE cycle_id = $1)
+            WHERE id = $1
+            """,
+            cycle_id,
+        )
+        # The call may have been waiting on this to finish before it could
+        # close, so it still gets its chance to.
+        await self._close_cycle(connection, cycle_id, at)
 
     async def _stats(self, connection, pump: int, started_at: datetime, ended_at: datetime) -> dict:
         """What the clamp saw while the contact was closed.

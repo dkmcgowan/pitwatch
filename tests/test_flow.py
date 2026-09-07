@@ -1125,36 +1125,36 @@ def test_the_history_reads_the_window_it_was_asked_for(client):
     for window in ("24h", "7d", "30d"):
         payload = client.get(f"/api/history?window={window}").json()
         assert payload["window"] == window
-        assert set(payload) >= {"load", "starts", "contacts", "pumps", "from", "to"}
+        assert set(payload) >= {
+            "calls",
+            "gaps",
+            "runs",
+            "hours",
+            "rows",
+            "figures",
+            "pumps",
+            "from",
+            "to",
+        }
         # Both pumps are answered for, with or without readings behind them.
-        assert set(payload["load"]) == {"1", "2"}
+        assert set(payload["pumps"]) == {"1", "2"}
+        # Twenty four bars whether or not anything ran in any of them, because
+        # an hour nothing happened in is an answer.
+        assert [hour[0] for hour in payload["hours"]] == list(range(24))
 
     # Anything else is the default rather than an error. A window is a view,
     # and a bad one in a query string should show a page rather than a stack.
     assert client.get("/api/history?window=nonsense").json()["window"] == "7d"
 
 
-def test_every_assigned_input_gets_a_row_on_the_contacts_chart(client):
-    """And nothing else does. An input carrying nothing is still recorded, and
-    a row labelled DI6 with nothing to say is a row nobody can read."""
+def test_a_quiet_window_gets_no_rows_on_the_timeline(client):
+    """The old page drew a row for every assigned input, which on a quiet week
+    was six empty tracks and two with anything in them. A row is earned by
+    having moved."""
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
-    contacts = client.get("/api/history").json()["contacts"]
-    roles = {contact["role"] for contact in contacts}
-
-    assert roles == {
-        "system_alert",
-        "high_water",
-        "lead_float",
-        "lag_float",
-        "pump1_run",
-        "pump2_run",
-        "pump1_fault",
-        "pump2_fault",
-    }
-    for contact in contacts:
-        assert contact["spans"] == [], "nothing has been reported yet"
+    assert client.get("/api/history").json()["rows"] == []
 
 
 def test_a_summary_without_a_key_says_so_rather_than_failing(client):

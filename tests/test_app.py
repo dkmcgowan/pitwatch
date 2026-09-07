@@ -1738,7 +1738,7 @@ def test_every_chart_can_be_read_at_a_moment():
     js = Path("pitwatch/static/history.js").read_text(encoding="utf-8")
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
 
-    for chart in ("load", "starts", "contacts"):
+    for chart in ("calls", "gaps", "runs", "load", "hours", "timeline"):
         assert 'data-readout="' + chart + '"' in page, chart
 
     # Pointer events, so a finger and a mouse are the same code.
@@ -1751,17 +1751,27 @@ def test_every_chart_can_be_read_at_a_moment():
     assert "min-height:" in css.split(".chart-readout {", 1)[1].split("}", 1)[0]
 
 
-def test_the_surge_can_be_left_out_without_asking_the_server_again():
-    """Both numbers arrive together, so the checkbox is a redraw. A trip to the
-    server to hide a column that is already on the page is a spinner for
-    nothing."""
-    page = render_page("history.html")
+def test_nothing_on_this_page_writes_an_inline_style():
+    """The content security policy allows styles from this origin and nothing
+    else, and a style attribute is not from an origin. A script coloring an
+    element in that way is blocked silently: the key dots came out colorless on
+    the live site, which is a chart with a key that identifies nothing."""
     js = Path("pitwatch/static/history.js").read_text(encoding="utf-8")
 
-    assert "data-settled" in page
-    toggle = js.split('querySelector("[data-settled]")', 1)[1].split("}", 1)[0]
-    assert "drawAll()" in toggle
-    assert "fetch" not in toggle
+    assert ".style." not in js
+    # SVG carries its colors as presentation attributes, which are not styles.
+    assert "fill: SERIES" in js
+
+
+def test_the_key_dot_scales_to_the_size_the_stylesheet_asks_for():
+    """An SVG with no viewBox does not scale, it clips. The dot is drawn in a
+    ten pixel box and the stylesheet asks for two thirds of a rem."""
+    js = Path("pitwatch/static/history.js").read_text(encoding="utf-8")
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+
+    dot = js.split("function key(", 1)[1].split("function drawAll", 1)[0]
+    assert 'viewBox: "0 0 10 10"' in dot
+    assert "width: 0.65rem" in css.split(".key-dot {", 1)[1].split("}", 1)[0]
 
 
 def test_a_lamp_with_nothing_behind_it_still_has_two_lines():
@@ -1776,15 +1786,24 @@ def test_a_lamp_with_nothing_behind_it_still_has_two_lines():
     assert 'count.textContent = ""' not in history
 
 
-def test_the_history_page_draws_three_charts_over_one_window():
-    """Load, starts and contacts, and one row of buttons that moves all three.
-    Three windows with their own selectors is three charts that can be looking
-    at three different weeks."""
+def test_the_history_page_draws_every_chart_over_one_window():
+    """Six charts and one row of buttons that moves all of them. Six windows
+    with their own selectors is six charts that can be looking at six different
+    weeks.
+
+    The order is the order the questions get asked: how often, how close
+    together, how long for, how hard, when in the day, and then what actually
+    happened.
+    """
     page = render_page("history.html")
 
-    for chart in ("load", "starts", "contacts"):
+    charts = ("calls", "gaps", "runs", "load", "hours", "timeline")
+    for chart in charts:
         assert 'data-chart="' + chart + '"' in page, chart
         assert 'data-empty="' + chart + '"' in page, chart
+
+    places = [page.index('data-chart="' + chart + '"') for chart in charts]
+    assert places == sorted(places), "the charts are in the order the page describes"
 
     import re
 
@@ -1886,13 +1905,13 @@ def test_the_summary_sends_the_description_and_the_numbers_and_nothing_else():
     from pitwatch.schemas import SummarySettings
     from pitwatch.summary import messages
 
-    numbers = {"pumps": [{"pump": 1, "name": "Pump 1", "starts_this_week": 12}]}
+    numbers = {"pumps": [{"pump": 1, "name": "Pump 1", "runs_this_week": 12}]}
     payload = messages(SummarySettings(description="Two pumps in a pit."), numbers)
 
     assert [part["role"] for part in payload] == ["system", "user"]
     body = payload[1]["content"]
     assert "Two pumps in a pit." in body
-    assert "starts_this_week" in body
+    assert "runs_this_week" in body
     for leaked in ("123", "Main St", "admin"):
         assert leaked not in body, leaked
 

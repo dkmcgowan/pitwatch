@@ -1,20 +1,41 @@
 """The numbers behind the history page.
 
-Three questions, one time window, and every answer shaped the same way: a list
-of buckets from oldest to newest. What draws them is a few hundred lines of
-SVG in the browser rather than a charting library, so this is where the
-thinking lives and the drawing is only drawing.
+**The panel says what happened, and the clamp says what it cost.** Everything
+here counts runs and calls out of `pump_run` and `pump_cycle`, which are
+written from the panel's own run contacts at the moment the contact moves. It
+used to count them out of the meter's readings, by looking for the current
+rising off nothing, and that was a floor rather than a tally: the Shelly
+reports when something changes rather than on a clock, so two runs close
+together arrive looking like one and a short run can arrive as nothing at all.
+The contacts have neither problem.
 
-Everything here reads raw samples, at every window. The hourly rollup would be
-a cheaper scan for a month, and it cannot answer either of the two questions
-this page is actually asked. A start is the current rising off nothing, and an
-hourly average cannot tell one long run from four short ones. The same goes
-for leaving out the starting surge: that means dropping the first reading of
-each run, and a rollup has already averaged it in.
+That change is what this page is now shaped around, because it makes different
+questions answerable. The old page drew a line of amps over time, which for
+this pit is a flat zero with a spike every half hour, and a chart of eight
+contact rows, most of them empty. Neither answers the question somebody opens
+this page with, which is some version of "is it working harder than it was".
 
-The scan is affordable because the application already does it. Typical load
-on the dashboard reads five weeks of raw readings per pump every five minutes,
-and raw samples are kept for ninety days, so a month is inside what is there.
+The six things worth reading, in the order they matter:
+
+1. **How often the pit calls for water.** The nearest thing to a measurement of
+   what is coming in, and the number that moves when it rains.
+2. **How long between calls.** The same fact at the resolution where weather
+   shows up. Half an hour apart is a dry week; six minutes apart is a storm or
+   a check valve that is not holding.
+3. **How long a run lasts.** Twelve seconds, every time, on this pit. A run
+   that starts taking twenty is a pump moving less water per second.
+4. **What it draws while it runs.** Steady current per run, which is the motor
+   itself. Only for a pump whose clamp has ever seen current: a channel with no
+   CT on it reads a perfectly convincing zero, and a chart of zeros is a lie
+   that looks like a measurement.
+5. **What time of day it runs.** Says whether the water is the building's or
+   the ground's. On the reference pit it is four an hour at noon and one an
+   hour at four in the morning, which is people.
+6. **What happened when.** One row per pump and per wired contact, so a night
+   can be read across.
+
+Windows are 24 hours, 7 days and 30 days. Raw readings are kept ninety days, so
+every window is inside what is there.
 """
 
 from __future__ import annotations
@@ -35,88 +56,90 @@ class Window:
     key: str
     title: str
     span: timedelta
-    # How wide a bucket is on the load chart, and on the count chart. They are
-    # not the same: a count of starts is only worth reading by the hour or by
-    # the day, while the load line wants as many points as will fit.
-    load_bucket: timedelta
+    # How wide a bar is on the counting charts. Runs and calls are individual
+    # events drawn one dot each, so they have no bucket of their own.
     count_bucket: timedelta
 
 
 WINDOWS: dict[str, Window] = {
     "24h": Window(
-        key="24h",
-        title="24 hours",
-        span=timedelta(hours=24),
-        load_bucket=timedelta(minutes=5),
-        count_bucket=timedelta(hours=1),
+        key="24h", title="24 hours", span=timedelta(hours=24), count_bucket=timedelta(hours=1)
     ),
-    "7d": Window(
-        key="7d",
-        title="7 days",
-        span=timedelta(days=7),
-        load_bucket=timedelta(hours=1),
-        count_bucket=timedelta(days=1),
-    ),
+    "7d": Window(key="7d", title="7 days", span=timedelta(days=7), count_bucket=timedelta(days=1)),
     "30d": Window(
-        key="30d",
-        title="30 days",
-        span=timedelta(days=30),
-        load_bucket=timedelta(hours=6),
-        count_bucket=timedelta(days=1),
+        key="30d", title="30 days", span=timedelta(days=30), count_bucket=timedelta(days=1)
     ),
 }
 
 DEFAULT_WINDOW = "7d"
 
-# One bucket of lead in, so that the first reading inside the window has
-# something before it to be compared against. Without it the earliest reading
-# is treated as a rising edge and every chart opens with a start that did not
-# happen.
-LEAD_IN = timedelta(hours=1)
+# How far back to look past the window's edge for the call before the first
+# one. Without it the first call in the window has no previous to be measured
+# from and every chart opens with a gap that is not a gap.
+LEAD_IN = timedelta(days=1)
 
-
-# Two numbers per bucket: the highest reading in it, and the highest reading in
-# it that was not the first of a run.
-#
-# The second is the same exclusion typical load makes, for the same reason. A
-# motor draws several times its running current for the moment it starts, and a
-# chart of peaks is a chart of those moments: forty amps every time, telling
-# you nothing about the pump. Leaving them out shows what it settles at.
-#
-# The lead in is what makes the first bucket in the window honest. Without a
-# reading before it, the earliest reading has no previous to be compared
-# against and cannot be recognized as a surge.
-LOAD = """
-WITH readings AS (
-    SELECT ts, current, lag(current) OVER (ORDER BY ts) AS previous
-    FROM em_sample
-    WHERE channel = $1 AND ts > now() - $2::interval - $5::interval
-)
-SELECT time_bucket($3::interval, ts) AS bucket,
-       max(current)                   AS peak,
-       max(current) FILTER (
-           WHERE NOT (current >= $4 AND (previous IS NULL OR previous < $4))
-       )                              AS settled
-FROM readings
-WHERE ts > now() - $2::interval
+# Buckets are cut on local midnight rather than on UTC midnight. A bar labelled
+# Tuesday that holds eight o'clock Monday evening through eight o'clock Tuesday
+# evening is a bar that answers a different question than the one its label
+# asks.
+CALLS = """
+SELECT time_bucket($2::interval, started_at, timezone => $3::text) AS bucket,
+       count(*)                                 AS calls,
+       count(*) FILTER (WHERE both_ran)         AS both_ran,
+       count(*) FILTER (WHERE high_water)       AS high_water
+FROM pump_cycle
+WHERE started_at > now() - $1::interval
 GROUP BY 1
 ORDER BY 1
 """
 
-STARTS = """
-WITH readings AS (
-    SELECT ts, current, lag(current) OVER (ORDER BY ts) AS previous
-    FROM em_sample
-    WHERE channel = $1 AND ts > now() - $2::interval - $5::interval
-)
-SELECT time_bucket($4::interval, ts) AS bucket, count(*) AS starts
-FROM readings
-WHERE ts > now() - $2::interval
-  AND current >= $3
-  AND (previous IS NULL OR previous < $3)
-GROUP BY 1
+# One row per call, with the time since the call before it. The lead in is
+# fetched and then dropped: it is here to give the first row inside the window
+# something to subtract from.
+GAPS = """
+SELECT started_at,
+       extract(epoch FROM started_at - lag(started_at) OVER (ORDER BY started_at)) AS gap_s,
+       both_ran,
+       high_water
+FROM pump_cycle
+WHERE started_at > now() - $1::interval - $2::interval
+ORDER BY started_at
+"""
+
+# One row per run. Ordered oldest first, the way every chart on this page reads.
+RUNS = """
+SELECT r.started_at,
+       r.pump,
+       r.duration_s,
+       r.peak_current,
+       r.steady_current,
+       r.role,
+       r.ended_at IS NULL      AS running,
+       coalesce(c.both_ran, false)   AS both_ran,
+       coalesce(c.high_water, false) AS high_water
+FROM pump_run r
+LEFT JOIN pump_cycle c ON c.id = r.cycle_id
+WHERE r.started_at > now() - $1::interval
+ORDER BY r.started_at
+"""
+
+# Runs by hour of the local day, which is a different question from runs over
+# time: it is asked of the whole window at once and answers what the routine
+# is rather than what happened.
+HOURS = """
+SELECT extract(hour FROM started_at AT TIME ZONE $2::text)::int AS hour,
+       pump,
+       count(*) AS runs
+FROM pump_run
+WHERE started_at > now() - $1::interval
+GROUP BY 1, 2
 ORDER BY 1
 """
+
+# Whether this clamp has ever, in all of the readings kept, seen current. A
+# channel with no CT fitted reads zero all day and is indistinguishable from a
+# motor that never turns, except by this.
+CLAMP_FITTED = "SELECT EXISTS (SELECT 1 FROM em_sample WHERE channel = $1 AND current >= $2)"
 
 # Every change inside the window, and the state going into it. The second one
 # matters: a float that closed an hour before the window opened and is still
@@ -142,43 +165,114 @@ def window_for(key: str | None) -> Window:
     return WINDOWS.get(key or "", WINDOWS[DEFAULT_WINDOW])
 
 
-async def load_series(
-    pool: asyncpg.Pool, channel: int, window: Window, running_amps: float
-) -> list[tuple[datetime, float, float | None]]:
-    """Peak load per bucket, and peak with the starting surge left out.
+def median(values: list[float]) -> float | None:
+    """The middle value, or None when there is nothing to take a middle of.
 
-    The second is None for a bucket whose every reading was the first of a run,
-    which is a real answer: there is nothing in that bucket but starting.
+    A median rather than a mean everywhere on this page. One twenty minute run
+    after somebody held the panel switch down would drag a mean for the week,
+    and the number is being read as "what a run looks like here".
+    """
+    if not values:
+        return None
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return float(ordered[middle])
+    return float(ordered[middle - 1] + ordered[middle]) / 2
+
+
+async def _fetch(pool: asyncpg.Pool, what: str, query: str, *args) -> list:
+    """Every read on this page, wrapped the same way.
+
+    A history page that fails to draw is an annoyance. A history page that
+    stops the application is a monitor that is not watching the pump, so a
+    query that will not run costs its own chart and nothing else.
     """
     try:
-        rows = await pool.fetch(
-            LOAD, channel, window.span, window.load_bucket, running_amps, LEAD_IN
-        )
+        return await pool.fetch(query, *args)
     except (asyncpg.PostgresError, OSError) as error:
-        log.warning("Could not read the load history: %s", error)
+        log.warning("Could not read %s: %s", what, error)
         return []
+
+
+async def calls_series(
+    pool: asyncpg.Pool, window: Window, zone: str
+) -> list[tuple[datetime, int, int, int]]:
+    """Calls for water per bucket: how many, how many took both pumps, and how
+    many reached the high float."""
+    rows = await _fetch(pool, "the call history", CALLS, window.span, window.count_bucket, zone)
     return [
-        (
-            row["bucket"],
-            float(row["peak"] or 0.0),
-            None if row["settled"] is None else float(row["settled"]),
+        (row["bucket"], int(row["calls"]), int(row["both_ran"]), int(row["high_water"]))
+        for row in rows
+    ]
+
+
+async def call_gaps(pool: asyncpg.Pool, window: Window) -> list[tuple[datetime, float, bool, bool]]:
+    """Every call in the window with the minutes since the one before it.
+
+    The first call of all has nothing before it and is left out rather than
+    given a made up gap.
+    """
+    rows = await _fetch(pool, "the call spacing", GAPS, window.span, LEAD_IN)
+    start = datetime.now(UTC) - window.span
+    return [
+        (row["started_at"], float(row["gap_s"]), row["both_ran"], row["high_water"])
+        for row in rows
+        if row["gap_s"] is not None and row["started_at"] >= start
+    ]
+
+
+@dataclass(frozen=True)
+class Run:
+    """One run of one pump, the way the panel recorded it."""
+
+    started_at: datetime
+    pump: int
+    duration_s: float | None
+    peak_current: float | None
+    steady_current: float | None
+    role: str
+    running: bool
+    both_ran: bool
+    high_water: bool
+
+
+async def runs_series(pool: asyncpg.Pool, window: Window) -> list[Run]:
+    rows = await _fetch(pool, "the run history", RUNS, window.span)
+    return [
+        Run(
+            started_at=row["started_at"],
+            pump=int(row["pump"]),
+            duration_s=None if row["duration_s"] is None else float(row["duration_s"]),
+            peak_current=None if row["peak_current"] is None else float(row["peak_current"]),
+            steady_current=(
+                None if row["steady_current"] is None else float(row["steady_current"])
+            ),
+            role=row["role"],
+            running=row["running"],
+            both_ran=row["both_ran"],
+            high_water=row["high_water"],
         )
         for row in rows
     ]
 
 
-async def starts_series(
-    pool: asyncpg.Pool, channel: int, window: Window, running_amps: float
-) -> list[tuple[datetime, int]]:
-    """How many times the load rose off nothing, per bucket, oldest first."""
+async def hour_profile(pool: asyncpg.Pool, window: Window, zone: str) -> dict[int, dict[int, int]]:
+    """Runs by hour of the local day, as {hour: {pump: runs}}."""
+    rows = await _fetch(pool, "the daily pattern", HOURS, window.span, zone)
+    profile: dict[int, dict[int, int]] = {}
+    for row in rows:
+        profile.setdefault(int(row["hour"]), {})[int(row["pump"])] = int(row["runs"])
+    return profile
+
+
+async def clamp_fitted(pool: asyncpg.Pool, channel: int, running_amps: float) -> bool:
+    """Whether this channel has ever read above the running threshold."""
     try:
-        rows = await pool.fetch(
-            STARTS, channel, window.span, running_amps, window.count_bucket, LEAD_IN
-        )
+        return bool(await pool.fetchval(CLAMP_FITTED, channel, running_amps))
     except (asyncpg.PostgresError, OSError) as error:
-        log.warning("Could not read the run history: %s", error)
-        return []
-    return [(row["bucket"], int(row["starts"])) for row in rows]
+        log.warning("Could not check clamp %d: %s", channel, error)
+        return False
 
 
 async def contact_spans(
@@ -194,12 +288,8 @@ async def contact_spans(
 
     now = datetime.now(UTC)
     start = now - window.span
-    try:
-        before = await pool.fetch(CONTACT_BEFORE, channels, window.span)
-        events = await pool.fetch(CONTACT_EVENTS, channels, window.span)
-    except (asyncpg.PostgresError, OSError) as error:
-        log.warning("Could not read the contact history: %s", error)
-        return {}
+    before = await _fetch(pool, "the contact history", CONTACT_BEFORE, channels, window.span)
+    events = await _fetch(pool, "the contact history", CONTACT_EVENTS, channels, window.span)
 
     spans: dict[int, list[tuple[datetime, datetime]]] = {channel: [] for channel in channels}
     opened: dict[int, datetime | None] = {

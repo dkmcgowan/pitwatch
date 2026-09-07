@@ -805,7 +805,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   overflow-x: auto;
 }
 
-/* The key and the surge switch share a line under the load chart. */
+/* The line under a chart that carries its key. */
 .chart-foot {
   display: flex;
   flex-wrap: wrap;
@@ -813,17 +813,6 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   justify-content: space-between;
   gap: 0.5rem 1rem;
 }
-
-.chart-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.chart-toggle input { margin: 0; }
 
 /* Axis and row labels. In the stylesheet rather than on each element, because
    there are a hundred of them on a busy month. */
@@ -852,11 +841,44 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 
 .key-item { display: inline-flex; align-items: center; gap: 0.35rem; }
 
+/* An SVG square rather than a colored span. The content security policy
+   forbids inline styles, so a script coloring a span in is blocked and the dot
+   comes out colorless; a fill attribute is not a style. */
 .key-dot {
   width: 0.65rem;
   height: 0.65rem;
-  border-radius: 2px;
   flex: none;
+  display: block;
+}
+
+/* The window in numbers, above the shapes. Somebody who reads nothing else on
+   this page should still leave knowing whether it was a busy week. */
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.9rem 1rem;
+}
+
+.figure { display: flex; flex-direction: column; gap: 0.1rem; }
+
+.figure-value {
+  font-size: 1.35rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.figure-label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* The split between the pumps, under the count it splits. Its own line so the
+   count above it stays one number. */
+.figure-note {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Dimmed while a new window is on its way, with the old one still readable
@@ -982,6 +1004,17 @@ table.signals td:last-child, table.signals th:last-child { width: 1%; white-spac
   background: color-mix(in srgb, var(--ok) 10%, transparent);
 }
 
+/* The icon sprite, defined once at the top of the page and referenced by name
+   from everywhere. Positioned out of the layout at zero size, because an
+   inline svg is still an inline box and `hidden` on one is not reliably
+   honored: without this there is a blank strip above the header. */
+.icon-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
 /* Tables ------------------------------------------------------------------ */
 
 /* Wide tables scroll inside their own box. The page body never scrolls
@@ -1009,6 +1042,15 @@ thead th {
 }
 
 td.center, th.center { text-align: center; }
+
+/* Numbers line up under each other or they cannot be compared down a column,
+   which is the only reason to put them in a column. */
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Narrower than the settings tables: six short columns, and it has to be
+   readable on a phone held in one hand at a pit. */
+table.runs-table { min-width: 24rem; font-size: 0.85rem; }
+
 
 table.channels th[scope="row"] { font-family: var(--mono); white-space: nowrap; }
 table.channels td input[type="number"] { max-width: 8rem; }

@@ -46,6 +46,39 @@ GROUP BY 1
 ORDER BY 1
 """
 
+# Runs and how long they lasted, per day, from the panel's own run contacts.
+# The count used to come from the meter, by looking for the current rising off
+# nothing, and that undercounts: two runs close together arrive from the meter
+# as one. Handing a model an undercount and asking it whether anything has
+# changed is asking it to explain an artifact.
+DAILY_RUNS = """
+SELECT time_bucket('1 day', started_at)  AS day,
+       count(*)                          AS runs,
+       round(avg(duration_s)::numeric, 1) AS mean_duration_s,
+       round(max(duration_s)::numeric, 1) AS longest_s
+FROM pump_run
+WHERE pump = $1 AND started_at > now() - $2::interval
+GROUP BY 1
+ORDER BY 1
+"""
+
+# The week's calls for water, which is the closest thing here to a measurement
+# of what is coming in.
+CALLS = """
+SELECT count(*)                             AS calls,
+       count(*) FILTER (WHERE both_ran)     AS both_ran,
+       count(*) FILTER (WHERE high_water)   AS high_water,
+       round(percentile_cont(0.5) WITHIN GROUP (
+           ORDER BY extract(epoch FROM started_at - previous)
+       )::numeric, 0)                       AS typical_gap_s
+FROM (
+    SELECT started_at, both_ran, high_water,
+           lag(started_at) OVER (ORDER BY started_at) AS previous
+    FROM pump_cycle
+    WHERE started_at > now() - $1::interval
+) spaced
+"""
+
 INSTRUCTIONS = (
     "You are reading a week of monitoring data from a duplex ejector pump "
     "panel in a building, for the person responsible for keeping it running. "
@@ -73,33 +106,39 @@ async def facts(app, window: series.Window = WINDOW) -> dict:
     pumps = []
     for number, pump in store.pumps.by_number.items():
         channel = clamp[number]
-        starts = await series.starts_series(pool, channel, window, domain.RUNNING_AMPS)
         try:
             rows = await pool.fetch(DAILY, channel, window.span, domain.RUNNING_AMPS)
+            run_rows = await pool.fetch(DAILY_RUNS, number, window.span)
         except (asyncpg.PostgresError, OSError) as error:
             log.warning("Could not read the daily figures: %s", error)
-            rows = []
+            rows, run_rows = [], []
 
-        by_day = {at.date().isoformat(): count for at, count in starts}
+        by_day = {
+            row["day"].date().isoformat(): {
+                "runs": int(row["runs"]),
+                "mean_run_seconds": float(row["mean_duration_s"] or 0.0),
+                "longest_run_seconds": float(row["longest_s"] or 0.0),
+            }
+            for row in run_rows
+        }
         days = []
         for row in rows:
             day = row["day"].date().isoformat()
             days.append(
                 {
                     "day": day,
-                    "starts": by_day.pop(day, 0),
                     "peak_amps": round(float(row["peak"] or 0.0), 2),
                     "running_amps": (
                         round(float(row["running_mean"]), 2) if row["running_mean"] else None
                     ),
                     "readings_while_running": int(row["running_samples"] or 0),
+                    **by_day.pop(day, {"runs": 0}),
                 }
             )
-        # A day with starts but no readings row cannot happen, but a day with
-        # neither is simply absent, and absent is the honest answer: this is a
-        # meter that reports when something changes.
-        for day, count in by_day.items():
-            days.append({"day": day, "starts": count})
+        # A day the pump ran on but the meter said nothing about is a real day
+        # on a pit with one CT fitted, so it goes in with what is known.
+        for day, counted in by_day.items():
+            days.append({"day": day, **counted})
 
         typical = None
         if history is not None:
@@ -119,11 +158,25 @@ async def facts(app, window: series.Window = WINDOW) -> dict:
             {
                 "pump": number,
                 "name": pump.name or f"Pump {number}",
-                "starts_this_week": sum(count for _, count in starts),
+                "runs_this_week": sum(day.get("runs", 0) for day in days),
                 "typical_load": typical,
                 "days": sorted(days, key=lambda entry: entry["day"]),
             }
         )
+
+    try:
+        called = await pool.fetchrow(CALLS, window.span)
+    except (asyncpg.PostgresError, OSError) as error:
+        log.warning("Could not read the week's calls: %s", error)
+        called = None
+    calls = {
+        "calls_this_week": int(called["calls"]) if called else 0,
+        "both_pumps_ran": int(called["both_ran"]) if called else 0,
+        "reached_high_float": int(called["high_water"]) if called else 0,
+        "typical_seconds_between_calls": (
+            float(called["typical_gap_s"]) if called and called["typical_gap_s"] else None
+        ),
+    }
 
     inputs = store.inputs
     assigned = list(inputs.used_channels)
@@ -158,6 +211,7 @@ async def facts(app, window: series.Window = WINDOW) -> dict:
         "window": window.title,
         "generated_at": datetime.now(UTC).isoformat(),
         "running_threshold_amps": domain.RUNNING_AMPS,
+        "calls_for_water": calls,
         "pumps": pumps,
         "panel_contacts": contacts,
         "devices": devices,

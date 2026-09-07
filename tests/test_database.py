@@ -542,65 +542,132 @@ async def test_runs_today_is_counted_from_local_midnight(pool):
     assert recent.daily_average is None
 
 
-async def test_starts_are_counted_per_bucket_and_not_at_the_window_edge(pool):
-    """A start is the load rising off nothing, the same rule the dashboard
-    counts by, bucketed.
-
-    The edge matters. Without a lead in, the earliest reading inside the window
-    has nothing before it to be compared against, is treated as a rising edge,
-    and every chart opens with a start that did not happen.
-    """
-    from datetime import UTC, datetime, timedelta
-
-    from pitwatch.domain import series
-
-    now = datetime.now(UTC)
-    rows = []
-    # Two runs today, three hours apart, each a rise and a fall.
-    for hours in (2, 5):
-        at = now - timedelta(hours=hours)
-        rows += [
-            (at - timedelta(minutes=1), 0, 0.0),
-            (at, 0, 15.0),
-            (at + timedelta(seconds=20), 0, 14.5),
-            (at + timedelta(minutes=1), 0, 0.0),
-        ]
-    # And one that was already running when the window opened, which is not a
-    # start inside it.
-    rows.append((now - timedelta(hours=24, minutes=10), 0, 16.0))
-    rows.append((now - timedelta(hours=23, minutes=50), 0, 16.0))
-    await pool.executemany("INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)", rows)
-
-    counted = await series.starts_series(pool, 0, series.WINDOWS["24h"], running_amps=1.0)
-
-    assert sum(count for _, count in counted) == 2, [(str(at), count) for at, count in counted]
-    # By the hour over a day, so the two land in different buckets.
-    assert len(counted) == 2
+# -- the history page's numbers ----------------------------------------------
+#
+# All of them read the panel's own record of what ran, rather than looking for
+# the current rising off nothing. The meter reports when something changes, so
+# two runs close together arrive from it as one and a four second run can
+# arrive as nothing; the contacts have neither problem.
 
 
-async def test_the_load_series_reports_a_peak_per_bucket(pool):
-    """The highest reading in the bucket, not the average. A pit that runs for
-    seconds at a time is at zero most of an hour, and an average would draw a
-    flat line through a pump that started four times."""
-    from datetime import UTC, datetime, timedelta
+async def _a_call(pool, ago, pump=1, seconds=12.0, both=False, high=False, peak=None, steady=None):
+    """One call for water with one run in it, placed in the past."""
+    from datetime import timedelta
 
-    from pitwatch.domain import series
-
-    now = datetime.now(UTC)
-    at = now - timedelta(hours=2)
-    await pool.executemany(
-        "INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)",
-        [
-            (at, 0, 0.0),
-            (at + timedelta(seconds=30), 0, 17.5),
-            (at + timedelta(minutes=1), 0, 0.0),
-        ],
+    ran = timedelta(seconds=seconds)
+    cycle = await pool.fetchval(
+        """
+        INSERT INTO pump_cycle (started_at, ended_at, first_pump, both_ran, high_water)
+        VALUES (now() - $1::interval, now() - $1::interval + $2::interval, $3, $4, $5)
+        RETURNING id
+        """,
+        ago,
+        ran,
+        pump,
+        both,
+        high,
+    )
+    await pool.execute(
+        """
+        INSERT INTO pump_run (cycle_id, pump, started_at, ended_at, duration_s,
+                              peak_current, steady_current, role, started_by, ended_by)
+        VALUES ($1, $2, now() - $3::interval, now() - $3::interval + $4::interval, $5,
+                $6, $7, 'lead', 'contact', 'contact')
+        """,
+        cycle,
+        pump,
+        ago,
+        ran,
+        seconds,
+        peak,
+        steady,
     )
 
-    points = await series.load_series(pool, 0, series.WINDOWS["24h"], running_amps=1.0)
 
-    assert points, "the readings are inside the window"
-    assert max(peak for _, peak, _ in points) == pytest.approx(17.5)
+async def test_calls_are_counted_from_the_cycles_and_not_from_the_amps(pool):
+    """One call is one filling of the pit however many pumps answered it, which
+    is why this is not a count of runs."""
+    from datetime import timedelta
+
+    from pitwatch.domain import series
+
+    await _a_call(pool, timedelta(hours=2))
+    await _a_call(pool, timedelta(hours=4), pump=2, both=True)
+    await _a_call(pool, timedelta(hours=6), high=True)
+
+    counted = await series.calls_series(pool, series.WINDOWS["24h"], "UTC")
+
+    assert sum(calls for _, calls, _, _ in counted) == 3
+    assert sum(both for _, _, both, _ in counted) == 1
+    assert sum(high for _, _, _, high in counted) == 1
+
+
+async def test_the_spacing_needs_the_call_before_the_window(pool):
+    """The first call inside the window has nothing before it to be measured
+    from unless one is fetched from outside it, and a made up gap on the first
+    dot is the one somebody would read as a storm."""
+    from datetime import timedelta
+
+    from pitwatch.domain import series
+
+    # One outside the window, then two inside it: ninety minutes after that
+    # one, and an hour after that.
+    await _a_call(pool, timedelta(hours=25))
+    await _a_call(pool, timedelta(hours=23, minutes=30))
+    await _a_call(pool, timedelta(hours=22, minutes=30))
+
+    gaps = await series.call_gaps(pool, series.WINDOWS["24h"])
+
+    assert len(gaps) == 2, "both of the ones inside the window have a spacing"
+    assert [round(gap) for _, gap, _, _ in gaps] == [5400, 3600], gaps
+
+
+async def test_a_run_carries_what_the_clamp_saw_and_what_it_did_not(pool):
+    from datetime import timedelta
+
+    from pitwatch.domain import series
+
+    await _a_call(pool, timedelta(hours=1), peak=38.0, steady=15.4)
+    await _a_call(pool, timedelta(hours=2), pump=2)
+
+    runs = await series.runs_series(pool, series.WINDOWS["24h"])
+
+    assert [run.pump for run in runs] == [2, 1], "oldest first"
+    assert runs[1].steady_current == pytest.approx(15.4)
+    # Pump 2 has no clamp fitted on the reference pit, and None is the honest
+    # answer for what it drew.
+    assert runs[0].steady_current is None
+
+
+async def test_the_daily_pattern_is_counted_in_the_buildings_own_time(pool):
+    """Whether the pit runs at four in the morning is a question about four in
+    the morning where the pit is."""
+    from datetime import timedelta
+
+    from pitwatch.domain import series
+
+    await _a_call(pool, timedelta(hours=3))
+
+    here = await series.hour_profile(pool, series.WINDOWS["24h"], "UTC")
+    there = await series.hour_profile(pool, series.WINDOWS["24h"], "Australia/Sydney")
+
+    assert sum(sum(pumps.values()) for pumps in here.values()) == 1
+    assert sum(sum(pumps.values()) for pumps in there.values()) == 1
+    assert list(here) != list(there), "the same run falls in a different hour"
+
+
+async def test_a_clamp_that_has_never_read_current_is_known_to_be_unfitted(pool):
+    """The reference pit has one CT and two pumps, so pump 2's channel reads a
+    perfectly convincing zero on every run. Drawing that as a flat healthy line
+    would be a measurement of nothing."""
+    from pitwatch.domain import series
+
+    await pool.execute(
+        "INSERT INTO em_sample (ts, channel, current) VALUES (now(), 0, 15.4), (now(), 1, 0.0)"
+    )
+
+    assert await series.clamp_fitted(pool, 0, 1.0) is True
+    assert await series.clamp_fitted(pool, 1, 1.0) is False
 
 
 async def test_a_contact_closed_before_the_window_still_draws(pool):
@@ -648,40 +715,11 @@ async def test_a_summary_keeps_the_numbers_it_was_given(pool):
         VALUES ('7d', 'gpt-4o-mini', 'Both pumps look normal.', $1::jsonb, 'david')
         RETURNING id, created_at, facts
         """,
-        json.dumps({"pumps": [{"pump": 1, "starts_this_week": 12}]}),
+        json.dumps({"pumps": [{"pump": 1, "runs_this_week": 12}]}),
     )
 
     assert row["created_at"] is not None
-    assert json.loads(row["facts"])["pumps"][0]["starts_this_week"] == 12
-
-
-async def test_the_load_series_can_leave_out_the_starting_surge(pool):
-    """A motor draws several times its running current for the moment it
-    starts, so a chart of peaks is a chart of those moments. The second number
-    is the highest reading that was not the first of a run, which is the same
-    exclusion typical load makes."""
-    from datetime import UTC, datetime, timedelta
-
-    from pitwatch.domain import series
-
-    now = datetime.now(UTC)
-    began = now - timedelta(hours=2)
-    await pool.executemany(
-        "INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)",
-        [
-            (began - timedelta(seconds=30), 0, 0.0),
-            (began, 0, 40.0),
-            (began + timedelta(seconds=5), 0, 15.0),
-            (began + timedelta(seconds=10), 0, 15.2),
-            (began + timedelta(seconds=40), 0, 0.0),
-        ],
-    )
-
-    points = await series.load_series(pool, 0, series.WINDOWS["24h"], running_amps=1.0)
-
-    assert max(peak for _, peak, _ in points) == pytest.approx(40.0)
-    settled = [value for _, _, value in points if value is not None]
-    assert max(settled) == pytest.approx(15.2), "the 40 A start is left out"
+    assert json.loads(row["facts"])["pumps"][0]["runs_this_week"] == 12
 
 
 # -- runs recorded from the panel's own contacts -----------------------------

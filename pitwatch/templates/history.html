@@ -4,13 +4,13 @@
 
 {% block content %}
 
-{# Three charts, one window. Everything here is drawn by history.js from
-   /api/history; the markup is the frame it draws into, so the page has a shape
-   and its headings before the first reply arrives.
+{# Everything here is drawn by history.js from /api/history; the markup is the
+   frame it draws into, so the page has a shape and its headings before the
+   first reply arrives.
 
-   No page heading, the same as settings and alerts. The header says which page
-   this is and a second copy of the word under it is a line of type for
-   nothing. #}
+   The order is the order the questions get asked. How often is it running,
+   how close together, how long for, how hard, when in the day, and then what
+   actually happened. No page heading, the same as settings and alerts. #}
 <div class="charts" data-history>
 
   <div class="chart-windows" role="group" aria-label="How far back to look">
@@ -19,91 +19,182 @@
     <button type="button" class="chip" data-window="30d" aria-pressed="false">30 days</button>
   </div>
 
-  {# What each pump has been drawing. The line breaks where the readings do:
-     the meter reports when something changes, so joining two points an hour
-     apart would draw an hour of load nobody measured. #}
+  {# The window in a handful of numbers, before any of the shapes. Somebody who
+     opens this page and reads nothing else should still leave knowing whether
+     it was a busy week. #}
+  <section class="card">
+    <div class="figures" data-figures></div>
+  </section>
+
+  {# How often the pit called for water. One call is one filling of the pit,
+     however many pumps answered it, which is why this is not a count of runs.
+     It is the closest thing here to a measurement of what is coming in. #}
   <section class="card chart-card">
-    <h2 class="section-heading">Load
+    <h2 class="section-heading">Calls for water
+      <button type="button" class="info-mark" data-info="calls" aria-label="What this shows">i</button>
+    </h2>
+    <p class="chart-readout" data-readout="calls"></p>
+    <div class="chart" data-chart="calls"></div>
+    <p class="chart-empty" data-empty="calls" hidden>Nothing has run in this window.</p>
+    <dialog class="note" id="note-calls">
+      <h3 class="note-title">Calls for water</h3>
+      <div class="hint">
+        <p>A call is one filling of the pit: the floats rose, one or both pumps
+          ran, the pit emptied. Two pumps answering one call is one call, which
+          is why this is not the same as a count of runs.</p>
+        <p>Counted from the panel's run contacts, so it is exact rather than a
+          floor. A call that took both pumps, or that reached the high float,
+          is marked on top of its bar.</p>
+        <p>This is the number that moves when it rains.</p>
+      </div>
+      <p class="note-close">Click anywhere to close</p>
+    </dialog>
+  </section>
+
+  {# The same fact at the resolution where weather shows up. #}
+  <section class="card chart-card">
+    <h2 class="section-heading">Time between calls
+      <button type="button" class="info-mark" data-info="gaps" aria-label="What this shows">i</button>
+    </h2>
+    <p class="chart-readout" data-readout="gaps"></p>
+    <div class="chart" data-chart="gaps"></div>
+    <p class="chart-empty" data-empty="gaps" hidden>Not enough calls yet to measure the spacing.</p>
+    <dialog class="note" id="note-gaps">
+      <h3 class="note-title">Time between calls</h3>
+      <div class="hint">
+        <p>One dot per call, placed at how long it had been since the call
+          before it. The dashed line is the middle of the window.</p>
+        <p>Dots falling toward the floor mean the pit is filling faster: rain,
+          a check valve that is not holding, or something upstream running that
+          usually is not. A single low dot is normal; a run of them is not.</p>
+      </div>
+      <p class="note-close">Click anywhere to close</p>
+    </dialog>
+  </section>
+
+  {# Duration per run. The one measurement that says a pump is moving less
+     water without saying anything about amps, which matters on a pit where
+     only one pump has a clamp. #}
+  <section class="card chart-card">
+    <h2 class="section-heading">How long each run lasted
+      <button type="button" class="info-mark" data-info="runs" aria-label="What this shows">i</button>
+    </h2>
+    <p class="chart-readout" data-readout="runs"></p>
+    <div class="chart" data-chart="runs"></div>
+    <p class="chart-empty" data-empty="runs" hidden>No runs in this window.</p>
+    <div class="chart-foot">
+      <div class="chart-key" data-key="runs"></div>
+    </div>
+    <dialog class="note" id="note-runs">
+      <h3 class="note-title">How long each run lasted</h3>
+      <div class="hint">
+        <p>One dot per run, from the moment the panel closed the run contact to
+          the moment it opened it. The dashed line is the middle of the window
+          for that pump.</p>
+        <p>A pump that starts taking twenty seconds where it used to take
+          twelve is moving less water per second: a worn impeller, a partly
+          blocked line, or a check valve letting water back down. It shows here
+          before it shows in the current.</p>
+        <p>This works on a pump with no clamp fitted, which is the point.</p>
+      </div>
+      <p class="note-close">Click anywhere to close</p>
+    </dialog>
+  </section>
+
+  {# What the motor drew while it ran. Only for a clamp that has proved it can
+     see current: a channel with no CT reads a convincing zero. #}
+  <section class="card chart-card">
+    <h2 class="section-heading">What each run drew
       <button type="button" class="info-mark" data-info="load" aria-label="What this shows">i</button>
     </h2>
-    {# What is under the cursor, above the chart rather than in a tooltip a
-       thumb would be covering. Empty until somebody touches the chart, and it
-       keeps its line either way so nothing jumps. #}
     <p class="chart-readout" data-readout="load"></p>
     <div class="chart" data-chart="load"></div>
-    <p class="chart-empty" data-empty="load" hidden>No readings in this window.</p>
+    <p class="chart-empty" data-empty="load" hidden>No clamp has read current yet. The
+      current transformers are per pump, and a channel without one reads zero.</p>
     <div class="chart-foot">
-      <div class="chart-key" data-key></div>
-      <label class="chart-toggle">
-        <input type="checkbox" data-settled>
-        Leave out the starting surge
-      </label>
+      <div class="chart-key" data-key="load"></div>
     </div>
     <dialog class="note" id="note-load">
-      <h3 class="note-title">Load</h3>
+      <h3 class="note-title">What each run drew</h3>
       <div class="hint">
-        <p>The highest reading in each bucket, so a short run inside a quiet
-          hour still shows. A pit that runs for seconds at a time is at zero
-          most of the day, and the line sits on the floor between runs.</p>
-        <p>The line breaks where the readings do. The meter reports when
-          something changes rather than on a clock, so a gap is a gap.</p>
-        <p>A motor draws several times its running current for the moment it
-          starts, so the peaks are mostly those moments. Leaving out the
-          starting surge drops the first reading of each run and shows what the
-          pump settles at, which is the same reading typical load is taken
-          from.</p>
-        <p>Drag across the chart, with a finger or a mouse, to read the numbers
-          at a moment.</p>
+        <p>The dot is the steady current: the median of the readings taken
+          while the contact was closed, with the first one dropped. A motor
+          draws several times its running current for the moment it starts, and
+          leaving that in would make every run look the same.</p>
+        <p>The line above each dot reaches to the peak, starting surge and all.
+          A surge climbing month over month is a motor with a problem, and it
+          is usually the first place it shows.</p>
+        <p>A pump whose clamp has never read current is left out rather than
+          drawn along the floor. Zero from a channel with no CT on it is not a
+          measurement.</p>
       </div>
       <p class="note-close">Click anywhere to close</p>
     </dialog>
   </section>
 
-  {# How often each pump started, which is the number that says whether
-     anything is changing. Counted the same way the dashboard counts it. #}
+  {# Not a time series: the whole window folded into one day. #}
   <section class="card chart-card">
-    <h2 class="section-heading">Starts
-      <button type="button" class="info-mark" data-info="starts" aria-label="What this shows">i</button>
+    <h2 class="section-heading">Time of day
+      <button type="button" class="info-mark" data-info="hours" aria-label="What this shows">i</button>
     </h2>
-    <p class="chart-readout" data-readout="starts"></p>
-    <div class="chart" data-chart="starts"></div>
-    <p class="chart-empty" data-empty="starts" hidden>Nothing has run in this window.</p>
-    <dialog class="note" id="note-starts">
-      <h3 class="note-title">Starts</h3>
+    <p class="chart-readout" data-readout="hours"></p>
+    <div class="chart" data-chart="hours"></div>
+    <p class="chart-empty" data-empty="hours" hidden>No runs in this window.</p>
+    <dialog class="note" id="note-hours">
+      <h3 class="note-title">Time of day</h3>
       <div class="hint">
-        <p>A start is the load rising off nothing. By the hour over a day and
-          by the day over a week or a month.</p>
-        <p>Read it as a floor: the meter reports on its own schedule, so two
-          close runs can arrive as one. The panel's run contact makes it
-          exact.</p>
+        <p>Every run in the window folded into a single day, by the hour, in
+          this building's own time.</p>
+        <p>It says where the water is coming from. A pit that runs evenly
+          around the clock is taking groundwater. One that doubles between
+          eight and one is taking the building's, which means the pattern will
+          follow the people in it rather than the weather.</p>
       </div>
       <p class="note-close">Click anywhere to close</p>
     </dialog>
   </section>
 
-  {# When each contact was closed, one row each, in the color its lamp would be
-     on the dashboard. This is the part that needs the panel module: with
-     nothing wired there is nothing to draw, and the page says so rather than
-     drawing eight empty rows. #}
+  {# What happened, when, across everything at once. #}
   <section class="card chart-card">
-    <h2 class="section-heading">Contacts
-      <button type="button" class="info-mark" data-info="contacts" aria-label="What this shows">i</button>
+    <h2 class="section-heading">What happened
+      <button type="button" class="info-mark" data-info="timeline" aria-label="What this shows">i</button>
     </h2>
-    <p class="chart-readout" data-readout="contacts"></p>
-    <div class="chart" data-chart="contacts"></div>
-    <p class="chart-empty" data-empty="contacts" hidden>Nothing yet. The floats,
-      the alarm and the overloads are read through the panel module.</p>
-    <dialog class="note" id="note-contacts">
-      <h3 class="note-title">Contacts</h3>
+    <p class="chart-readout" data-readout="timeline"></p>
+    <div class="chart" data-chart="timeline"></div>
+    <p class="chart-empty" data-empty="timeline" hidden>Nothing has moved in this window.</p>
+    <dialog class="note" id="note-timeline">
+      <h3 class="note-title">What happened</h3>
       <div class="hint">
-        <p>One row per input that has been told what it carries, each bar the
-          time that contact was closed. The colors are the ones its lamp uses on
-          the dashboard: red for the alarm and the overloads, amber for the
-          floats, green for a pump running.</p>
-        <p>A bar that runs to the right hand edge is closed now.</p>
+        <p>One row per pump and per panel contact that moved, each bar the time
+          it was on. The colors are the ones the lamps use on the dashboard:
+          red for the alarm and the overloads, amber for the floats, green for
+          a pump running.</p>
+        <p>A contact that never closed in this window has no row. Eight empty
+          tracks say nothing that one sentence does not.</p>
+        <p>A bar that runs to the right hand edge is on now.</p>
       </div>
       <p class="note-close">Click anywhere to close</p>
     </dialog>
+  </section>
+
+  {# The last of it line by line, for after something happened. #}
+  <section class="card">
+    <h2 class="section-heading">The last runs</h2>
+    <div class="table-scroll">
+      <table class="runs-table" data-runs-table>
+        <thead>
+          <tr>
+            <th scope="col">Started</th>
+            <th scope="col">Pump</th>
+            <th scope="col" class="num">Ran for</th>
+            <th scope="col" class="num">Steady / peak</th>
+            <th scope="col">Call</th>
+          </tr>
+        </thead>
+        <tbody data-runs-body></tbody>
+      </table>
+    </div>
+    <p class="chart-empty" data-empty="table" hidden>No runs in this window.</p>
   </section>
 </div>
 

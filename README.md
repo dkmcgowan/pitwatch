@@ -18,8 +18,9 @@ pumps are running*.
 - A live dashboard: a section each for the two pumps, carrying the word the
   controller has for them, then the panel's own lamps, at a size that reads on
   a phone in a basement.
-- A history page: load, starts and the panel contacts over a day, a week or a
-  month.
+- A history page: how often the pit calls for water, how long between calls,
+  how long each run lasts, what it drew, what time of day it happens and what
+  moved when, over a day, a week or a month.
 - Email and SMS, with a test button on each that sends a real message, so you
   can prove the path works before you need it.
 - A written summary, for administrators, if you add an OpenAI key. It sends a
@@ -27,8 +28,8 @@ pumps are running*.
   reads them back as a few paragraphs. Nothing is sent until somebody presses
   the button.
 
-The alert rules are configured but do not fire yet. The engine that watches for
-them is the next piece.
+The alert engine fires the rules, records what it found and tells whoever asked
+to be told, by email or by text, once per condition rather than once per sweep.
 
 ## What you need
 

@@ -6,9 +6,14 @@
 {# Taken out of the layout by position rather than by `hidden`. An inline svg
    is still an inline box, and `hidden` on one is not reliably honored, which
    left a blank strip above the header. Nothing positioned absolutely at zero
-   size can push anything around. #}
-<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" hidden
-     style="position: absolute; width: 0; height: 0; overflow: hidden">
+   size can push anything around.
+
+   The positioning is a class in the stylesheet rather than a style attribute
+   on this tag. The content security policy allows styles from this origin and
+   nothing else, and an attribute is not from an origin: the rule was being
+   blocked on every page load, so the only thing keeping the sprite out of the
+   layout was the `hidden` this comment says cannot be relied on. #}
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" hidden class="icon-sprite">
   <defs>
     <g id="icon-home" fill="none" stroke="currentColor" stroke-width="2"
        stroke-linecap="round" stroke-linejoin="round">

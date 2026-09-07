@@ -1738,7 +1738,7 @@ def test_every_chart_can_be_read_at_a_moment():
     js = Path("pitwatch/static/history.js").read_text(encoding="utf-8")
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
 
-    for chart in ("calls", "gaps", "runs", "load", "hours", "timeline"):
+    for chart in ("calls", "runs", "load", "hours"):
         assert 'data-readout="' + chart + '"' in page, chart
 
     # Pointer events, so a finger and a mouse are the same code.
@@ -1787,17 +1787,16 @@ def test_a_lamp_with_nothing_behind_it_still_has_two_lines():
 
 
 def test_the_history_page_draws_every_chart_over_one_window():
-    """Six charts and one row of buttons that moves all of them. Six windows
-    with their own selectors is six charts that can be looking at six different
-    weeks.
+    """Four charts and one row of buttons that moves all of them. Four windows
+    with their own selectors is four charts that can be looking at four
+    different weeks.
 
-    The order is the order the questions get asked: how often, how close
-    together, how long for, how hard, when in the day, and then what actually
-    happened.
+    The order is the order the questions get asked: how often, how long for,
+    how hard, and at what time of day.
     """
     page = render_page("history.html")
 
-    charts = ("calls", "gaps", "runs", "load", "hours", "timeline")
+    charts = ("calls", "runs", "load", "hours")
     for chart in charts:
         assert 'data-chart="' + chart + '"' in page, chart
         assert 'data-empty="' + chart + '"' in page, chart

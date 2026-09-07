@@ -1,8 +1,8 @@
 """What the history page reads.
 
 One request per view rather than one per chart. Everything on the page shares a
-time window and is read together, and six round trips to draw one screen is six
-chances for them to disagree about what "now" means.
+time window and is read together, and four round trips to draw one screen is
+four chances for them to disagree about what "now" means.
 
 Cached for a minute per window, because a row of buttons that switches window
 is a row of buttons somebody will press four times in a second.
@@ -42,6 +42,12 @@ def _figures(calls: list, gaps: list, runs: list) -> dict:
     Every one of them is either counted or a median. Nothing here is a mean:
     one twenty minute run after somebody held the panel switch down would drag
     an average for the week, and these are read as "what it looks like here".
+
+    Calls and runs are deliberately both here and are not the same number. One
+    call answered by both pumps is one call and two runs, so runs sits above
+    calls by exactly the number of calls that took both. A page showing one of
+    them invites the reader to divide by twelve seconds and get the wrong
+    answer for how much water moved.
     """
     finished = [run.duration_s for run in runs if run.duration_s is not None]
     return {
@@ -50,7 +56,6 @@ def _figures(calls: list, gaps: list, runs: list) -> dict:
         "both_ran": sum(both for _, _, both, _ in calls),
         "high_water": sum(high for _, _, _, high in calls),
         "typical_gap_s": series.median([gap for _, gap, _, _ in gaps]),
-        "shortest_gap_s": min([gap for _, gap, _, _ in gaps], default=None),
         "typical_run_s": series.median(finished),
         "longest_run_s": max(finished, default=None),
         "running_s": round(sum(finished), 1) if finished else 0.0,
@@ -98,7 +103,6 @@ async def build_history(app, window: series.Window) -> dict:
                 run.started_at.isoformat(),
                 run.pump,
                 None if run.duration_s is None else round(run.duration_s, 1),
-                None if run.peak_current is None else round(run.peak_current, 2),
                 None if run.steady_current is None else round(run.steady_current, 2),
                 run.role,
                 run.both_ran,
@@ -106,72 +110,11 @@ async def build_history(app, window: series.Window) -> dict:
             ]
             for run in runs
         ],
-        "hours": [
-            [hour, hours.get(hour, {}).get(1, 0), hours.get(hour, {}).get(2, 0)]
-            for hour in range(24)
-        ],
-        "rows": await _timeline(store, pool, window, runs, now),
+        # Twenty four entries whether or not anything ran in any of them. An
+        # hour with no water coming in is part of the shape rather than a hole.
+        "hours": [[hour, hours.get(hour, 0)] for hour in range(24)],
         "recent": RECENT_RUNS,
     }
-
-
-async def _timeline(store: SettingsStore, pool, window: series.Window, runs, now) -> list[dict]:
-    """One row per thing that moved, and nothing for the things that did not.
-
-    The pump rows are built from the runs rather than from the contact events,
-    which are the same edges read twice; taking them from the runs means the
-    timeline and every other chart on the page are drawn from one set of
-    numbers.
-
-    A wired input that never closed in this window is left out. The old page
-    drew a row for every assigned input, which on a quiet week was six empty
-    tracks and two with anything in them.
-    """
-    rows: list[dict] = []
-    for number, pump in store.pumps.by_number.items():
-        spans = []
-        for run in runs:
-            if run.pump != number:
-                continue
-            # A run with no duration is one that has not finished, and it is
-            # drawn to the right hand edge because that is what is true: the
-            # pump is running as this is being read.
-            ends = (
-                now
-                if run.duration_s is None
-                else run.started_at + timedelta(seconds=run.duration_s)
-            )
-            spans.append([run.started_at.isoformat(), ends.isoformat()])
-        if spans:
-            rows.append(
-                {
-                    "role": f"pump{number}_run",
-                    "title": pump.name or f"Pump {number}",
-                    "spans": spans,
-                    "closings": len(spans),
-                }
-            )
-
-    # Everything else the panel carries. The run contacts are already above.
-    assigned = [
-        mapped
-        for mapped in store.inputs.used_channels
-        if mapped.role not in ("pump1_run", "pump2_run")
-    ]
-    spans = await series.contact_spans(pool, [mapped.channel for mapped in assigned], window)
-    for mapped in assigned:
-        closed = spans.get(mapped.channel, [])
-        if not closed:
-            continue
-        rows.append(
-            {
-                "role": mapped.role,
-                "title": mapped.title,
-                "spans": [[opened.isoformat(), shut.isoformat()] for opened, shut in closed],
-                "closings": len(closed),
-            }
-        )
-    return rows
 
 
 @router.get("/history", include_in_schema=False)

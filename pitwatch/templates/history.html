@@ -8,9 +8,11 @@
    frame it draws into, so the page has a shape and its headings before the
    first reply arrives.
 
-   The order is the order the questions get asked. How often is it running,
-   how close together, how long for, how hard, when in the day, and then what
-   actually happened. No page heading, the same as settings and alerts. #}
+   The order is the order the questions get asked. How often is it running, how
+   long for, how hard, and at what time of day. Headings are kept short enough
+   to sit on one line on a phone: a two line heading over a chart reads as two
+   things rather than as one. No page heading, the same as settings and
+   alerts. #}
 <div class="charts" data-history>
 
   <div class="chart-windows" role="group" aria-label="How far back to look">
@@ -21,8 +23,13 @@
 
   {# The window in a handful of numbers, before any of the shapes. Somebody who
      opens this page and reads nothing else should still leave knowing whether
-     it was a busy week. #}
+     it was a busy week.
+
+     The heading says the window in words. The chips above say it too, but they
+     say it as a control rather than as a fact, and every number under here is
+     read as "since when?" by anybody seeing the page for the first time. #}
   <section class="card">
+    <h2 class="section-heading" data-window-title>The last 7 days</h2>
     <div class="figures" data-figures></div>
   </section>
 
@@ -41,7 +48,8 @@
       <div class="hint">
         <p>A call is one filling of the pit: the floats rose, one or both pumps
           ran, the pit emptied. Two pumps answering one call is one call, which
-          is why this is not the same as a count of runs.</p>
+          is why the count of calls above is not the count of runs beside it.
+          Runs sits higher by exactly the number of calls that took both.</p>
         <p>Counted from the panel's run contacts, so it is exact rather than a
           floor. A call that took both pumps, or that reached the high float,
           is marked on top of its bar.</p>
@@ -51,32 +59,11 @@
     </dialog>
   </section>
 
-  {# The same fact at the resolution where weather shows up. #}
-  <section class="card chart-card">
-    <h2 class="section-heading">Time between calls
-      <button type="button" class="info-mark" data-info="gaps" aria-label="What this shows">i</button>
-    </h2>
-    <p class="chart-readout" data-readout="gaps"></p>
-    <div class="chart" data-chart="gaps"></div>
-    <p class="chart-empty" data-empty="gaps" hidden>Not enough calls yet to measure the spacing.</p>
-    <dialog class="note" id="note-gaps">
-      <h3 class="note-title">Time between calls</h3>
-      <div class="hint">
-        <p>One dot per call, placed at how long it had been since the call
-          before it. The dashed line is the middle of the window.</p>
-        <p>Dots falling toward the floor mean the pit is filling faster: rain,
-          a check valve that is not holding, or something upstream running that
-          usually is not. A single low dot is normal; a run of them is not.</p>
-      </div>
-      <p class="note-close">Click anywhere to close</p>
-    </dialog>
-  </section>
-
   {# Duration per run. The one measurement that says a pump is moving less
      water without saying anything about amps, which matters on a pit where
      only one pump has a clamp. #}
   <section class="card chart-card">
-    <h2 class="section-heading">How long each run lasted
+    <h2 class="section-heading">Run length
       <button type="button" class="info-mark" data-info="runs" aria-label="What this shows">i</button>
     </h2>
     <p class="chart-readout" data-readout="runs"></p>
@@ -86,7 +73,7 @@
       <div class="chart-key" data-key="runs"></div>
     </div>
     <dialog class="note" id="note-runs">
-      <h3 class="note-title">How long each run lasted</h3>
+      <h3 class="note-title">Run length</h3>
       <div class="hint">
         <p>One dot per run, from the moment the panel closed the run contact to
           the moment it opened it. The dashed line is the middle of the window
@@ -104,7 +91,7 @@
   {# What the motor drew while it ran. Only for a clamp that has proved it can
      see current: a channel with no CT reads a convincing zero. #}
   <section class="card chart-card">
-    <h2 class="section-heading">What each run drew
+    <h2 class="section-heading">Current draw
       <button type="button" class="info-mark" data-info="load" aria-label="What this shows">i</button>
     </h2>
     <p class="chart-readout" data-readout="load"></p>
@@ -115,15 +102,19 @@
       <div class="chart-key" data-key="load"></div>
     </div>
     <dialog class="note" id="note-load">
-      <h3 class="note-title">What each run drew</h3>
+      <h3 class="note-title">Current draw</h3>
       <div class="hint">
-        <p>The dot is the steady current: the median of the readings taken
-          while the contact was closed, with the first one dropped. A motor
-          draws several times its running current for the moment it starts, and
-          leaving that in would make every run look the same.</p>
-        <p>The line above each dot reaches to the peak, starting surge and all.
-          A surge climbing month over month is a motor with a problem, and it
-          is usually the first place it shows.</p>
+        <p>One dot per run: the steady current, which is the median of the
+          readings taken while the contact was closed with the first one
+          dropped. The dashed line is the middle of the window for that
+          pump.</p>
+        <p>The starting surge is not drawn. Every motor pulls several times its
+          running current for the moment it starts, so a chart of that is a
+          chart of a fact about induction motors rather than about this pump,
+          and being the larger number it was the one the eye read. What is left
+          is the part that moves when something is wrong: a motor working
+          against a blockage climbs, and one that has lost a phase or is losing
+          its bearings climbs further.</p>
         <p>A pump whose clamp has never read current is left out rather than
           drawn along the floor. Zero from a channel with no CT on it is not a
           measurement.</p>
@@ -139,39 +130,20 @@
     </h2>
     <p class="chart-readout" data-readout="hours"></p>
     <div class="chart" data-chart="hours"></div>
-    <p class="chart-empty" data-empty="hours" hidden>No runs in this window.</p>
+    <p class="chart-empty" data-empty="hours" hidden>Nothing has run in this window.</p>
     <dialog class="note" id="note-hours">
       <h3 class="note-title">Time of day</h3>
       <div class="hint">
-        <p>Every run in the window folded into a single day, by the hour, in
-          this building's own time.</p>
-        <p>It says where the water is coming from. A pit that runs evenly
-          around the clock is taking groundwater. One that doubles between
-          eight and one is taking the building's, which means the pattern will
-          follow the people in it rather than the weather.</p>
-      </div>
-      <p class="note-close">Click anywhere to close</p>
-    </dialog>
-  </section>
-
-  {# What happened, when, across everything at once. #}
-  <section class="card chart-card">
-    <h2 class="section-heading">What happened
-      <button type="button" class="info-mark" data-info="timeline" aria-label="What this shows">i</button>
-    </h2>
-    <p class="chart-readout" data-readout="timeline"></p>
-    <div class="chart" data-chart="timeline"></div>
-    <p class="chart-empty" data-empty="timeline" hidden>Nothing has moved in this window.</p>
-    <dialog class="note" id="note-timeline">
-      <h3 class="note-title">What happened</h3>
-      <div class="hint">
-        <p>One row per pump and per panel contact that moved, each bar the time
-          it was on. The colors are the ones the lamps use on the dashboard:
-          red for the alarm and the overloads, amber for the floats, green for
-          a pump running.</p>
-        <p>A contact that never closed in this window has no row. Eight empty
-          tracks say nothing that one sentence does not.</p>
-        <p>A bar that runs to the right hand edge is on now.</p>
+        <p>Every call in the window stacked into a single day, by the hour, in
+          this building's own time. A bar four high on the 30 day window means
+          four calls in that hour across the whole month, not four a day.</p>
+        <p>It says where the water is coming from, which is the one thing
+          nothing else on this page can tell you. A pit that runs evenly around
+          the clock is taking groundwater, and it will follow the weather. One
+          that goes quiet at three in the morning and doubles at midday is
+          taking the building's, and it will follow the people in it.</p>
+        <p>Which pump answered is not shown. The panel alternates, so it is
+          half and half in every hour and says nothing about the water.</p>
       </div>
       <p class="note-close">Click anywhere to close</p>
     </dialog>
@@ -184,11 +156,10 @@
       <table class="runs-table" data-runs-table>
         <thead>
           <tr>
-            <th scope="col">Started</th>
+            <th scope="col">When</th>
             <th scope="col">Pump</th>
-            <th scope="col" class="num">Ran for</th>
-            <th scope="col" class="num">Steady / peak</th>
-            <th scope="col">Call</th>
+            <th scope="col" class="num">Run time</th>
+            <th scope="col" class="num">Amps</th>
           </tr>
         </thead>
         <tbody data-runs-body></tbody>

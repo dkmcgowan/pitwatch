@@ -1130,7 +1130,6 @@ def test_the_history_reads_the_window_it_was_asked_for(client):
             "gaps",
             "runs",
             "hours",
-            "rows",
             "figures",
             "pumps",
             "from",
@@ -1147,14 +1146,25 @@ def test_the_history_reads_the_window_it_was_asked_for(client):
     assert client.get("/api/history?window=nonsense").json()["window"] == "7d"
 
 
-def test_a_quiet_window_gets_no_rows_on_the_timeline(client):
-    """The old page drew a row for every assigned input, which on a quiet week
-    was six empty tracks and two with anything in them. A row is earned by
-    having moved."""
+def test_the_figures_carry_calls_and_runs_as_two_separate_counts(client):
+    """One call answered by both pumps is one call and two runs, and the page
+    shows both. Showing one of them invites dividing by twelve seconds and
+    getting the wrong answer for how much water moved."""
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
-    assert client.get("/api/history").json()["rows"] == []
+    figures = client.get("/api/history").json()["figures"]
+
+    assert set(figures) >= {
+        "calls",
+        "runs",
+        "both_ran",
+        "high_water",
+        "typical_gap_s",
+        "typical_run_s",
+        "longest_run_s",
+        "running_s",
+    }
 
 
 def test_a_summary_without_a_key_says_so_rather_than_failing(client):

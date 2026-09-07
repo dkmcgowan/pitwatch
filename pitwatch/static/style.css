@@ -873,14 +873,6 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   color: var(--text-muted);
 }
 
-/* The split between the pumps, under the count it splits. Its own line so the
-   count above it stays one number. */
-.figure-note {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
 /* Dimmed while a new window is on its way, with the old one still readable
    underneath. A spinner over a chart that redraws in 200 ms is a flash. */
 .charts.loading { opacity: 0.55; }
@@ -1047,9 +1039,14 @@ td.center, th.center { text-align: center; }
    which is the only reason to put them in a column. */
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
-/* Narrower than the settings tables: six short columns, and it has to be
-   readable on a phone held in one hand at a pit. */
-table.runs-table { min-width: 24rem; font-size: 0.85rem; }
+/* Narrower than the settings tables: four short columns, and it has to be
+   readable on a phone held in one hand at a pit. It was six, and on a phone
+   every one of them wrapped. */
+table.runs-table { min-width: 19rem; font-size: 0.85rem; }
+
+/* A cell that would rather scroll than wrap. A timestamp broken across two
+   lines makes every row in the table a different height. */
+td.nowrap, th.nowrap { white-space: nowrap; }
 
 
 table.channels th[scope="row"] { font-family: var(--mono); white-space: nowrap; }

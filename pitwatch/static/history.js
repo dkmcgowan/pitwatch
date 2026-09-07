@@ -1,6 +1,6 @@
 // The history page.
 //
-// Six charts and a table, drawn as SVG by hand. A charting library would be a
+// Four charts and a table, drawn as SVG by hand. A charting library would be a
 // build step and a megabyte to render what is, in the end, some rectangles and
 // some dots, and the content security policy on this application does not let
 // a page fetch one anyway. It also does not allow an inline style attribute,
@@ -22,25 +22,19 @@
 
   const NS = "http://www.w3.org/2000/svg";
   const PAD = { left: 34, right: 8, top: 10, bottom: 20 };
-  const LABEL_WIDTH = 78;
 
   // The two pumps, told apart by color and by the key under the chart. Never
   // by color alone: the key names them, and the reading that follows the
-  // cursor names them again.
+  // cursor names them again. Only the two per pump charts use these; the ones
+  // counting water use the accent, because there is one thing being counted.
   const SERIES = ["var(--series-1)", "var(--series-2)"];
 
-  // A contact is drawn in the color its lamp would be on the dashboard, so the
-  // two pages teach the same thing.
-  const CONTACT_COLOR = {
-    system_alert: "var(--crit)",
-    high_water: "var(--crit)",
-    pump1_fault: "var(--crit)",
-    pump2_fault: "var(--crit)",
-    lead_float: "var(--warn)",
-    lag_float: "var(--warn)",
-    pump1_run: "var(--ok)",
-    pump2_run: "var(--ok)",
-  };
+  // The columns of the runs table, by their place in a row from the API.
+  const STARTED = 0;
+  const PUMP = 1;
+  const DURATION = 2;
+  const STEADY = 3;
+  const ROLE = 4;
 
   const state = { window: "7d", data: null };
 
@@ -395,81 +389,17 @@
     return true;
   }
 
-  // -- time between calls ---------------------------------------------------
-
-  function drawGaps(container, data) {
-    const gaps = data.gaps || [];
-    if (gaps.length < 2) {
-      return false;
-    }
-
-    const from = at(data.from);
-    const to = at(data.to);
-    const minutes = gaps.map(function (point) {
-      return point[1] / 60;
-    });
-    const shape = box(container, 150, "Time between calls over the last " + data.title);
-    const top = ceiling(Math.max.apply(null, minutes));
-    const plot = frame(shape.canvas, shape.width, shape.height, top, {
-      format: function (value) {
-        return Math.round(value) + "m";
-      },
-    });
-    timeAxis(shape.canvas, plot, from, to, data.window);
-
-    const span = Math.max(1, to - from);
-    const x = function (ms) {
-      return plot.left + ((plot.right - plot.left) * (ms - from)) / span;
-    };
-    const y = function (value) {
-      return plot.bottom - ((plot.bottom - plot.top) * value) / top;
-    };
-
-    medianLine(shape.canvas, plot, y, median(minutes), "var(--text-muted)");
-
-    gaps.forEach(function (point) {
-      shape.canvas.appendChild(
-        svg("circle", {
-          cx: x(at(point[0])).toFixed(1),
-          cy: y(point[1] / 60).toFixed(1),
-          r: 2.5,
-          // A call that reached the high float is the one worth picking out of
-          // the cloud, because it is the one where the pit was winning.
-          fill: point[3] ? "var(--crit)" : point[2] ? "var(--warn)" : "var(--accent)",
-        })
-      );
-    });
-
-    const middle = median(minutes);
-    wireCursor(shape, plot, "gaps", function (fraction) {
-      const ms = from + fraction * span;
-      const point = nearest(gaps, ms, span / 40);
-      if (!point) {
-        return moment(ms, data.window) + "   typically " + spoken(middle * 60) + " apart";
-      }
-      const parts = [moment(at(point[0]), data.window), spoken(point[1]) + " since the one before"];
-      if (point[2]) {
-        parts.push("both pumps");
-      }
-      if (point[3]) {
-        parts.push("high float");
-      }
-      return parts.join("   ");
-    });
-    return true;
-  }
-
-  // -- how long each run lasted ---------------------------------------------
+  // -- run length -----------------------------------------------------------
 
   function runsOf(data, number) {
     return (data.runs || []).filter(function (run) {
-      return run[1] === number && run[2] !== null;
+      return run[PUMP] === number && run[DURATION] !== null;
     });
   }
 
   function drawRuns(container, data) {
     const runs = (data.runs || []).filter(function (run) {
-      return run[2] !== null;
+      return run[DURATION] !== null;
     });
     if (!runs.length) {
       return false;
@@ -482,7 +412,7 @@
       Math.max.apply(
         null,
         runs.map(function (run) {
-          return run[2];
+          return run[DURATION];
         })
       )
     );
@@ -512,7 +442,7 @@
         y,
         median(
           mine.map(function (run) {
-            return run[2];
+            return run[DURATION];
           })
         ),
         SERIES[index % SERIES.length]
@@ -520,8 +450,8 @@
       mine.forEach(function (run) {
         shape.canvas.appendChild(
           svg("circle", {
-            cx: x(at(run[0])).toFixed(1),
-            cy: y(run[2]).toFixed(1),
+            cx: x(at(run[STARTED])).toFixed(1),
+            cy: y(run[DURATION]).toFixed(1),
             r: 2.5,
             fill: SERIES[index % SERIES.length],
           })
@@ -536,18 +466,24 @@
         return moment(ms, data.window);
       }
       const parts = [
-        moment(at(run[0]), data.window),
-        pumpName(data, run[1]) + " ran " + spoken(run[2]),
+        moment(at(run[STARTED]), data.window),
+        pumpName(data, run[PUMP]) + " ran " + spoken(run[DURATION]),
       ];
-      if (run[5] && run[5] !== "unknown") {
-        parts.push("as " + run[5]);
+      if (run[ROLE] && run[ROLE] !== "unknown") {
+        parts.push("as " + run[ROLE]);
       }
       return parts.join("   ");
     });
     return true;
   }
 
-  // -- what each run drew ---------------------------------------------------
+  // -- current draw ---------------------------------------------------------
+  //
+  // Steady current only. The peak was drawn here as a second faint dot and is
+  // gone: on this motor it is the starting surge on every run without
+  // exception, so it was a chart of a fact about induction motors rather than
+  // about this pump, and being three times the larger number it was the one
+  // the eye landed on.
 
   function drawLoad(container, data) {
     // Only a pump whose clamp has proved it can read current. A channel with
@@ -559,7 +495,7 @@
     const drawn = [];
     measured.forEach(function (number) {
       runsOf(data, Number(number)).forEach(function (run) {
-        if (run[4] !== null || run[3] !== null) {
+        if (run[STEADY] !== null) {
           drawn.push(run);
         }
       });
@@ -575,7 +511,7 @@
       Math.max.apply(
         null,
         drawn.map(function (run) {
-          return Math.max(run[3] || 0, run[4] || 0);
+          return run[STEADY];
         })
       )
     );
@@ -597,48 +533,25 @@
     measured.forEach(function (number) {
       const index = pumpIndex(data, Number(number));
       const color = SERIES[index % SERIES.length];
-      const mine = runsOf(data, Number(number));
+      const mine = drawn.filter(function (run) {
+        return run[PUMP] === Number(number);
+      });
       medianLine(
         shape.canvas,
         plot,
         y,
         median(
-          mine
-            .map(function (run) {
-              return run[4];
-            })
-            .filter(function (value) {
-              return value !== null;
-            })
+          mine.map(function (run) {
+            return run[STEADY];
+          })
         ),
         color
       );
       mine.forEach(function (run) {
-        const left = x(at(run[0]));
-        const steady = run[4] === null ? run[3] : run[4];
-        if (steady === null) {
-          return;
-        }
-        // The starting surge as its own faint dot above the steady one, so the
-        // chart is two clouds: a tight one where the motor settles and a
-        // scattered one where it starts. Drawn as a stem from one to the other
-        // first, which over five hundred runs was a picket fence, and a fence
-        // is what the eye reads rather than either number.
-        if (run[3] !== null && run[3] > steady) {
-          shape.canvas.appendChild(
-            svg("circle", {
-              cx: left.toFixed(1),
-              cy: y(run[3]).toFixed(1),
-              r: 1.5,
-              fill: color,
-              opacity: 0.3,
-            })
-          );
-        }
         shape.canvas.appendChild(
           svg("circle", {
-            cx: left.toFixed(1),
-            cy: y(steady).toFixed(1),
+            cx: x(at(run[STARTED])).toFixed(1),
+            cy: y(run[STEADY]).toFixed(1),
             r: 2.5,
             fill: color,
           })
@@ -653,28 +566,33 @@
         return moment(ms, data.window);
       }
       return [
-        moment(at(run[0]), data.window),
-        pumpName(data, run[1]),
-        "steady " + amps(run[4]),
-        "peak " + amps(run[3]),
+        moment(at(run[STARTED]), data.window),
+        pumpName(data, run[PUMP]),
+        "drew " + amps(run[STEADY]),
+        "for " + spoken(run[DURATION]),
       ].join("   ");
     });
     return true;
   }
 
   // -- time of day ----------------------------------------------------------
+  //
+  // One color and one bar per hour. This was two colors stacked, split by
+  // which pump answered, which on an alternating panel comes out half and half
+  // in every hour: two colors that meant nothing, with no key under them
+  // saying so.
 
   function drawHours(container, data) {
     const hours = data.hours || [];
-    const totals = hours.map(function (hour) {
-      return hour[1] + hour[2];
+    const counts = hours.map(function (hour) {
+      return hour[1];
     });
-    if (!totals.some(Boolean)) {
+    if (!counts.some(Boolean)) {
       return false;
     }
 
-    const shape = box(container, 140, "Runs by time of day over the last " + data.title);
-    const top = ceiling(Math.max.apply(null, totals));
+    const shape = box(container, 140, "Calls by time of day over the last " + data.title);
+    const top = ceiling(Math.max.apply(null, counts));
     const plot = frame(shape.canvas, shape.width, shape.height, top, {});
 
     const slot = (plot.right - plot.left) / 24;
@@ -685,26 +603,18 @@
 
     hours.forEach(function (hour) {
       const left = plot.left + slot * hour[0] + 1;
-      // Stacked rather than side by side. The question is what the hour looks
-      // like; which pump answered is the second thing, and the panel alternates
-      // them anyway.
-      let base = 0;
-      [hour[1], hour[2]].forEach(function (count, index) {
-        if (!count) {
-          return;
-        }
+      if (hour[1]) {
         shape.canvas.appendChild(
           svg("rect", {
             x: left.toFixed(1),
-            y: y(base + count).toFixed(1),
+            y: y(hour[1]).toFixed(1),
             width: width.toFixed(1),
-            height: Math.max(1, y(base) - y(base + count)).toFixed(1),
-            fill: SERIES[index % SERIES.length],
+            height: Math.max(1, plot.bottom - y(hour[1])).toFixed(1),
+            fill: "var(--accent)",
             rx: 1,
           })
         );
-        base += count;
-      });
+      }
       if (hour[0] % 6 === 0) {
         shape.canvas.appendChild(
           text(
@@ -720,98 +630,31 @@
       }
     });
 
+    // The reading is a sentence rather than a pair of numbers, because the
+    // thing being asked of this chart is "is that a lot for that hour".
     wireCursor(shape, plot, "hours", function (fraction) {
       const hour = Math.min(23, Math.max(0, Math.floor(fraction * 24)));
-      const row = hours[hour] || [hour, 0, 0];
-      const parts = [hourLabel(hour) + " to " + hourLabel((hour + 1) % 24)];
-      Object.keys(data.pumps).forEach(function (number, index) {
-        parts.push(pumpName(data, Number(number)) + " " + (row[index + 1] || 0));
-      });
-      return parts.join("   ");
-    });
-    return true;
-  }
-
-  // -- what happened --------------------------------------------------------
-
-  function drawTimeline(container, data) {
-    const rows = data.rows || [];
-    if (!rows.length) {
-      return false;
-    }
-
-    const from = at(data.from);
-    const to = at(data.to);
-    const row = 16;
-    const shape = box(
-      container,
-      rows.length * row + PAD.top + PAD.bottom,
-      "What happened over the last " + data.title
-    );
-    const plot = {
-      left: LABEL_WIDTH,
-      right: shape.width - PAD.right,
-      top: PAD.top,
-      bottom: shape.height - PAD.bottom,
-    };
-    timeAxis(shape.canvas, plot, from, to, data.window);
-
-    const span = Math.max(1, to - from);
-    rows.forEach(function (entry, index) {
-      const y = plot.top + index * row;
-      shape.canvas.appendChild(
-        text(svg("text", { x: 0, y: y + 10, class: "chart-label" }), entry.title)
+      const calls = (hours[hour] || [hour, 0])[1];
+      return (
+        hourLabel(hour) +
+        " to " +
+        hourLabel((hour + 1) % 24) +
+        "   " +
+        calls +
+        (calls === 1 ? " call" : " calls") +
+        " in " +
+        data.title
       );
-      shape.canvas.appendChild(
-        svg("rect", {
-          x: plot.left,
-          y: y + 2,
-          width: Math.max(1, plot.right - plot.left),
-          height: row - 6,
-          fill: "var(--surface-2)",
-          rx: 2,
-        })
-      );
-
-      entry.spans.forEach(function (pair) {
-        const opened = Math.max(from, at(pair[0]));
-        const shut = Math.min(to, at(pair[1]));
-        const left = plot.left + ((plot.right - plot.left) * (opened - from)) / span;
-        // A pump that ran for twelve seconds is a fact about the month. It gets
-        // a visible mark rather than a hairline nobody can see.
-        const width = Math.max(2, ((plot.right - plot.left) * (shut - opened)) / span);
-        shape.canvas.appendChild(
-          svg("rect", {
-            x: left.toFixed(1),
-            y: y + 2,
-            width: width.toFixed(1),
-            height: row - 6,
-            fill: CONTACT_COLOR[entry.role] || "var(--accent)",
-            rx: 2,
-          })
-        );
-      });
-    });
-
-    wireCursor(shape, plot, "timeline", function (fraction) {
-      const ms = from + fraction * span;
-      const on = rows
-        .filter(function (entry) {
-          return entry.spans.some(function (pair) {
-            return at(pair[0]) <= ms && ms <= at(pair[1]);
-          });
-        })
-        .map(function (entry) {
-          return entry.title;
-        });
-      return moment(ms, data.window) + "   " + (on.length ? on.join(", ") : "nothing on");
     });
     return true;
   }
 
   // -- the figures ----------------------------------------------------------
 
-  function figure(holder, label, value, note) {
+  // Two lines: the number, and what it is. There was a third for the split
+  // between the pumps, which on a phone made one figure three lines tall while
+  // the seven beside it were two, so the split moved into the label.
+  function figure(holder, label, value) {
     const item = document.createElement("div");
     item.className = "figure";
     const number = document.createElement("span");
@@ -822,12 +665,6 @@
     name.textContent = label;
     item.appendChild(number);
     item.appendChild(name);
-    if (note) {
-      const hint = document.createElement("span");
-      hint.className = "figure-note";
-      hint.textContent = note;
-      item.appendChild(hint);
-    }
     holder.appendChild(item);
   }
 
@@ -838,22 +675,36 @@
     }
     holder.textContent = "";
     const figures = data.figures || {};
+    // In parentheses on the label, rather than on a line of its own. It read
+    // "41 / 41 by pump" under the count and wrapped on a phone.
     const split = Object.keys(data.pumps)
       .map(function (number) {
         return data.pumps[number].runs;
       })
       .join(" / ");
 
+    // Calls and runs are both here and are not the same number. One call
+    // answered by both pumps is one call and two runs, so runs sits above
+    // calls by exactly the count in "took both pumps" further down.
     figure(holder, "calls for water", String(figures.calls || 0));
-    figure(holder, "runs", String(figures.runs || 0), split ? split + " by pump" : "");
-    figure(holder, "typically apart", spoken(figures.typical_gap_s));
+    figure(holder, split ? "pump runs (" + split + ")" : "pump runs", String(figures.runs || 0));
+    figure(holder, "between calls", spoken(figures.typical_gap_s));
     figure(holder, "typical run", spoken(figures.typical_run_s));
     figure(holder, "longest run", spoken(figures.longest_run_s));
-    figure(holder, "running in total", spoken(figures.running_s));
+    figure(holder, "total run time", spoken(figures.running_s));
     // Two counts that are usually zero, and a zero here is the answer somebody
     // came for rather than an empty box.
     figure(holder, "took both pumps", String(figures.both_ran || 0));
     figure(holder, "reached the high float", String(figures.high_water || 0));
+
+    // Every number above is over the chosen window and none of them says so on
+    // its own. "17 min total run time" reads as today unless something nearby
+    // says otherwise, and the chips at the top of the page read as a control
+    // rather than as a fact about what is on screen.
+    const heading = document.querySelector("[data-window-title]");
+    if (heading) {
+      heading.textContent = "The last " + data.title;
+    }
   }
 
   // -- the table ------------------------------------------------------------
@@ -866,6 +717,17 @@
     }
     row.appendChild(node);
     return node;
+  }
+
+  // Short enough not to wrap in a narrow column: no weekday, and the hour
+  // without a leading zero. "9/6 2:14 PM" rather than "Sat, 9/6 02:14 PM".
+  function stamp(ms) {
+    const when = new Date(ms);
+    return (
+      when.toLocaleDateString([], { month: "numeric", day: "numeric" }) +
+      " " +
+      when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    );
   }
 
   function renderTable(data) {
@@ -881,34 +743,16 @@
     }
     runs.forEach(function (run) {
       const row = document.createElement("tr");
-      cell(row, moment(at(run[0]), "24h"));
-      // Lead is said by not saying it. On a duplex panel answering one call
-      // with one pump, every run is the lead one, and a column repeating that
-      // two hundred times is a column that says nothing.
-      cell(row, pumpName(data, run[1]) + (run[5] === "lag" ? " (lag)" : ""));
-      cell(row, run[2] === null ? "running" : spoken(run[2]), "num");
-      // Steady and peak in one column. Six columns do not fit a phone, and
-      // these two are read together anyway: what it settles at, and what it
-      // took to get there.
-      cell(
-        row,
-        run[4] === null && run[3] === null
-          ? "--"
-          : (run[4] === null ? "--" : run[4].toFixed(1)) +
-              " / " +
-              (run[3] === null ? "--" : run[3].toFixed(1)),
-        "num"
-      );
-      // What else was true of the call this run belonged to. Blank when it was
-      // an ordinary one, which is most of them.
-      const notes = [];
-      if (run[6]) {
-        notes.push("both pumps");
-      }
-      if (run[7]) {
-        notes.push("high float");
-      }
-      cell(row, notes.join(", "));
+      cell(row, stamp(at(run[STARTED])), "nowrap");
+      // The number on its own under a heading that already says Pump. Lead is
+      // said by not saying it: on a duplex panel answering one call with one
+      // pump every run is the lead one, and the word repeated two hundred
+      // times down a column says nothing. Lag is rare and is worth the space.
+      cell(row, String(run[PUMP]) + (run[ROLE] === "lag" ? " lag" : ""), "nowrap");
+      cell(row, run[DURATION] === null ? "running" : spoken(run[DURATION]), "num");
+      // Steady current, and nothing about the starting surge. The column was
+      // "15.4 / 39.1" and the second number was the inrush every time.
+      cell(row, run[STEADY] === null ? "--" : run[STEADY].toFixed(1), "num");
       body.appendChild(row);
     });
   }
@@ -953,11 +797,9 @@
     }
     const charts = [
       ["calls", drawCalls],
-      ["gaps", drawGaps],
       ["runs", drawRuns],
       ["load", drawLoad],
       ["hours", drawHours],
-      ["timeline", drawTimeline],
     ];
     charts.forEach(function (pair) {
       const container = document.querySelector('[data-chart="' + pair[0] + '"]');

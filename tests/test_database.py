@@ -550,8 +550,13 @@ async def test_runs_today_is_counted_from_local_midnight(pool):
 # arrive as nothing; the contacts have neither problem.
 
 
-async def _a_call(pool, ago, pump=1, seconds=12.0, both=False, high=False, peak=None, steady=None):
-    """One call for water with one run in it, placed in the past."""
+async def _a_call(pool, ago, pump=1, seconds=12.0, both=False, high=False, steady=None):
+    """One call for water with one run in it, placed in the past.
+
+    A call marked as taking both pumps gets a second run against the same
+    cycle, which is the shape that makes the count of runs sit above the count
+    of calls on the page.
+    """
     from datetime import timedelta
 
     ran = timedelta(seconds=seconds)
@@ -570,18 +575,31 @@ async def _a_call(pool, ago, pump=1, seconds=12.0, both=False, high=False, peak=
     await pool.execute(
         """
         INSERT INTO pump_run (cycle_id, pump, started_at, ended_at, duration_s,
-                              peak_current, steady_current, role, started_by, ended_by)
+                              steady_current, role, started_by, ended_by)
         VALUES ($1, $2, now() - $3::interval, now() - $3::interval + $4::interval, $5,
-                $6, $7, 'lead', 'contact', 'contact')
+                $6, 'lead', 'contact', 'contact')
         """,
         cycle,
         pump,
         ago,
         ran,
         seconds,
-        peak,
         steady,
     )
+    if both:
+        await pool.execute(
+            """
+            INSERT INTO pump_run (cycle_id, pump, started_at, ended_at, duration_s,
+                                  role, started_by, ended_by)
+            VALUES ($1, $2, now() - $3::interval, now() - $3::interval + $4::interval, $5,
+                    'lag', 'contact', 'contact')
+            """,
+            cycle,
+            3 - pump,
+            ago,
+            ran,
+            seconds,
+        )
 
 
 async def test_calls_are_counted_from_the_cycles_and_not_from_the_amps(pool):
@@ -627,7 +645,7 @@ async def test_a_run_carries_what_the_clamp_saw_and_what_it_did_not(pool):
 
     from pitwatch.domain import series
 
-    await _a_call(pool, timedelta(hours=1), peak=38.0, steady=15.4)
+    await _a_call(pool, timedelta(hours=1), steady=15.4)
     await _a_call(pool, timedelta(hours=2), pump=2)
 
     runs = await series.runs_series(pool, series.WINDOWS["24h"])
@@ -651,9 +669,46 @@ async def test_the_daily_pattern_is_counted_in_the_buildings_own_time(pool):
     here = await series.hour_profile(pool, series.WINDOWS["24h"], "UTC")
     there = await series.hour_profile(pool, series.WINDOWS["24h"], "Australia/Sydney")
 
-    assert sum(sum(pumps.values()) for pumps in here.values()) == 1
-    assert sum(sum(pumps.values()) for pumps in there.values()) == 1
-    assert list(here) != list(there), "the same run falls in a different hour"
+    assert sum(here.values()) == 1
+    assert sum(there.values()) == 1
+    assert list(here) != list(there), "the same call falls in a different hour"
+
+
+async def test_the_daily_pattern_counts_calls_rather_than_runs(pool):
+    """The chart asks when the water comes in. A call answered by both pumps is
+    one filling of the pit and belongs in its hour once, and which pump answered
+    is not part of the question: the panel alternates, so a split by pump is
+    half and half in every hour."""
+    from datetime import timedelta
+
+    from pitwatch.domain import series
+
+    await _a_call(pool, timedelta(hours=3), both=True)
+
+    profile = await series.hour_profile(pool, series.WINDOWS["24h"], "UTC")
+
+    assert sum(profile.values()) == 1, "two runs, one filling of the pit"
+
+
+async def test_runs_sit_above_calls_by_the_calls_that_took_both_pumps(pool):
+    """The two counts side by side on the page are not meant to match, and the
+    difference between them is not slop. One call answered by both pumps is one
+    call and two runs."""
+    from datetime import timedelta
+
+    from pitwatch.domain import series
+
+    await _a_call(pool, timedelta(hours=1))
+    await _a_call(pool, timedelta(hours=2))
+    await _a_call(pool, timedelta(hours=3), both=True)
+
+    calls = await series.calls_series(pool, series.WINDOWS["24h"], "UTC")
+    runs = await series.runs_series(pool, series.WINDOWS["24h"])
+
+    counted = sum(count for _, count, _, _ in calls)
+    both = sum(mark for _, _, mark, _ in calls)
+    assert (counted, both, len(runs)) == (3, 1, 4)
+    assert len(runs) == counted + both
 
 
 async def test_a_clamp_that_has_never_read_current_is_known_to_be_unfitted(pool):
@@ -670,10 +725,11 @@ async def test_a_clamp_that_has_never_read_current_is_known_to_be_unfitted(pool)
     assert await series.clamp_fitted(pool, 1, 1.0) is False
 
 
-async def test_a_contact_closed_before_the_window_still_draws(pool):
-    """A float that closed an hour before the window opened and is still closed
-    has no event inside it. Reading only the events would draw it as having
-    been open the whole time, which is the opposite of what happened."""
+async def test_a_contact_closed_before_the_window_still_counts(pool):
+    """Read by the weekly summary, which says how many times each contact
+    closed. A float that closed an hour before the window opened and is still
+    closed has no event inside it, and reading only the events would take it as
+    having been open the whole time, which is the opposite of what happened."""
     from datetime import UTC, datetime, timedelta
 
     from pitwatch.domain import series
@@ -682,7 +738,7 @@ async def test_a_contact_closed_before_the_window_still_draws(pool):
     await pool.executemany(
         "INSERT INTO io_event (ts, channel, label, state, raw) VALUES ($1, $2, $3, $4, $4)",
         [
-            # Closed well before the day being drawn, and never reopened.
+            # Closed well before the week being counted, and never reopened.
             (now - timedelta(days=2), 3, "High water", True),
             # And a second input that went and came back inside the window.
             (now - timedelta(hours=6), 4, "Lead float", True),

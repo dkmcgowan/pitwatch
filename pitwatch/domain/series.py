@@ -15,24 +15,30 @@ this pit is a flat zero with a spike every half hour, and a chart of eight
 contact rows, most of them empty. Neither answers the question somebody opens
 this page with, which is some version of "is it working harder than it was".
 
-The six things worth reading, in the order they matter:
+The four things worth reading, in the order they matter:
 
 1. **How often the pit calls for water.** The nearest thing to a measurement of
    what is coming in, and the number that moves when it rains.
-2. **How long between calls.** The same fact at the resolution where weather
-   shows up. Half an hour apart is a dry week; six minutes apart is a storm or
-   a check valve that is not holding.
-3. **How long a run lasts.** Twelve seconds, every time, on this pit. A run
+2. **How long a run lasts.** Twelve seconds, every time, on this pit. A run
    that starts taking twenty is a pump moving less water per second.
-4. **What it draws while it runs.** Steady current per run, which is the motor
+3. **What it draws while it runs.** Steady current per run, which is the motor
    itself. Only for a pump whose clamp has ever seen current: a channel with no
    CT on it reads a perfectly convincing zero, and a chart of zeros is a lie
    that looks like a measurement.
-5. **What time of day it runs.** Says whether the water is the building's or
+4. **What time of day it calls.** Says whether the water is the building's or
    the ground's. On the reference pit it is four an hour at noon and one an
    hour at four in the morning, which is people.
-6. **What happened when.** One row per pump and per wired contact, so a night
-   can be read across.
+
+Three things that were here and are not any more. A scatter of the spacing
+between calls, which said nothing the count of calls per day does not say
+louder, and read as a cloud of dots. A timeline of every contact, which on the
+default week is a hairline per twelve second run and is answered better by the
+dashboard and the alert history; `contact_spans` stays, because the weekly
+summary counts closings out of it. And peak current, which on this pump is the
+starting surge every single time: it is a fact about induction motors rather
+than a fact about this one, and drawn beside the steady current it was the
+larger number and therefore the one the eye read. The spacing survives as a
+single median in the figures, which is the part of it worth reading.
 
 Windows are 24 hours, 7 days and 30 days. Raw readings are kept ninety days, so
 every window is inside what is there.
@@ -107,11 +113,14 @@ ORDER BY started_at
 """
 
 # One row per run. Ordered oldest first, the way every chart on this page reads.
+#
+# Peak current is written by the recorder and is not read here. On this motor
+# it is the starting surge on every run without exception, so a chart of it is
+# a chart of a constant with noise on it.
 RUNS = """
 SELECT r.started_at,
        r.pump,
        r.duration_s,
-       r.peak_current,
        r.steady_current,
        r.role,
        r.ended_at IS NULL      AS running,
@@ -123,16 +132,20 @@ WHERE r.started_at > now() - $1::interval
 ORDER BY r.started_at
 """
 
-# Runs by hour of the local day, which is a different question from runs over
-# time: it is asked of the whole window at once and answers what the routine
-# is rather than what happened.
+# Calls by hour of the local day, which is a different question from calls over
+# time: it is asked of the whole window at once and answers what the routine is
+# rather than what happened.
+#
+# Calls rather than runs, so this chart and the one above it count the same
+# thing. Which pump answered is not part of the question either: the panel
+# alternates, so splitting the bars by pump drew two colors that always came
+# out half and half and said nothing about the water.
 HOURS = """
 SELECT extract(hour FROM started_at AT TIME ZONE $2::text)::int AS hour,
-       pump,
-       count(*) AS runs
-FROM pump_run
+       count(*) AS calls
+FROM pump_cycle
 WHERE started_at > now() - $1::interval
-GROUP BY 1, 2
+GROUP BY 1
 ORDER BY 1
 """
 
@@ -143,8 +156,13 @@ CLAMP_FITTED = "SELECT EXISTS (SELECT 1 FROM em_sample WHERE channel = $1 AND cu
 
 # Every change inside the window, and the state going into it. The second one
 # matters: a float that closed an hour before the window opened and is still
-# closed has no event inside it, and a chart that reads only the events would
-# draw it as having been open the whole time.
+# closed has no event inside it, and reading only the events would take it as
+# having been open the whole time.
+#
+# The history page drew a timeline off these and does not any more. The weekly
+# summary still counts them, which is where a contact closing belongs: how many
+# times the high float was reached this week is a sentence, and on the default
+# seven day window it was a hairline nobody could see.
 CONTACT_EVENTS = """
 SELECT channel, ts, state
 FROM io_event
@@ -229,7 +247,6 @@ class Run:
     started_at: datetime
     pump: int
     duration_s: float | None
-    peak_current: float | None
     steady_current: float | None
     role: str
     running: bool
@@ -244,7 +261,6 @@ async def runs_series(pool: asyncpg.Pool, window: Window) -> list[Run]:
             started_at=row["started_at"],
             pump=int(row["pump"]),
             duration_s=None if row["duration_s"] is None else float(row["duration_s"]),
-            peak_current=None if row["peak_current"] is None else float(row["peak_current"]),
             steady_current=(
                 None if row["steady_current"] is None else float(row["steady_current"])
             ),
@@ -257,13 +273,10 @@ async def runs_series(pool: asyncpg.Pool, window: Window) -> list[Run]:
     ]
 
 
-async def hour_profile(pool: asyncpg.Pool, window: Window, zone: str) -> dict[int, dict[int, int]]:
-    """Runs by hour of the local day, as {hour: {pump: runs}}."""
+async def hour_profile(pool: asyncpg.Pool, window: Window, zone: str) -> dict[int, int]:
+    """Calls by hour of the local day, as {hour: calls}."""
     rows = await _fetch(pool, "the daily pattern", HOURS, window.span, zone)
-    profile: dict[int, dict[int, int]] = {}
-    for row in rows:
-        profile.setdefault(int(row["hour"]), {})[int(row["pump"])] = int(row["runs"])
-    return profile
+    return {int(row["hour"]): int(row["calls"]) for row in rows}
 
 
 async def clamp_fitted(pool: asyncpg.Pool, channel: int, running_amps: float) -> bool:
@@ -280,8 +293,9 @@ async def contact_spans(
 ) -> dict[int, list[tuple[datetime, datetime]]]:
     """When each contact was closed, as spans clipped to the window.
 
-    A span still open at the end runs to now, which is the honest drawing: the
-    float is wet as this is being read.
+    Read by the weekly summary, which counts them and says when the last one
+    was. A span still open at the end runs to now, which is the honest answer:
+    the float is wet as this is being read.
     """
     if not channels:
         return {}

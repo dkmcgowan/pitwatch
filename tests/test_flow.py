@@ -405,13 +405,18 @@ def test_health_is_healthy_once_the_database_is_up(client):
     assert response.json()["status"] == "ok"
 
 
-def test_the_state_endpoint_reports_both_devices(client):
+def test_the_state_endpoint_reports_every_source(client):
+    """Three, and the weather poller is one of them. It gets no lamp on the
+    dashboard, because rain a quarter of an hour stale is not a fault and a red
+    dot beside "the Shelly is offline" would say it was, but a firewall that
+    blocks Open-Meteo should be findable somewhere other than a container
+    log."""
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     state = client.get("/api/state").json()
 
-    assert set(state["devices"]) == {"shelly", "inputs"}
+    assert set(state["devices"]) == {"shelly", "inputs", "weather"}
     assert state["site"]["name"] == "Basement pit"
 
 
@@ -1202,6 +1207,22 @@ def test_the_history_reads_the_window_it_was_asked_for(client):
     # Anything else is the default rather than an error. A window is a view,
     # and a bad one in a query string should show a page rather than a stack.
     assert client.get("/api/history?window=nonsense").json()["window"] == "7d"
+
+
+def test_the_history_carries_the_rain_on_the_same_buckets_as_the_calls(client):
+    """A bar of rain and a bar of calls have to describe the same day, which
+    means one bucket width, one timezone, and both cut on the same local
+    midnight. Reading them from two places with two conventions is how a chart
+    ends up claiming Tuesday's rain caused Monday's calls."""
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    payload = client.get("/api/history").json()
+
+    assert "rain" in payload
+    # In whatever the site reads rather than in millimeters. One conversion, at
+    # the edge, so nothing downstream has to know which it was given.
+    assert payload["rain_units"] in {"in", "mm"}
 
 
 def test_the_figures_carry_calls_and_runs_as_two_separate_counts(client):

@@ -126,6 +126,7 @@ async def settings_page(request: Request, admin: auth.IsAdmin, saved: str | None
             smtp=store.smtp,
             sms=store.sms,
             summary=store.summary,
+            weather=store.weather,
             saved=saved,
             error=None,
         ),
@@ -338,6 +339,8 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
                 await store.put(forms.sms_from(form, store.sms))
             case "summary":
                 await store.put(forms.summary_from(form, store.summary))
+            case "weather":
+                await store.put(forms.weather_from(form))
             case _:
                 return RedirectResponse("/settings", status_code=303)
     except (ValueError, ValidationError) as error:
@@ -352,6 +355,7 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
                 smtp=store.smtp,
                 sms=store.sms,
                 summary=store.summary,
+                weather=store.weather,
                 saved=None,
                 error=_readable(error),
             ),

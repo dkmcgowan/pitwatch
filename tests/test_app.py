@@ -292,6 +292,7 @@ def render_settings(**overrides) -> str:
         SmsSettings,
         SmtpSettings,
         SummarySettings,
+        WeatherSettings,
     )
 
     env = Environment(loader=FileSystemLoader("pitwatch/templates"), autoescape=True)
@@ -299,6 +300,7 @@ def render_settings(**overrides) -> str:
     env.globals["version"] = "test"
     context = {
         "site": SiteSettings(),
+        "weather": WeatherSettings(),
         "shelly": ShellySettings(),
         "inputs": InputsSettings(),
         "pumps": PumpsSettings(),
@@ -635,8 +637,8 @@ def render_dashboard() -> str:
     return env.get_template("dashboard.html").render(site=SiteSettings(name="A pit"), user=None)
 
 
-def test_the_dashboard_is_four_sections():
-    """A pump, the other pump, then alerts and floats.
+def test_the_dashboard_is_five_sections():
+    """A pump, the other pump, then alerts, floats and rain.
 
     It was six boxes once, then one box holding everything at a size that fit a
     phone without scrolling. The one box fit and could not be read: two pump
@@ -649,16 +651,21 @@ def test_the_dashboard_is_four_sections():
     Alerts, which is what they are: an alarm, counted by the month, read by
     somebody looking for the one thing that is lit rather than for a heading.
 
+    Rain came last and sits under the floats, because it is the cause and they
+    are the effect. It is also the only card that looks forward.
+
     Layout is normally not worth a test. This is, because it has been described
     in prose and built from that description more than once, and shipped wrong
     both times without anything saying a word.
     """
     page = render_dashboard()
 
-    assert page.count("<section") == 4
+    assert page.count("<section") == 5
     # The banner and the two device indicators sit outside them, and nothing
     # else does.
-    assert page.count('class="board-card') == 4
+    assert page.count('class="board-card') == 5
+    # Rain is last, under the water it explains.
+    assert page.index("rain-card") > page.index("water-card")
     assert "history-row" not in page and "history-table" not in page
     # And nothing left of the section that went, in the markup or the
     # stylesheet, so it cannot come back by halves.
@@ -1241,11 +1248,11 @@ def test_every_long_note_is_a_dialog_opened_from_beside_its_heading():
     looks like, and Escape closes it without being told to."""
     page = render_dashboard()
 
-    # Four buttons and four notes: the two groups of lamps and the two pump
-    # columns, the column being written once in a loop.
-    assert page.count("data-info=") == 4
-    assert page.count("<dialog") == 4
-    assert page.count("</dialog>") == 4
+    # Five buttons and five notes: the two groups of lamps, the rain, and the
+    # two pump columns, the column being written once in a loop.
+    assert page.count("data-info=") == 5
+    assert page.count("<dialog") == 5
+    assert page.count("</dialog>") == 5
 
     # Each button names a note that exists.
     import re
@@ -1329,8 +1336,8 @@ def test_the_note_does_not_sit_in_the_flow_of_the_page():
 
     assert "card-note" not in css and "card-note" not in page
     assert "dialog.note::backdrop" in css
-    # The handle sits beside the heading it belongs to, on each of the four.
-    assert page.count('class="info-mark"') == 4
+    # The handle sits beside the heading it belongs to, on each of the five.
+    assert page.count('class="info-mark"') == 5
 
 
 def test_the_live_reading_is_labelled_and_no_bigger_than_anything_else():
@@ -1638,12 +1645,13 @@ def test_the_lamps_are_chosen_on_the_input_that_carries_them():
 def render_page(name: str, **context) -> str:
     from jinja2 import Environment, FileSystemLoader
 
-    from pitwatch.schemas import SiteSettings
+    from pitwatch.schemas import SiteSettings, WeatherSettings
 
     env = Environment(loader=FileSystemLoader("pitwatch/templates"), autoescape=True)
     env.globals["csrf_token"] = lambda: "token"
     env.globals["version"] = "test"
     context.setdefault("site", SiteSettings(name="A pit"))
+    context.setdefault("weather", WeatherSettings())
     context.setdefault("user", None)
     return env.get_template(name).render(**context)
 
@@ -1814,6 +1822,43 @@ def test_the_history_page_draws_every_chart_over_one_window():
     from pitwatch.domain.series import DEFAULT_WINDOW
 
     assert 'data-window="' + DEFAULT_WINDOW + '" aria-pressed="true"' in page
+
+
+def test_the_rain_is_drawn_from_its_own_series_and_not_from_the_calls():
+    """Rain is drawn in its own pass rather than as a branch inside the loop
+    over the calls.
+
+    Drawn from the calls, a day that rained and did not fill the pit has no bar
+    to hang from and the rain silently is not drawn. That is one of the two
+    readings the chart exists to give: a deep rain bar with a tall call bar
+    under it says the pit is doing its job, and a wet day the pit shrugged off
+    is the other half of the same question.
+    """
+    js = Path("pitwatch/static/history.js").read_text(encoding="utf-8")
+    calls = js.split("function drawCalls", 1)[1].split("function runsOf", 1)[0]
+
+    assert "(data.rain || []).forEach" in calls
+    # And the two loops place a bucket the same way, or a rain bar and the call
+    # bar under it would not line up, which would make the chart say something
+    # that is not true.
+    assert calls.count("bucketAt(") == 3, "one definition and one call per loop"
+
+
+def test_the_rain_hangs_from_the_ceiling_rather_than_sharing_an_axis():
+    """Rain and what it produced share a time axis and nothing else. Two series
+    growing from one baseline invites reading one against the other, which is
+    exactly the comparison that is not available: they are different units.
+
+    A stormwater chart hangs the rain from the top for this reason, and the
+    thing worth seeing survives it, because a wet day still sits directly above
+    a busy one.
+    """
+    js = Path("pitwatch/static/history.js").read_text(encoding="utf-8")
+
+    # The plot is pushed down to leave the gap the rain hangs in.
+    assert "headroom" in js
+    frame = js.split("function frame(", 1)[1].split("function timeAxis", 1)[0]
+    assert "PAD.top + (options.headroom || 0)" in frame
 
 
 def test_every_window_the_page_offers_is_one_the_query_knows():

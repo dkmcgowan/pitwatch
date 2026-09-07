@@ -165,7 +165,10 @@
     const plot = {
       left: options.left === undefined ? PAD.left : options.left,
       right: width - PAD.right,
-      top: PAD.top,
+      // Room left above the plot for something else to hang in. The calls
+      // chart gives the top third of itself to the rain, which hangs down from
+      // the ceiling into exactly this gap.
+      top: PAD.top + (options.headroom || 0),
       bottom: height - PAD.bottom,
     };
 
@@ -301,7 +304,31 @@
     return best;
   }
 
-  // -- calls for water ------------------------------------------------------
+  // -- calls for water, and the rain that caused them -----------------------
+  //
+  // Two series on one chart, drawn the way a stormwater chart draws them:
+  // rainfall hanging down from the top, and what it produced rising from the
+  // bottom. That arrangement is not decoration. Rain and runoff share a time
+  // axis and nothing else, and hanging one from the ceiling keeps the two
+  // scales from being read against each other while leaving the thing worth
+  // seeing, which is a wet day sitting directly above a busy one.
+
+  function rainAt(data) {
+    const found = {};
+    (data.rain || []).forEach(function (point) {
+      if (point[1]) {
+        found[point[0]] = point[1];
+      }
+    });
+    return found;
+  }
+
+  function rainUnit(value, units) {
+    if (value === null || value === undefined) {
+      return "--";
+    }
+    return units === "mm" ? value.toFixed(1) + " mm" : value.toFixed(2) + '"';
+  }
 
   function drawCalls(container, data) {
     const calls = data.calls || [];
@@ -311,7 +338,7 @@
 
     const from = at(data.from);
     const to = at(data.to);
-    const shape = box(container, 140, "Calls for water over the last " + data.title);
+    const shape = box(container, 160, "Calls for water over the last " + data.title);
     const top = ceiling(
       Math.max.apply(
         null,
@@ -320,7 +347,17 @@
         })
       )
     );
-    const plot = frame(shape.canvas, shape.width, shape.height, top, {});
+
+    // The rain gets the top third and the calls the rest. Not half and half:
+    // this is a chart about how often the pit ran, and the rain is the reason
+    // rather than the subject.
+    const rain = rainAt(data);
+    const wettest = Object.keys(rain).reduce(function (most, key) {
+      return Math.max(most, rain[key]);
+    }, 0);
+    const sky = wettest > 0 ? Math.round((shape.height - PAD.top - PAD.bottom) * 0.32) : 0;
+
+    const plot = frame(shape.canvas, shape.width, shape.height, top, { headroom: sky });
     timeAxis(shape.canvas, plot, from, to, data.window);
 
     const span = Math.max(1, to - from);
@@ -330,19 +367,69 @@
       return plot.bottom - ((plot.bottom - plot.top) * value) / top;
     };
 
-    calls.forEach(function (point) {
+    // Where a bucket starts on the plot, and how wide it is. Shared by the two
+    // loops below, because a rain bar and the call bar under it have to line up
+    // exactly or the chart says something that is not true.
+    function bucketAt(iso) {
       // A day bucket is stamped at local midnight, which for the first one in
       // the window is before the window opens. Drawn from its own left edge it
       // hangs off the side of the plot as a sliver, so it is clipped to the
       // plot and loses the width it was going to spend outside it.
-      const edge = plot.left + ((plot.right - plot.left) * (at(point[0]) - from)) / span;
+      const edge = plot.left + ((plot.right - plot.left) * (at(iso) - from)) / span;
       const left = Math.max(plot.left, edge) + 1;
-      const cut = Math.max(0, plot.left - edge);
+      return { left: left, width: Math.max(2, width - Math.max(0, plot.left - edge)) };
+    }
+
+    // The rain, from the ceiling down. Its own scale and its own label at the
+    // wettest bucket, because a second axis on the left would be read as
+    // belonging to the calls.
+    //
+    // Its own pass over its own series rather than a branch inside the loop
+    // below. Drawn from the calls, a day that rained and did not fill the pit
+    // would have no bar to hang from and the rain would silently not be drawn,
+    // and a wet day the pit shrugged off is one of the two readings this chart
+    // exists to give.
+    if (sky) {
+      shape.canvas.appendChild(
+        text(
+          svg("text", {
+            x: plot.left - 5,
+            y: PAD.top + 8,
+            "text-anchor": "end",
+            class: "chart-label",
+          }),
+          rainUnit(wettest, data.rain_units)
+        )
+      );
+      (data.rain || []).forEach(function (point) {
+        if (!point[1]) {
+          return;
+        }
+        const where = bucketAt(point[0]);
+        shape.canvas.appendChild(
+          svg("rect", {
+            x: where.left.toFixed(1),
+            y: PAD.top,
+            width: where.width.toFixed(1),
+            height: Math.max(1, (sky - 4) * (point[1] / wettest)).toFixed(1),
+            fill: "var(--water)",
+            opacity: 0.65,
+            rx: 1,
+          })
+        );
+      });
+    }
+
+    calls.forEach(function (point) {
+      const where = bucketAt(point[0]);
+      const left = where.left;
+      const bar = where.width;
+
       shape.canvas.appendChild(
         svg("rect", {
           x: left.toFixed(1),
           y: y(point[1]).toFixed(1),
-          width: Math.max(2, width - cut).toFixed(1),
+          width: bar.toFixed(1),
           height: Math.max(1, plot.bottom - y(point[1])).toFixed(1),
           fill: "var(--accent)",
           rx: 1,
@@ -362,7 +449,7 @@
           svg("rect", {
             x: left.toFixed(1),
             y: (y(point[1]) - 5 - index * 4).toFixed(1),
-            width: Math.max(2, width - cut).toFixed(1),
+            width: bar.toFixed(1),
             height: 3,
             fill: mark[1],
             rx: 1,
@@ -378,6 +465,10 @@
         return moment(ms, data.window) + "   no calls";
       }
       const parts = [moment(at(point[0]), data.window), point[1] + " calls"];
+      const fell = rain[point[0]];
+      if (fell) {
+        parts.push(rainUnit(fell, data.rain_units) + " of rain");
+      }
       if (point[2]) {
         parts.push(point[2] + " took both pumps");
       }

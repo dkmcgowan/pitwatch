@@ -605,3 +605,90 @@ function csrfHeader(form) {
     });
   });
 })();
+
+// The address lookup on the site section.
+//
+// It fills the two coordinate boxes rather than saving anything, and it prints
+// what the geocoder matched. That is the whole reason it does not save: a
+// lookup that finds the right street in the wrong state is the failure that
+// matters, and the only way to catch it is for a person to read the answer
+// before committing to it.
+
+(function () {
+  "use strict";
+
+  const button = document.querySelector("[data-geocode]");
+  const output = document.querySelector("[data-geocode-result]");
+  const address = document.querySelector("#site_address");
+  const latitude = document.querySelector("#site_latitude");
+  const longitude = document.querySelector("#site_longitude");
+  const located = document.querySelector("[data-located]");
+  if (!button || !output || !address || !latitude || !longitude) {
+    return;
+  }
+
+  function show(text, kind) {
+    output.hidden = false;
+    output.className = "test-result " + kind;
+    output.textContent = text;
+  }
+
+  function note(text) {
+    const aside = document.createElement("p");
+    aside.className = "muted";
+    aside.textContent = text;
+    output.appendChild(aside);
+  }
+
+  button.addEventListener("click", async function () {
+    const form = button.closest("form");
+    if (!form || !address.value.trim()) {
+      show("Type an address first.", "bad");
+      return;
+    }
+    button.disabled = true;
+    show("Looking it up...", "");
+
+    try {
+      const body = new FormData();
+      body.append("site_address", address.value);
+      const response = await fetch("/api/geocode", {
+        method: "POST",
+        body: body,
+        headers: csrfHeader(form),
+      });
+      let result;
+      try {
+        result = JSON.parse(await response.text());
+      } catch (error) {
+        show(
+          response.status === 401
+            ? "Sign in first."
+            : "The server returned something unexpected (" + response.status + ").",
+          "bad"
+        );
+        return;
+      }
+      if (!result.ok) {
+        show(result.error || "Nothing found.", "bad");
+        return;
+      }
+      latitude.value = result.latitude;
+      longitude.value = result.longitude;
+      if (located) {
+        located.value = result.located || "";
+      }
+      // The matched place is the thing to read, so it is the headline rather
+      // than the coordinates: nobody can check a pair of numbers by eye.
+      show(result.located || "Found it.", "good");
+      if (result.note) {
+        note(result.note);
+      }
+      note("Not saved yet. Press Save to keep it.");
+    } catch (error) {
+      show("The request failed: " + error.message, "bad");
+    } finally {
+      button.disabled = false;
+    }
+  });
+})();

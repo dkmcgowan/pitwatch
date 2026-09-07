@@ -226,6 +226,49 @@
   </form>
 </section>
 
+{# Rain. Two boxes, because there is nothing to authenticate: Open-Meteo serves
+   NOAA's own model output with no key and no account. The real switch is
+   whether the site has coordinates, which is in the group above. #}
+<section class="card">
+  <h2>Rain</h2>
+  <form method="post" action="/settings/weather">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="grid">
+      <div class="field">
+        <label class="check">
+          <input type="checkbox" name="weather_enabled"
+                 {% if weather.enabled %}checked{% endif %}>
+          Look up the rain over the pit
+        </label>
+        <p class="hint">Asks Open-Meteo every fifteen minutes for the rain over
+          the coordinates above, past and forecast. No account and no key:
+          for the United States it serves NOAA's own model output.</p>
+      </div>
+      <div class="field">
+        <label for="weather_units">Measured in</label>
+        <select id="weather_units" name="weather_units">
+          <option value="in" {% if weather.units == 'in' %}selected{% endif %}>Inches</option>
+          <option value="mm" {% if weather.units == 'mm' %}selected{% endif %}>Millimeters</option>
+        </select>
+        <p class="hint">Stored in millimeters either way. This only decides
+          what the pages print.</p>
+      </div>
+    </div>
+
+    {% if not site.has_coordinates %}
+    <p class="hint"><strong>Nothing to look up yet.</strong> Set the address or
+      the coordinates in "This site" above and save that first.</p>
+    {% endif %}
+
+    <p class="hint">These are model numbers rather than a gauge on the roof. A
+      cell that sat over one block can be off by a lot, which is fine for the
+      question being asked of it: was it raining when the pit got busy.</p>
+
+    <button type="submit" class="button">Save</button>
+  </form>
+</section>
+
 {# What the summary page needs. The description is the half a model cannot work
    out from the readings, and the key is somebody's OpenAI account. #}
 <section class="card">

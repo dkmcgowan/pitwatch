@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from starlette.datastructures import FormData
 
+from pitwatch.ingest import weather
 from pitwatch.schemas import (
     ALERT_ORDER,
     AlertsSettings,
@@ -25,6 +26,7 @@ from pitwatch.schemas import (
     SmsSettings,
     SmtpSettings,
     SummarySettings,
+    WeatherSettings,
 )
 
 
@@ -72,10 +74,36 @@ def optional_integer(form: FormData, name: str) -> int | None:
     return int(value) if value is not None else None
 
 
+def coordinate(form: FormData, field: str, limit: float) -> float | None:
+    """A latitude or a longitude, or None when the box is empty.
+
+    None rather than zero. Zero degrees is a real place in the Gulf of Guinea,
+    and a site that quietly ends up there would be given somebody else's rain
+    rather than an error.
+    """
+    raw = text(form, field)
+    if not raw:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    if not -limit <= value <= limit:
+        return None
+    # Rounded on the way in rather than on the way out, so what is stored is
+    # what gets sent and the settings page shows the reader exactly what leaves
+    # the building.
+    return weather.rounded(value)
+
+
 def site_from(form: FormData) -> SiteSettings:
     return SiteSettings(
         name=text(form, "site_name"),
         timezone=text(form, "site_timezone", "America/New_York") or "America/New_York",
+        address=text(form, "site_address"),
+        latitude=coordinate(form, "site_latitude", 90),
+        longitude=coordinate(form, "site_longitude", 180),
+        located=text(form, "site_located"),
         base_url=text(form, "site_base_url").rstrip("/"),
         contact_email=text(form, "site_contact_email"),
         contact_phone=text(form, "site_contact_phone"),
@@ -83,6 +111,13 @@ def site_from(form: FormData) -> SiteSettings:
         operator_locality=text(form, "site_operator_locality"),
         notify_delay_s=integer(form, "notify_delay_s", 5),
         notify_cooldown_s=integer(form, "notify_cooldown_s", 900),
+    )
+
+
+def weather_from(form: FormData) -> WeatherSettings:
+    return WeatherSettings(
+        enabled=checkbox(form, "weather_enabled"),
+        units=text(form, "weather_units", "in") or "in",
     )
 
 

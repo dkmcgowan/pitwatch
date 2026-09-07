@@ -488,6 +488,207 @@
     });
   }
 
+  // -- rain -----------------------------------------------------------------
+  //
+  // The only card on this page that looks forward. Drawn as SVG rather than as
+  // divs for the same reason the history charts are: the content security
+  // policy allows no inline styles, so a bar whose height is set from script
+  // has to carry it as an attribute, and SVG geometry is attributes.
+
+  const RAIN_NS = "http://www.w3.org/2000/svg";
+
+  function rainSvg(name, attrs) {
+    const node = document.createElementNS(RAIN_NS, name);
+    Object.keys(attrs).forEach(function (key) {
+      node.setAttribute(key, attrs[key]);
+    });
+    return node;
+  }
+
+  function rainAmount(value, units) {
+    if (value === null || value === undefined) {
+      return "--";
+    }
+    return units === "mm" ? value.toFixed(1) + " mm" : value.toFixed(2) + '"';
+  }
+
+  // A ceiling that keeps a light shower from filling the strip. Without a
+  // floor, two hundredths of an inch draws the same wall of bars as an inch
+  // does, and the card would cry wolf every time it drizzled.
+  function rainTop(values, units) {
+    const floor = units === "mm" ? 2 : 0.08;
+    const highest = values.reduce(function (top, value) {
+      return Math.max(top, value || 0);
+    }, 0);
+    return Math.max(floor, highest);
+  }
+
+  function drawRainStrip(holder, rain) {
+    holder.textContent = "";
+    const hours = rain.hours || [];
+    if (!hours.length) {
+      return;
+    }
+
+    const width = Math.max(200, Math.round(holder.clientWidth));
+    const height = 54;
+    const canvas = rainSvg("svg", {
+      width: width,
+      height: height,
+      role: "img",
+      "aria-label": "Rain by the hour, a day behind and a day ahead",
+    });
+
+    const top = rainTop(
+      hours.map(function (hour) {
+        return hour[1];
+      }),
+      rain.units
+    );
+    const slot = width / hours.length;
+    const bar = Math.max(1, slot - 1);
+    const floor = height - 10;
+
+    hours.forEach(function (hour, index) {
+      const value = hour[1] || 0;
+      const ahead = hour[2];
+      const tall = Math.max(value > 0 ? 1.5 : 0, (floor * Math.min(1, value / top)));
+      if (tall > 0) {
+        canvas.appendChild(
+          rainSvg("rect", {
+            x: (index * slot).toFixed(1),
+            y: (floor - tall).toFixed(1),
+            width: bar.toFixed(1),
+            height: tall.toFixed(1),
+            // What is coming is drawn lighter than what fell. A forecast and
+            // a measurement are different kinds of claim and should not look
+            // identical on a page somebody acts on.
+            //
+            // Colored by class rather than by a fill attribute, so the palette
+            // stays in the stylesheet with the rest of it. A class attribute
+            // is not an inline style, so the content security policy is
+            // content.
+            class: ahead ? "rain-bar rain-bar-ahead" : "rain-bar",
+            rx: 1,
+          })
+        );
+      }
+    });
+
+    // Now. The one thing that makes the strip readable: without it there is no
+    // telling which half already happened.
+    const split = hours.findIndex(function (hour) {
+      return hour[2];
+    });
+    if (split > 0) {
+      const x = (split * slot).toFixed(1);
+      canvas.appendChild(
+        rainSvg("line", {
+          x1: x,
+          x2: x,
+          y1: 0,
+          y2: floor,
+          class: "rain-split",
+        })
+      );
+    }
+
+    canvas.appendChild(
+      rainSvg("line", {
+        x1: 0,
+        x2: width,
+        y1: floor,
+        y2: floor,
+        class: "rain-floor",
+      })
+    );
+
+    ["24h ago", "now", "+24h"].forEach(function (word, index) {
+      const label = rainSvg("text", {
+        x: index === 0 ? 0 : index === 1 ? width / 2 : width,
+        y: height - 1,
+        "text-anchor": index === 0 ? "start" : index === 1 ? "middle" : "end",
+        class: "chart-label",
+      });
+      label.textContent = word;
+      canvas.appendChild(label);
+    });
+
+    holder.appendChild(canvas);
+  }
+
+  function renderRain(rain) {
+    const card = document.querySelector("[data-rain]");
+    if (!card) {
+      return;
+    }
+    const empty = card.querySelector("[data-rain-empty]");
+    const strip = card.querySelector("[data-rain-strip]");
+    const state = card.querySelector("[data-rain-state]");
+    const fell = card.querySelector("[data-rain-fell]");
+    const coming = card.querySelector("[data-rain-coming]");
+    const scale = card.querySelector("[data-rain-scale]");
+    const age = card.querySelector("[data-rain-age]");
+
+    // Nothing stored is a different answer from no rain, and the card has to
+    // say which. One means the pit is dry; the other means nobody has looked.
+    const known = Boolean(rain);
+    if (empty) {
+      empty.hidden = known;
+    }
+    [strip, state, fell, coming].forEach(function (node) {
+      if (node && node.parentElement) {
+        node.parentElement.hidden = !known;
+      }
+    });
+    if (!known) {
+      return;
+    }
+
+    if (state) {
+      if (rain.now && rain.frozen) {
+        // Frozen precipitation is not in the pit yet and saying "raining"
+        // would be the one wrong word on the card.
+        state.textContent = (rain.doing || "snow") + " now, which reaches the pit when it melts";
+        state.className = "rain-state rain-on";
+      } else if (rain.now) {
+        state.textContent = (rain.doing || "raining") + " now";
+        state.className = "rain-state rain-on";
+      } else if (rain.chance !== null && rain.chance !== undefined && rain.chance >= 30) {
+        state.textContent = "dry now, " + rain.chance + "% chance in the next day";
+        state.className = "rain-state";
+      } else {
+        state.textContent = "dry";
+        state.className = "rain-state";
+      }
+    }
+
+    if (fell) {
+      fell.textContent = rainAmount(rain.last_24h, rain.units);
+    }
+    if (coming) {
+      coming.textContent = rainAmount(rain.next_24h, rain.units);
+    }
+    if (strip) {
+      drawRainStrip(strip, rain);
+    }
+    if (scale) {
+      const hours = rain.hours || [];
+      const top = rainTop(
+        hours.map(function (hour) {
+          return hour[1];
+        }),
+        rain.units
+      );
+      scale.textContent = "tallest bar " + rainAmount(top, rain.units) + " in an hour";
+    }
+    if (age) {
+      // A forecast that stopped refreshing is one to distrust, and the only
+      // way anybody can tell is if the card says when it last did.
+      age.textContent = rain.fetched_at ? "checked " + since(rain.fetched_at) : "";
+    }
+  }
+
   function renderBanner(state) {
     const banner = document.querySelector("[data-banner]");
     if (!banner) {
@@ -520,6 +721,7 @@
     renderPanel(state.panel);
     renderHistory(state.panel);
     renderLinks(state.devices);
+    renderRain(state.rain);
     renderBanner(state);
     document.body.classList.remove("stale");
   }

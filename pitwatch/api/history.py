@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 
 from pitwatch import auth, domain
 from pitwatch.domain import series
+from pitwatch.domain import weather as weather_domain
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -67,9 +68,16 @@ async def build_history(app, window: series.Window) -> dict:
     store: SettingsStore = app.state.settings
     pool = app.state.pool
     zone = store.site.timezone
+    units = store.weather.units
     now = datetime.now(UTC)
 
     calls = await series.calls_series(pool, window, zone)
+    # Rain on the same buckets and the same local midnights as the calls, so a
+    # bar of rain and a bar of calls describe the same day. This is the whole
+    # reason the weather is collected: "sixty calls on Tuesday" and "it rained
+    # on Tuesday" are one fact, and until they were on one chart nobody could
+    # see it.
+    rain = await weather_domain.rain_series(pool, window.span, window.count_bucket, zone)
     gaps = await series.call_gaps(pool, window)
     runs = await series.runs_series(pool, window)
     hours = await series.hour_profile(pool, window, zone)
@@ -97,6 +105,11 @@ async def build_history(app, window: series.Window) -> dict:
         "pumps": pumps,
         "figures": _figures(calls, gaps, runs),
         "calls": [[bucket.isoformat(), count, both, high] for bucket, count, both, high in calls],
+        "rain": [
+            [bucket.isoformat(), weather_domain.as_read(millimeters, units)]
+            for bucket, millimeters in rain
+        ],
+        "rain_units": units,
         "gaps": [[at.isoformat(), round(gap, 1), both, high] for at, gap, both, high in gaps],
         "runs": [
             [

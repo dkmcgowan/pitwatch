@@ -7,6 +7,7 @@ promise; it is the shape the pages in this repository happen to want.
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -14,6 +15,7 @@ from pydantic import ValidationError
 
 from pitwatch import auth, domain
 from pitwatch.api import forms
+from pitwatch.domain import weather as weather_domain
 from pitwatch.domain.history import (
     Closings,
     CurrentHistory,
@@ -24,6 +26,7 @@ from pitwatch.domain.history import (
 )
 from pitwatch.ingest import inputs as inputs_ingest
 from pitwatch.ingest import shelly as shelly_ingest
+from pitwatch.ingest import weather as weather_ingest
 from pitwatch.ingest.sink import LiveIo, LiveState
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
@@ -33,6 +36,12 @@ from pitwatch.settings import SettingsStore
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
+
+# How much rain either side of now the dashboard card carries. A day back
+# answers "why has it been so busy" and a day forward answers "should I look at
+# this before bed". Further either way is the history page's job.
+RAIN_BACK = timedelta(hours=24)
+RAIN_AHEAD = timedelta(hours=24)
 
 
 # What the pill reads when an input is on and when it is off.
@@ -300,8 +309,16 @@ async def build_state(app) -> dict:
     closings = await signals.closings(pool, sorted(assigned)) if signals else {}
     both_ran = await signals.both_ran(pool) if signals else None
 
+    # The rain, which on an ejector pit is the cause and everything else on
+    # this page is the effect. None when nothing has been stored, which the
+    # card draws differently from no rain: one means the pit is dry and the
+    # other means nobody has looked.
+    units = store.weather.units
+    rain = await weather_domain.read(pool, RAIN_BACK, RAIN_AHEAD)
+
     return {
         "site": store.site.model_dump(mode="json"),
+        "rain": None if rain is None else rain.as_json(units),
         "pumps": {"1": pump_state(1), "2": pump_state(2)},
         "panel": panel_state(inputs, live_io, closings, both_ran),
         # No list of inputs carrying nothing. The panel brings out eight
@@ -347,6 +364,45 @@ async def test_shelly(request: Request) -> JSONResponse:
         return JSONResponse(
             {"ok": False, "error": f"Could not reach {settings.host}: {error}"}, status_code=200
         )
+
+
+@router.post("/geocode", include_in_schema=False)
+async def geocode(request: Request, user: auth.SignedIn) -> JSONResponse:
+    """Turn the typed address into coordinates, without saving anything.
+
+    Behind a sign in for the same reason the device probes are: it makes the
+    server fetch a URL on somebody's behalf, and an unauthenticated one of
+    those is a small open proxy.
+
+    Nothing is stored here. The answer goes back to the page, the page puts it
+    in the two boxes, and saving the form is what commits it. That keeps the
+    lookup reviewable: a geocoder that finds the right street in the wrong
+    state is caught by a person reading what it matched, which cannot happen if
+    the answer is written straight to the settings.
+    """
+    form = await request.form()
+    address = forms.text(form, "site_address")
+    try:
+        place = await weather_ingest.geocode(address)
+    except weather_ingest.WeatherError as error:
+        return JSONResponse({"ok": False, "error": str(error)}, status_code=200)
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "latitude": place.latitude,
+            "longitude": place.longitude,
+            "located": place.label,
+            # Said out loud on the page rather than buried in a comment. The
+            # coordinates are rounded to about a kilometer before they are
+            # shown, and those rounded ones are what gets sent from then on.
+            "note": (
+                f"Rounded to {place.latitude}, {place.longitude}, which is about a "
+                f"kilometer. That is finer than any rainfall model in use and is "
+                f"what gets sent from now on."
+            ),
+        }
+    )
 
 
 @router.post("/test/inputs", include_in_schema=False)

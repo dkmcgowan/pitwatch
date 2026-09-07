@@ -262,6 +262,47 @@
   </div>
 </div>
 
+{# Where the pit is, which is only ever asked so the rain over it can be looked
+   up. Its own group with its own heading, because the box above it is a label
+   for alerts and this one is a location, and running them together invites
+   somebody to think the building name is being sent somewhere. #}
+<h3>Where the pit is</h3>
+
+<div class="grid">
+  <div class="field field-wide">
+    <label for="site_address">Address of the pit</label>
+    <div class="lookup-row">
+      <input type="text" id="site_address" name="site_address" value="{{ site.address }}"
+             placeholder="123 Main St, Anytown, NY" autocomplete="off">
+      <button type="button" class="button secondary" data-geocode>Look up</button>
+    </div>
+    <p class="hint">Used once, when you press the button, to turn the address
+      into a coordinate pair. Rainfall is then asked for by coordinates and
+      the address never leaves this server again.</p>
+    <div class="test-result" data-geocode-result hidden></div>
+  </div>
+  <div class="field">
+    <label for="site_latitude">Latitude</label>
+    <input type="text" id="site_latitude" name="site_latitude" inputmode="decimal"
+           value="{{ site.latitude if site.latitude is not none else '' }}"
+           placeholder="40.75" autocomplete="off">
+  </div>
+  <div class="field">
+    <label for="site_longitude">Longitude</label>
+    <input type="text" id="site_longitude" name="site_longitude" inputmode="decimal"
+           value="{{ site.longitude if site.longitude is not none else '' }}"
+           placeholder="-73.99" autocomplete="off">
+  </div>
+</div>
+
+<input type="hidden" name="site_located" value="{{ site.located }}" data-located>
+
+<p class="hint">Rounded to two decimal places, about a kilometer. Every
+  rainfall model in use is coarser than that, so the rounding costs nothing
+  that could be measured and keeps the request off the building. Fill these in
+  by hand and you never have to type an address at all.
+  {%- if site.located %} Last matched: <strong>{{ site.located }}</strong>.{% endif %}</p>
+
 {# Kept apart from the three above, because there is a second email and a
    second phone number in this application and they are for the opposite
    purpose. These two are printed on a public web page. The other two are where

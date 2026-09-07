@@ -39,6 +39,25 @@
     message, and for no other purpose.
   </p>
 
+  <h2>What goes out to look up the weather</h2>
+  <p>
+    PitWatch can show the rain over the equipment, because rain is what makes
+    an ejector pit work. To do that it sends a latitude and longitude to
+    <a href="https://open-meteo.com/" rel="noopener">Open-Meteo</a>, which
+    needs no account and is told nothing else: no address, no site name, no
+    account names, and nothing about any person.
+  </p>
+  <p>
+    Those coordinates are rounded to two decimal places, roughly a kilometer,
+    which is coarser than the building and finer than any rainfall forecast, so
+    the rounding loses nothing and the request does not point at an address.
+    If an administrator uses the address lookup on the settings page, the
+    address they typed is sent once, at that moment, to OpenStreetMap's
+    <a href="https://nominatim.openstreetmap.org/" rel="noopener">Nominatim</a>
+    geocoder to be turned into those coordinates. It is not sent again, and
+    coordinates can be entered by hand instead so that it never is.
+  </p>
+
   <h2>How long it is kept</h2>
   <p>
     Contact details are kept until somebody asks to be removed, or until the

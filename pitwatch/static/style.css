@@ -722,6 +722,88 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 
 .all-clear { color: var(--ok); font-weight: 600; margin: 0; }
 
+/* Rain, on the dashboard --------------------------------------------------- */
+
+/* Water blue, not the alarm colors. What falls on the roof is not a fault, and
+   the one confusion this card exists to prevent is between rain and what is
+   standing in the pit. */
+.rain-card .card-icon { color: var(--water); }
+
+/* What the sky is doing right now, in a sentence rather than a lamp. There is
+   no state here worth a colored bulb: rain is not a fault, it is the reason
+   for one. */
+.rain-state {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  color: var(--text-muted);
+}
+
+/* Raining now gets the water color and the weight, so the card can be read
+   from across a boiler room without reading the words. */
+.rain-on { color: var(--water); font-weight: 600; }
+
+.rain-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 2.5rem;
+  margin-bottom: 0.9rem;
+}
+
+.rain-figure { display: flex; flex-direction: column; gap: 0.1rem; }
+
+.rain-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.rain-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.rain-strip svg { display: block; width: 100%; }
+
+/* The bars, colored here rather than from script. A fill attribute would work
+   under the content security policy, which forbids inline styles and not
+   presentation attributes, but the palette belongs in one place and this is
+   it. */
+.rain-bar { fill: var(--water); }
+
+/* What is coming, drawn lighter than what fell. A forecast and a measurement
+   are different kinds of claim and should not look identical on a page
+   somebody acts on. */
+.rain-bar-ahead { fill: var(--water); opacity: 0.45; }
+
+/* Now. Without it there is no telling which half of the strip already
+   happened. */
+.rain-split {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+
+.rain-floor { stroke: var(--border); stroke-width: 1; }
+
+/* The scale and the age of the reading, at the two ends of one line. Both are
+   small print and neither is worth a line of its own. */
+.rain-foot {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.rain-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
 /* The history page --------------------------------------------------------- */
 
 /* A small quiet heading over a chart or a written summary. It names what is
@@ -1397,6 +1479,25 @@ table.steps td, table.steps th { border-bottom: none; padding: 0.15rem 0.6rem 0.
 table.steps th { font-weight: 500; }
 
 /* A test row is a label, an input and a button that belong together. */
+/* A field that wants the whole grid rather than one column of it. The address
+   box sits above the two coordinate boxes it fills in, and a street address
+   squeezed into a third of the row is a box nobody can read what they typed
+   in. */
+.field-wide { grid-column: 1 / -1; }
+
+/* The address and its Look up button on one line, the button keeping its
+   width while the box takes what is left. It wraps on a narrow screen, which
+   is the right thing: a button under the box is still a button. */
+.lookup-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.lookup-row input { flex: 1 1 16rem; min-width: 0; }
+.lookup-row .button { flex: none; }
+
 .test-row {
   border-top: 1px solid var(--border);
   padding-top: 1rem;

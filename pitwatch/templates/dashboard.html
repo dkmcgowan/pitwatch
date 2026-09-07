@@ -347,6 +347,61 @@
       <p class="note-close">Click anywhere to close</p>
     </dialog>
   </section>
+
+  {# Rain, under the floats, because it is the cause and they are the effect.
+
+     The last section on the page and the only one that looks forward. Every
+     other card says what is true now; this one also says what is coming, which
+     is the only actionable thing a pump dashboard can offer before something
+     goes wrong. #}
+  <section class="board-card rain-card" data-rain aria-label="Rain">
+    <div class="card-top">
+      <svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-rain"/></svg>
+      <h2 class="card-title">Rain</h2>
+      <button type="button" class="info-mark" data-info="rain" aria-label="What this shows">i</button>
+    </div>
+
+    <p class="rain-state" data-rain-state>&nbsp;</p>
+
+    <div class="rain-figures">
+      <div class="rain-figure">
+        <span class="rain-value" data-rain-fell>--</span>
+        <span class="rain-label">last 24 hours</span>
+      </div>
+      <div class="rain-figure">
+        <span class="rain-value" data-rain-coming>--</span>
+        <span class="rain-label">next 24 hours</span>
+      </div>
+    </div>
+
+    <div class="rain-strip" data-rain-strip></div>
+    <p class="rain-foot"><span data-rain-scale></span><span data-rain-age></span></p>
+
+    <p class="rain-empty" data-rain-empty hidden>Not set up</p>
+
+    <dialog class="note" id="note-rain">
+      <h3 class="note-title">Rain</h3>
+      <div class="hint">
+        <p>Hour by hour over the pit: a day behind and a day ahead, with the
+          line marking now. Bars to the left of it are what fell, bars to the
+          right are what is expected.</p>
+        <p>This is why an ejector pit gets busy. Groundwater rises after rain
+          and keeps rising for a day or two after it stops, so a night of calls
+          that follows a wet afternoon is the pit doing its job, and the same
+          night with a dry chart is a question.</p>
+        <p>These are model numbers rather than a gauge on the roof, from
+          Open-Meteo, which for the United States serves NOAA's own output. A
+          storm cell that sat over one block can be off by a lot. It is right
+          enough to answer "was it raining", which is what it is here for.</p>
+        <p>Snow is counted as the water it holds, not as what has reached the
+          pit. It gets there when it melts.</p>
+        <p>Saying "not set up" means there is nowhere to look yet. Put the
+          address of the pit in settings and press Look up, or type the
+          coordinates in directly, then turn the rain on.</p>
+      </div>
+      <p class="note-close">Click anywhere to close</p>
+    </dialog>
+  </section>
 </div>
 
 {% endblock %}

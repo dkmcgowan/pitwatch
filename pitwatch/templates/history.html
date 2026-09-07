@@ -43,6 +43,15 @@
     <p class="chart-readout" data-readout="calls"></p>
     <div class="chart" data-chart="calls"></div>
     <p class="chart-empty" data-empty="calls" hidden>Nothing has run in this window.</p>
+    <div class="chart-foot">
+      <div class="chart-key">
+        <span class="key-item"><svg class="key-dot" viewBox="0 0 10 10" aria-hidden="true"><rect
+              width="10" height="10" rx="2" fill="var(--accent)"/></svg><span>calls</span></span>
+        <span class="key-item"><svg class="key-dot" viewBox="0 0 10 10" aria-hidden="true"><rect
+              width="10" height="10" rx="2" fill="var(--water)" opacity="0.65"/></svg><span>rain,
+              hanging from the top</span></span>
+      </div>
+    </div>
     <dialog class="note" id="note-calls">
       <h3 class="note-title">Calls for water</h3>
       <div class="hint">
@@ -53,7 +62,14 @@
         <p>Counted from the panel's run contacts, so it is exact rather than a
           floor. A call that took both pumps, or that reached the high float,
           is marked on top of its bar.</p>
-        <p>This is the number that moves when it rains.</p>
+        <p>Rain hangs down from the top of the same chart, on its own scale,
+          which is how a stormwater chart draws it: rain and what it produced
+          share a time axis and nothing else, and hanging one from the ceiling
+          keeps the two from being read against each other. The thing to look
+          for is a deep rain bar with a tall call bar under it, and the thing
+          worth asking about is a tall call bar under a dry sky.</p>
+        <p>Groundwater lags. A wet Tuesday shows up on Tuesday and again on
+          Wednesday, and sometimes Thursday.</p>
       </div>
       <p class="note-close">Click anywhere to close</p>
     </dialog>

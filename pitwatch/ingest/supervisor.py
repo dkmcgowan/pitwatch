@@ -23,7 +23,8 @@ from pitwatch.domain.runs import RunRecorder
 from pitwatch.ingest.inputs import InputsReader
 from pitwatch.ingest.shelly import ShellyReader
 from pitwatch.ingest.sink import IoSink, LiveIo, LiveState, SampleSink, record_device_status
-from pitwatch.schemas import InputsSettings, ShellySettings
+from pitwatch.ingest.weather import WeatherReader
+from pitwatch.schemas import InputsSettings, ShellySettings, SiteSettings, WeatherSettings
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -32,6 +33,10 @@ log = logging.getLogger(__name__)
 # not drop the connection to the meter, so anything not listed here is ignored.
 SHELLY_KEYS = {ShellySettings.KEY}
 INPUT_KEYS = {InputsSettings.KEY}
+# Two keys, because the coordinates live on the site and the switch lives on
+# the weather settings. Moving the pit and turning the rain off are both
+# reasons to restart the poller.
+WEATHER_KEYS = {WeatherSettings.KEY, SiteSettings.KEY}
 
 
 class Supervisor:
@@ -71,6 +76,7 @@ class Supervisor:
             self._spawn("alerts", self._engine.run)
         await self._start_shelly()
         await self._start_inputs()
+        await self._start_weather()
 
         self._queue = self._store.subscribe()
         self._watcher = asyncio.create_task(self._watch_settings(), name="pitwatch-settings-watch")
@@ -147,6 +153,33 @@ class Supervisor:
             "Panel input ingest listening to the broker at %s:%d", settings.host, settings.port
         )
 
+    async def _start_weather(self) -> None:
+        """The rain over the pit, on a timer.
+
+        Not a device, but the same shape as one: it runs under a stop event, it
+        reports whether it is reaching anything, and it appears in
+        device_status so the dashboard can say the rain is stale rather than
+        quietly drawing an old forecast as a current one.
+        """
+        site = self._store.site
+        settings = self._store.weather
+
+        async def on_status(online: bool, error: str | None) -> None:
+            await record_device_status(self._pool, "weather", online, error)
+
+        if not settings.enabled:
+            log.info("Weather is off")
+            await record_device_status(self._pool, "weather", False, "Turned off")
+            return
+        if not site.has_coordinates:
+            log.info("Weather has nowhere to look: no coordinates for the site")
+            await record_device_status(self._pool, "weather", False, "No location set")
+            return
+
+        reader = WeatherReader(site, settings, self._pool, on_status)
+        self._spawn("weather", reader.run)
+        log.info("Weather reading for %.2f, %.2f", site.latitude, site.longitude)
+
     def _watch_the_clamps(self) -> None:
         """Tell the meter to look closely while a pump is turning.
 
@@ -218,6 +251,10 @@ class Supervisor:
                 log.info("Panel input settings changed, restarting ingest")
                 await self._kill("inputs")
                 await self._start_inputs()
+            if keys & WEATHER_KEYS:
+                log.info("Weather settings changed, restarting the poller")
+                await self._kill("weather")
+                await self._start_weather()
 
 
 async def _supervised(name: str, coro_factory, stop: asyncio.Event) -> None:

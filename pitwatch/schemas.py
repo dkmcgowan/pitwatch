@@ -783,6 +783,38 @@ class SiteSettings(BaseModel):
     # badly as it sounds.
     name: str = ""
     timezone: str = "America/New_York"
+
+    # Where the pit is, as a street address, so the rain over it can be looked
+    # up. Separate from ``name`` on purpose even though on this installation
+    # they read almost the same: ``name`` is a label chosen to be recognized at
+    # two in the morning and could reasonably be "Main Street, rear
+    # building", while this one has to be something a geocoder can find.
+    #
+    # Only ever sent to the geocoder, and only when somebody presses the button
+    # on the settings page. The recurring weather calls send the coordinates
+    # below instead, rounded.
+    address: str = ""
+    # What the geocoder made of it. Stored rather than looked up each time, so
+    # the address goes over the wire once rather than every quarter of an hour,
+    # and so that somebody who would rather not type an address at all can put
+    # coordinates straight in.
+    #
+    # Rounded to two decimal places when they are saved, which is about a
+    # kilometer. Every rainfall model in play is coarser than that, so the
+    # rounding costs nothing that could be measured and stops the request
+    # pointing at a building.
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    # What the geocoder called the place it found, kept so the settings page
+    # can show what was matched. A lookup that quietly found the right street
+    # in the wrong state is the failure worth catching, and it is only catchable
+    # by printing the answer.
+    located: str = ""
+
+    @property
+    def has_coordinates(self) -> bool:
+        return self.latitude is not None and self.longitude is not None
+
     # The address this is reachable at from outside, used to build invitation
     # links. Behind a reverse proxy the application cannot work this out for
     # itself: it sees the proxy's idea of the request, not the name somebody
@@ -849,8 +881,35 @@ class SiteSettings(BaseModel):
     notify_cooldown_s: int = Field(default=900, ge=0, le=86_400)
 
 
+class WeatherSettings(BaseModel):
+    """Rain over the pit, from Open-Meteo.
+
+    There is nothing to authenticate. Open-Meteo serves NOAA's own HRRR and GFS
+    output with no key and no sign up under ten thousand calls a day for
+    non-commercial use, and this polls four times an hour. That absence is the
+    reason it was chosen over the alternatives: every other credential in this
+    application costs a password box, a rule about never sending it back to the
+    browser, a way to clear it and a test that all three hold. This costs a
+    latitude and a longitude.
+
+    So the only settings are whether to ask at all and what unit to answer in.
+    The real switch is whether the site has coordinates: without them there is
+    nothing to ask about, and the poller says so and sleeps.
+    """
+
+    KEY: ClassVar[str] = "weather"
+
+    enabled: bool = True
+    # Inches or millimeters. Stored in millimeters either way; this decides
+    # only what the pages print. Inches by default because the people reading
+    # this one are in New York, and a tenth of an inch of rain is a sentence
+    # they already understand.
+    units: str = Field(default="in", pattern="^(in|mm)$")
+
+
 SETTING_MODELS: tuple[type[BaseModel], ...] = (
     SiteSettings,
+    WeatherSettings,
     AlertsSettings,
     ShellySettings,
     InputsSettings,

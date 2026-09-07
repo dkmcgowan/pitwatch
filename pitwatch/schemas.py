@@ -430,6 +430,158 @@ class SmsSettings(BaseModel):
     twilio_from: str = ""
 
 
+class MqttSource(BaseModel):
+    """One thing PitWatch listens to, and what to make of what it hears.
+
+    A row on the settings page rather than a section in the code. This is what
+    replaced the Shelly block and the X-408 block: those named the hardware, and
+    naming the hardware is what forced a code change every time somebody wanted
+    to use a different one. A source names the *job* instead, and the hardware
+    is a topic and a profile.
+
+    Four jobs, and they are the four things a duplex pump panel can tell you:
+    what pump 1 is drawing, what pump 2 is drawing, which contacts are closed,
+    and that something is still alive.
+    """
+
+    # What to call it on the dashboard and in a log line. Not derived from the
+    # topic: "10.136.1.52 stopped talking" is worse to read at two in the
+    # morning than "the clamps stopped talking".
+    name: str = Field(default="", max_length=60)
+    role: str = Field(default="", pattern="^(clamp1|clamp2|contacts|heartbeat|)$")
+
+    # What to subscribe to. Wildcards are the broker's, so `+` and `#` work
+    # here for a device that spreads one job over several topics.
+    topic: str = Field(default="", max_length=300)
+
+    # How to read the body, and where in it to look. See ingest/payloads.py:
+    # named profiles rather than a template language, because a template
+    # language is a second thing to get wrong, in a text box, with no way to
+    # test it except by waiting for a message.
+    profile: str = Field(default="", max_length=40)
+    path: str = Field(default="", max_length=200)
+
+    # For a device that publishes one contact per topic rather than all of them
+    # together: which of the eight inputs this topic is. Ignored by a profile
+    # that carries its own numbering.
+    channel: int | None = Field(default=None, ge=1, le=8)
+
+    # Silence longer than this and the source is reported offline.
+    #
+    # This is the liveness signal, and it is deliberately not the broker's last
+    # will. Measured on the real panel on 2026-09-07: the meter was unplugged
+    # for twenty four seconds and `online` stayed true the whole time, then
+    # published false one hundred milliseconds before it published true again.
+    # That is a session takeover at reconnect, not a death notice. A will only
+    # fires once the keepalive expires, which on that device is ninety seconds,
+    # and never at all for an outage shorter than that.
+    #
+    # Silence is the honest test, and it needs a number per source because the
+    # sources differ: the meter publishes every fourteen seconds when nothing
+    # is happening and the panel module heartbeats every sixty, both to the
+    # second. Zero means never hold silence against it.
+    expect_s: int = Field(default=0, ge=0, le=86_400)
+
+    # Asking for a reading rather than waiting for one.
+    #
+    # A meter that publishes on change says nothing while a motor runs steady,
+    # which on a twelve second run means two readings in the first three
+    # seconds and nothing after. Measured over MQTT on 2026-09-07: a round trip
+    # is about twenty four milliseconds against a one second poll, so the cost
+    # of asking is under three percent of the interval.
+    ask_topic: str = Field(default="", max_length=300)
+    ask_payload: str = Field(default="", max_length=1000)
+    # Only while a pump is turning. The panel's own run contact says when that
+    # is, so nothing polls a pit that is sitting still: a day of runs is about
+    # four minutes of asking in twenty four hours.
+    ask_while_running: bool = True
+    ask_every_s: float = Field(default=1.0, gt=0, le=3600)
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.role and self.topic and self.profile)
+
+    @property
+    def title(self) -> str:
+        return self.name or self.topic or self.role or "source"
+
+
+class MqttSettings(BaseModel):
+    """The broker, and everything PitWatch listens to on it.
+
+    One connection and one place to configure it. There were two device
+    sections before this, each with its own address, its own credentials and
+    its own idea of what being online meant, and only one of them was MQTT: the
+    meter was read over a websocket that PitWatch opened *to the device*.
+
+    That direction is the thing this changes. A pull design needs a route from
+    the application to every device, which works on a LAN and stops working the
+    moment the application moves anywhere else. Every device dialing out to one
+    broker needs one reachable address, which is the arrangement that survives
+    the application being somewhere the panel cannot see.
+    """
+
+    KEY: ClassVar[str] = "mqtt"
+
+    enabled: bool = False
+
+    # The broker. Bundled alongside this application by default, which is why
+    # the default is loopback: the devices dial in from the network and this
+    # reads from the same machine.
+    host: str = "127.0.0.1"
+    port: int = Field(default=1883, ge=1, le=65535)
+    username: str = ""
+    password: str = ""
+    encrypted: bool = False
+
+    # How this client identifies itself. Two clients sharing an id knock each
+    # other off, which is not hypothetical: it is the mechanism that published
+    # the meter's will during the outage test.
+    client_id: str = Field(default="pitwatch", min_length=1, max_length=64)
+
+    # How long a contact state has to hold before it counts as a change.
+    #
+    # Applies to every contact source. Kept at this level rather than per
+    # source because it is a statement about the panel rather than about a
+    # topic, and because a run contact and the float above it debounced
+    # differently would record a call for water that started before the pump.
+    debounce_ms: int = Field(default=0, ge=0, le=30_000)
+
+    sources: list[MqttSource] = Field(default_factory=list)
+
+    # What each of the eight inputs carries. Unchanged: which input is the
+    # high float is a fact about the wiring, not about the transport.
+    channels: list[ChannelMap] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def fill_in_every_channel(self) -> MqttSettings:
+        by_channel = {channel.channel: channel for channel in self.channels}
+        self.channels = [
+            by_channel.get(number, ChannelMap(channel=number)) for number in range(1, 9)
+        ]
+        return self
+
+    @property
+    def used_sources(self) -> list[MqttSource]:
+        return [source for source in self.sources if source.configured]
+
+    def source_for(self, role: str) -> MqttSource | None:
+        for source in self.used_sources:
+            if source.role == role:
+                return source
+        return None
+
+    @property
+    def used_channels(self) -> list[ChannelMap]:
+        return [channel for channel in self.channels if channel.used]
+
+    def channel_for(self, role: str) -> int | None:
+        for channel in self.channels:
+            if channel.role == role:
+                return channel.channel
+        return None
+
+
 class Severity(StrEnum):
     """How loud an alert is, which decides who it reaches.
 
@@ -910,6 +1062,7 @@ class WeatherSettings(BaseModel):
 SETTING_MODELS: tuple[type[BaseModel], ...] = (
     SiteSettings,
     WeatherSettings,
+    MqttSettings,
     AlertsSettings,
     ShellySettings,
     InputsSettings,

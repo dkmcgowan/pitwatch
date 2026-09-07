@@ -5,32 +5,37 @@ to. Everything above it deals in "channel 3 closed" and "pump 1 is drawing 15.4
 amps"; everything below it is a topic and some JSON somebody else chose the
 shape of.
 
-**Profiles rather than templates.** The obvious design is a path expression per
-topic, the way Home Assistant does it, and it is also the part of Home Assistant
-people complain about most: a template language is a second thing to get wrong,
-in a text box, with no way to test it except by waiting for a message. So the
-common shapes are named instead, and there is one generic profile with a dotted
-path for everything else. A dropdown that covers the case beats a language that
-covers every case and is empty by default.
+**Nothing here is named after a device.** There was a ``shelly_em1`` profile in
+the first draft of this file and it was a mistake: it named where a shape came
+from rather than what the shape is, which is the same error as having a section
+of settings called "the Shelly". It also turned out not to be a shape at all.
+All it did was try three paths in turn, because a Shelly EM channel publishes
+the same reading in three envelopes:
 
-Four profiles, and the first two are the two devices this was built against:
+===========================  ==============================
+``status/em1:0`` frame       ``current``
+an RPC reply                 ``result.current``
+an ``events/rpc`` notify     ``params.em1:0.current``
+===========================  ==============================
 
-``shelly_em1``
-    A Shelly Gen2 or Gen3 energy meter channel. ``{"id":0,"current":16.714,...}``,
-    which is what arrives on ``<prefix>/status/em1:0`` and inside the ``result``
-    of an ``EM1.GetStatus`` reply.
-``x408_inputs``
-    A ControlByWeb X-408 publishing all eight inputs in one body. Forgiving
-    about how the keys are spelled, because the body is typed into the device by
-    hand.
+Those are three settings, not three code paths. Once a source can name a reply
+topic separately from the topic it subscribes to, a dotted path reaches all of
+them and there is no vendor left in the parser.
+
+So there are three profiles, and each is a statement about shape:
+
 ``number``
-    Any JSON, with a dotted path to the value. ``power.total`` reaches into
-    nested objects, and a bare path reads a top level key. For anything that is
-    already just a number, leave the path empty.
-``on_off``
-    A single contact as its own topic, for hardware that publishes one input per
-    topic rather than all of them together. Understands the spellings people
-    actually use.
+    A number, at a dotted path. ``power.l1.amps`` reaches into nested objects
+    and an empty path takes the body itself, for a device that publishes a bare
+    number.
+``contact_map``
+    Several contacts in one body, keyed by input number. Forgiving about how
+    the keys are spelled, because a body like this is usually typed into a
+    device by hand and there are several reasonable ways to write it.
+``contact``
+    One contact, on or off, as its own topic. Understands the spellings people
+    actually use, and does not insist on JSON: a device publishing one input
+    per topic usually publishes a word.
 
 A profile returns None rather than raising when a body simply does not carry
 what was asked for. A meter that publishes a voltage-only frame is not an error,
@@ -51,14 +56,13 @@ log = logging.getLogger(__name__)
 INPUT_COUNT = 8
 
 PROFILES: tuple[tuple[str, str], ...] = (
-    ("shelly_em1", "Shelly EM channel"),
     ("number", "A number, at a path"),
-    ("x408_inputs", "X-408, all inputs in one body"),
-    ("on_off", "One contact, on or off"),
+    ("contact_map", "Several contacts in one body"),
+    ("contact", "One contact, on or off"),
 )
 
-CLAMP_PROFILES = {"shelly_em1", "number"}
-CONTACT_PROFILES = {"x408_inputs", "on_off"}
+VALUE_PROFILES = {"number"}
+CONTACT_PROFILES = {"contact_map", "contact"}
 
 
 class PayloadError(Exception):
@@ -129,48 +133,17 @@ def state_from(value: object) -> bool | None:
 # -- clamps ------------------------------------------------------------------
 
 
-def clamp_value(profile: str, payload: str, path: str = "") -> float | None:
-    """One current reading, or None when this frame does not carry one."""
-    if profile == "shelly_em1":
-        return _shelly_em1(payload)
-    if profile == "number":
-        return _as_number(_at_path(_body(payload), path))
-    raise PayloadError(f"{profile!r} does not read a clamp")
+def value(profile: str, payload: str, path: str = "") -> float | None:
+    """One number, or None when this frame does not carry one.
 
-
-def _shelly_em1(payload: str) -> float | None:
-    """A Shelly EM channel's current.
-
-    Two shapes arrive on the same wire and both are handled here rather than
-    being two profiles, because they are the same device saying the same thing.
-    A status frame is the component's own object; an RPC reply wraps it in
-    ``result``, and a notification wraps it under ``params`` keyed by component.
-
-    Current rather than power on purpose. This meter's voltage reference is its
-    own supply rather than the phase the clamps are around, so real power here
-    is not a measurement of the motor. A CT measures the conductor directly and
-    does not care, which is why current is the only figure this reads.
+    None rather than an exception for a missing path. A device that publishes
+    several frame shapes on one topic is a device working normally, and a meter
+    that sends a voltage-only frame has not failed, it has sent a frame with no
+    current in it. Raising there would fill the log with the hardware behaving.
     """
-    body = _body(payload)
-    if not isinstance(body, dict):
-        return None
-
-    # An RPC reply: {"id":1,"result":{"id":0,"current":...}}
-    inner = body.get("result")
-    if isinstance(inner, dict) and "current" in inner:
-        return _as_number(inner.get("current"))
-
-    # A NotifyStatus frame: {"params":{"em1:0":{"current":...}}}
-    params = body.get("params")
-    if isinstance(params, dict):
-        for key, value in params.items():
-            if key.startswith("em1:") and isinstance(value, dict) and "current" in value:
-                return _as_number(value.get("current"))
-
-    # A plain status frame, which is what <prefix>/status/em1:0 carries.
-    if "current" in body:
-        return _as_number(body.get("current"))
-    return None
+    if profile not in VALUE_PROFILES:
+        raise PayloadError(f"{profile!r} does not read a number")
+    return _as_number(_at_path(_body(payload), path))
 
 
 # -- contacts ----------------------------------------------------------------
@@ -184,9 +157,9 @@ def contact_states(profile: str, payload: str, path: str = "") -> dict[int, bool
     eight together or one per topic. The caller supplies the channel number for
     a single contact topic, so this returns it under 1 and the caller renumbers.
     """
-    if profile == "x408_inputs":
-        return _x408(payload)
-    if profile == "on_off":
+    if profile == "contact_map":
+        return _contact_map(payload)
+    if profile == "contact":
         state = state_from(_at_path(_body(payload), path) if path else _raw(payload))
         return {} if state is None else {1: state}
     raise PayloadError(f"{profile!r} does not read contacts")
@@ -206,18 +179,19 @@ def _raw(payload: str) -> object:
 
 
 # A key that is plainly an input: a bare number, or one of the shapes somebody
-# writes when naming eight of them. The X-408's own token for an input is
-# ${digitalInput1}, so that spelling is the likely one.
+# writes when naming eight of them. One module in use spells its own token
+# ${digitalInput1}, which is why that shape is here; it is not the only one.
 _INPUT_KEY = re.compile(r"^(?:digital[\s_-]*input|input|di|in|channel|ch)?[\s_-]*(\d+)$")
 _TRAILING_NUMBER = re.compile(r"(\d+)\s*$")
 
 
-def _x408(payload: str) -> dict[int, bool]:
-    """All eight inputs out of one published body.
+def _contact_map(payload: str) -> dict[int, bool]:
+    """Every contact in one published body, keyed by input number.
 
-    Forgiving about shape, because the body is typed into the device by hand and
-    there are several reasonable ways to write it. What is not forgiven is a key
-    nobody can map to an input, which is dropped rather than guessed at.
+    Forgiving about shape, because a body like this is usually typed into a
+    device by hand and there are several reasonable ways to write it. What is
+    not forgiven is a key nobody can map to an input, which is dropped rather
+    than guessed at.
     """
     body = _body(payload)
     if not isinstance(body, dict):
@@ -236,7 +210,7 @@ def _x408(payload: str) -> dict[int, bool]:
 def _channels_in(body: dict) -> dict[int, object]:
     """Which entries in a body are inputs, and which input each one is.
 
-    Two passes, and the second is the interesting one. The device offers tokens
+    Two passes, and the second is the interesting one. A module offers tokens
     for things that are not inputs and some of them end in a digit:
     ``${register1}``, ``${relay1}``. Reading digits out of every key would file
     a register under input 1 and there would be nothing to notice it by. So a
@@ -265,12 +239,12 @@ def _channels_in(body: dict) -> dict[int, object]:
 
 
 __all__ = [
-    "CLAMP_PROFILES",
     "CONTACT_PROFILES",
     "INPUT_COUNT",
     "PROFILES",
+    "VALUE_PROFILES",
     "PayloadError",
-    "clamp_value",
     "contact_states",
     "state_from",
+    "value",
 ]

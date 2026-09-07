@@ -484,22 +484,53 @@ class MqttSource(BaseModel):
 
     # Asking for a reading rather than waiting for one.
     #
-    # A meter that publishes on change says nothing while a motor runs steady,
-    # which on a twelve second run means two readings in the first three
-    # seconds and nothing after. Measured over MQTT on 2026-09-07: a round trip
-    # is about twenty four milliseconds against a one second poll, so the cost
-    # of asking is under three percent of the interval.
+    # Entirely optional, and off unless a topic is set. Plenty of hardware has
+    # nothing to ask: a contact module publishes when a contact moves and there
+    # is no question to put to it in between. Only a device that goes quiet
+    # while something is still happening needs this.
+    #
+    # A meter is exactly that device. It publishes on change, so a motor
+    # running steady produces nothing, which on the real pit meant two readings
+    # in the first three seconds of a twelve second run and silence after.
+    # Measured over MQTT on 2026-09-07: the round trip is about twenty four
+    # milliseconds against a one second poll, so asking costs under three
+    # percent of the interval.
     ask_topic: str = Field(default="", max_length=300)
     ask_payload: str = Field(default="", max_length=1000)
+    # Where the answer comes back, which is usually not the topic it is
+    # subscribed to. This is what let the last device specific code go: a meter
+    # publishes the same reading in three envelopes on three topics, and once
+    # the reply has its own topic and its own path, a dotted path reaches all
+    # of them and there is nothing left to special case.
+    #
+    # Empty means the answer arrives on the ordinary topic, which is how a
+    # device that simply republishes on request behaves.
+    reply_topic: str = Field(default="", max_length=300)
+    reply_path: str = Field(default="", max_length=200)
+
     # Only while a pump is turning. The panel's own run contact says when that
     # is, so nothing polls a pit that is sitting still: a day of runs is about
     # four minutes of asking in twenty four hours.
-    ask_while_running: bool = True
+    ask_while_running: bool = False
     ask_every_s: float = Field(default=1.0, gt=0, le=3600)
 
     @property
     def configured(self) -> bool:
         return bool(self.role and self.topic and self.profile)
+
+    @property
+    def asks(self) -> bool:
+        """Whether this source is ever spoken to, rather than only listened to."""
+        return bool(self.ask_topic and self.ask_payload)
+
+    @property
+    def answers_on(self) -> str:
+        """The topic a reply arrives on, which defaults to the ordinary one."""
+        return self.reply_topic or self.topic
+
+    @property
+    def answer_path(self) -> str:
+        return self.reply_path or self.path
 
     @property
     def title(self) -> str:

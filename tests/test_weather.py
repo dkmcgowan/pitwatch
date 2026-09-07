@@ -92,6 +92,11 @@ def test_a_refusal_that_is_not_json_still_says_something():
 # -- the coordinates ---------------------------------------------------------
 
 
+# The coordinates throughout this file are the Empire State Building, on
+# purpose. A worked example in a public repository should be somewhere anybody
+# can point at rather than somewhere somebody lives.
+
+
 def test_coordinates_are_rounded_before_they_go_anywhere():
     """Two places is about a kilometer, and the finest rainfall grid in use is
     three. So the rounding costs nothing that could be measured, and it stops

@@ -1,26 +1,29 @@
 """Sending a text message.
 
-Two providers, and they are not equivalent.
+Two providers, and the choice between them is mostly about paperwork.
 
-**Amazon SNS** publishes directly to a phone number. It is the one to use, and
-the thing to know before choosing it is that sending to a US number is not a
-sign-up-and-go affair: a new account sits in the SMS sandbox and can only reach
-numbers it has verified, and reaching US numbers at all requires an origination
-identity, meaning a registered 10DLC, a registered toll-free number, or a short
-code. That is a regulatory requirement on US A2P messaging rather than anything
-particular to AWS, and every other provider has the same one. The errors AWS
-returns for it are unhelpfully worded, so they are translated below.
+Either way, reaching a US number is not a sign-up-and-go affair. A registered
+origination identity is required, meaning a 10DLC campaign, a toll-free number
+or a short code, and the registration takes days and is reviewed by a human.
+That is a rule about US A2P messaging rather than anything either vendor
+invented, and there is no provider that does not have it.
 
-**A carrier email gateway** sends a short email to an address like
-5551234567@vtext.com and lets the carrier turn it into a text. It costs nothing
-and needs no registration. It is also unauthenticated, best effort, delivered
-whenever the carrier feels like it, and being quietly withdrawn by most US
-carriers. It is here because it is genuinely useful for a second, redundant path
-to a phone, and it should not be anybody's only flood alarm.
+**Twilio** is the default and the one being registered for here. Its API is a
+form post, its errors say what is wrong in a sentence, and its console shows a
+delivery receipt per message, which matters when the question is "did the alarm
+actually arrive".
+
+**Amazon SNS** publishes to a number the same way and is kept because it is
+already wired and already works. Its errors are worded unhelpfully enough that
+they are translated below.
+
+A carrier email gateway was a third option and was removed. See SmsSettings for
+why.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import UTC, datetime
@@ -28,9 +31,8 @@ from urllib.parse import quote, urlencode
 
 import httpx2
 
-from pitwatch.notify import email as email_sender
 from pitwatch.notify.sigv4 import authorization_header
-from pitwatch.schemas import SmsSettings, SmtpSettings
+from pitwatch.schemas import SmsSettings
 
 log = logging.getLogger(__name__)
 
@@ -159,27 +161,77 @@ async def send_via_sns(settings: SmsSettings, to: str, message: str) -> None:
     log.info("Sent a text to %s through SNS", number)
 
 
-async def send_via_gateway(
-    settings: SmsSettings, smtp: SmtpSettings, to: str, message: str
-) -> None:
-    if not settings.gateway_domain:
-        raise SmsError("No carrier gateway domain is configured, for example vtext.com")
-    digits = re.sub(r"\D", "", to)
-    if len(digits) < 10:
-        raise SmsError(f"{to!r} does not have enough digits to be a phone number")
+async def send_via_twilio(settings: SmsSettings, to: str, message: str) -> None:
+    """Twilio's REST API, which is one form post and basic auth.
 
-    address = f"{digits[-10:]}@{settings.gateway_domain.lstrip('@')}"
+    No SDK. The whole call is an account SID, a token, three form fields and a
+    URL, and a dependency that has to be kept current for the rest of the
+    project's life is a poor trade for the four lines it would save.
+
+    A messaging service is preferred over a bare number wherever one is set.
+    That is what an A2P 10DLC registration is actually attached to, and sending
+    from the number directly afterwards is unregistered traffic down a road
+    that was registered.
+    """
+    if not settings.twilio_account_sid or not settings.twilio_auth_token:
+        raise SmsError("No Twilio account SID and token are configured")
+    if not settings.twilio_messaging_service_sid and not settings.twilio_from:
+        raise SmsError("Set a Twilio messaging service SID or a from number")
+
+    number = normalize(to)
+    if not looks_like_a_number(number):
+        raise SmsError(f"{to!r} does not look like a phone number. Use +1 and ten digits.")
+
+    fields = {"To": number, "Body": message}
+    if settings.twilio_messaging_service_sid:
+        fields["MessagingServiceSid"] = settings.twilio_messaging_service_sid
+    else:
+        fields["From"] = normalize(settings.twilio_from)
+
+    url = (
+        "https://api.twilio.com/2010-04-01/Accounts/"
+        f"{quote(settings.twilio_account_sid)}/Messages.json"
+    )
     try:
-        # No subject. Carriers prepend it to the body, so it arrives as noise.
-        await email_sender.send(smtp, address, "", message)
-    except email_sender.EmailError as error:
-        raise SmsError(f"The gateway send failed: {error}") from error
+        async with httpx2.AsyncClient(timeout=TIMEOUT_S) as client:
+            response = await client.post(
+                url,
+                data=fields,
+                auth=(settings.twilio_account_sid, settings.twilio_auth_token),
+            )
+    except httpx2.HTTPError as error:
+        raise SmsError(f"Could not reach Twilio: {error}") from error
+
+    if response.status_code >= 400:
+        raise SmsError(_twilio_error(response.status_code, response.text))
+
+    log.info("Sent a text to %s through Twilio", number)
 
 
-async def send(settings: SmsSettings, smtp: SmtpSettings, to: str, message: str) -> None:
-    if settings.provider == "sns":
+def _twilio_error(status: int, body: str) -> str:
+    """Twilio's own words where it gives them, which are unusually good.
+
+    It answers JSON with a numeric code, a sentence and a documentation link.
+    Reaching past that to say "SMS failed with 400" would be throwing away the
+    one part of this that tells somebody what to fix.
+    """
+    message, code = None, None
+    try:
+        problem = json.loads(body)
+    except ValueError:
+        problem = None
+    if isinstance(problem, dict):
+        message = problem.get("message")
+        code = problem.get("code")
+    if message:
+        return f"Twilio refused it ({code}): {message}" if code else f"Twilio refused it: {message}"
+    return f"Twilio refused it with HTTP {status}: {body[:200]}"
+
+
+async def send(settings: SmsSettings, to: str, message: str) -> None:
+    if settings.provider == "twilio":
+        await send_via_twilio(settings, to, message)
+    elif settings.provider == "sns":
         await send_via_sns(settings, to, message)
-    elif settings.provider == "email_gateway":
-        await send_via_gateway(settings, smtp, to, message)
     else:  # pragma: no cover -- the model restricts this
         raise SmsError(f"Unknown SMS provider {settings.provider!r}")

@@ -448,7 +448,6 @@ async def test_sms(request: Request, user: auth.SignedIn) -> JSONResponse:
         # without warning, and this one only has to prove delivery.
         await sms_sender.send(
             settings,
-            store.smtp,
             to,
             f"PitWatch test{f' from {site.where}' if site.where else ''}. "
             "Alerts will reach this number.",

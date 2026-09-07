@@ -380,11 +380,16 @@ class SmsSettings(BaseModel):
     KEY: ClassVar[str] = "sms"
 
     enabled: bool = False
-    # 'sns' publishes to Amazon SNS. 'email_gateway' sends a short email to a
-    # carrier address such as 5551234567@vtext.com, which costs nothing, needs
-    # no registration, and is delivered at the carrier's convenience. Which is
-    # right depends on whether a delayed flood alarm is acceptable.
-    provider: str = Field(default="sns", pattern="^(sns|email_gateway)$")
+    # Where the message actually goes.
+    #
+    # The carrier email gateway was the third option and is gone. It sent a
+    # short email to an address like 5551234567@vtext.com, which costs nothing
+    # and needs no registration, and is delivered entirely at the carrier's
+    # convenience: minutes, hours, or never, with no delivery receipt and no
+    # way to tell the difference. That is an acceptable trade for a reminder
+    # and not for a flood alarm, and leaving it on the page invited somebody to
+    # pick it because it was the one with no paperwork.
+    provider: str = Field(default="twilio", pattern="^(twilio|sns)$")
 
     # An IAM access key with permission to call sns:Publish, and nothing else.
     aws_region: str = "us-east-1"
@@ -398,8 +403,19 @@ class SmsSettings(BaseModel):
     # the US and Canada, where an origination number is required instead.
     sender_id: str = ""
 
-    # Only used by email_gateway, for example "vtext.com".
-    gateway_domain: str = ""
+    # Twilio.
+    #
+    # The account SID and token are the whole credential, so the token is
+    # written like a password and never sent back to the browser.
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    # One of these, and the messaging service wins where both are set. A
+    # registered campaign is attached to a messaging service rather than to a
+    # number, which is what A2P 10DLC approval actually gives you, and sending
+    # from the bare number afterwards would be sending unregistered traffic
+    # down the road that was registered.
+    twilio_messaging_service_sid: str = ""
+    twilio_from: str = ""
 
 
 class Severity(StrEnum):

@@ -233,22 +233,39 @@ def summary_from(form: FormData, existing: SummarySettings) -> SummarySettings:
     )
 
 
-def sms_from(form: FormData, existing: SmsSettings) -> SmsSettings:
-    # Same rule as every other secret: never rendered back to the browser, so an
-    # empty box means leave it alone and there is a checkbox for clearing it.
-    secret = text(form, "sms_aws_secret_access_key")
-    if checkbox(form, "sms_clear_secret"):
-        secret = ""
-    elif not secret:
-        secret = existing.aws_secret_access_key
+def _kept_secret(form: FormData, field: str, clear_field: str, existing: str) -> str:
+    """Same rule as every other secret: never rendered back to the browser, so
+    an empty box means leave it alone and there is a checkbox for clearing it.
 
+    Without the checkbox there is no way to remove one at all, since the empty
+    box that would say so is also what an untouched box looks like."""
+    typed = text(form, field)
+    if checkbox(form, clear_field):
+        return ""
+    return typed or existing
+
+
+def sms_from(form: FormData, existing: SmsSettings) -> SmsSettings:
     return SmsSettings(
         enabled=checkbox(form, "sms_enabled"),
-        provider=text(form, "sms_provider", "sns") or "sns",
+        provider=text(form, "sms_provider", "twilio") or "twilio",
         aws_region=text(form, "sms_aws_region", "us-east-1") or "us-east-1",
         aws_access_key_id=text(form, "sms_aws_access_key_id"),
-        aws_secret_access_key=secret,
+        aws_secret_access_key=_kept_secret(
+            form,
+            "sms_aws_secret_access_key",
+            "sms_clear_secret",
+            existing.aws_secret_access_key,
+        ),
         origination_number=text(form, "sms_origination_number"),
         sender_id=text(form, "sms_sender_id"),
-        gateway_domain=text(form, "sms_gateway_domain"),
+        twilio_account_sid=text(form, "sms_twilio_account_sid"),
+        twilio_auth_token=_kept_secret(
+            form,
+            "sms_twilio_auth_token",
+            "sms_clear_twilio_token",
+            existing.twilio_auth_token,
+        ),
+        twilio_messaging_service_sid=text(form, "sms_twilio_messaging_service_sid"),
+        twilio_from=text(form, "sms_twilio_from"),
     )

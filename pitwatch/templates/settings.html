@@ -118,9 +118,11 @@
     <div class="field">
       <label for="sms_provider">Through</label>
       <select id="sms_provider" name="sms_provider">
+        <option value="twilio" {% if sms.provider == 'twilio' %}selected{% endif %}>Twilio</option>
         <option value="sns" {% if sms.provider == 'sns' %}selected{% endif %}>Amazon SNS</option>
-        <option value="email_gateway" {% if sms.provider == 'email_gateway' %}selected{% endif %}>The carrier's email gateway</option>
       </select>
+      <p class="hint">Either one needs a registered origination identity before
+        it can text a US number. That is the law rather than the vendor.</p>
     </div>
 
     <div class="grid" data-sms-provider="sns">
@@ -163,14 +165,39 @@
       </div>
     </div>
 
-    <div class="grid" data-sms-provider="email_gateway">
+    <div class="grid" data-sms-provider="twilio">
       <div class="field">
-        <label for="sms_gateway_domain">Gateway domain</label>
-        <input type="text" id="sms_gateway_domain" name="sms_gateway_domain"
-               value="{{ sms.gateway_domain }}" placeholder="vtext.com">
-        <p class="hint">Verizon is <code>vtext.com</code>, AT&amp;T is
-          <code>txt.att.net</code>, T-Mobile <code>tmomail.net</code>. Sends
-          through the email settings above, so those have to work first.</p>
+        <label for="sms_twilio_account_sid">Account SID</label>
+        <input type="text" id="sms_twilio_account_sid" name="sms_twilio_account_sid"
+               value="{{ sms.twilio_account_sid }}" placeholder="AC..." autocomplete="off">
+        <p class="hint">From the Twilio console home page.</p>
+      </div>
+      <div class="field">
+        <label for="sms_twilio_auth_token">Auth token</label>
+        <input type="password" id="sms_twilio_auth_token" name="sms_twilio_auth_token"
+               autocomplete="new-password"
+               placeholder="{% if sms.twilio_auth_token %}unchanged{% else %}none set{% endif %}">
+        {% if sms.twilio_auth_token %}
+        <label class="hint">
+          <input type="checkbox" name="sms_clear_twilio_token"> Clear the stored token
+        </label>
+        {% endif %}
+      </div>
+      <div class="field">
+        <label for="sms_twilio_messaging_service_sid">Messaging service SID</label>
+        <input type="text" id="sms_twilio_messaging_service_sid"
+               name="sms_twilio_messaging_service_sid"
+               value="{{ sms.twilio_messaging_service_sid }}" placeholder="MG..."
+               autocomplete="off">
+        <p class="hint">Preferred. An approved A2P campaign is attached to a
+          messaging service, so sending through it is what keeps the traffic
+          registered.</p>
+      </div>
+      <div class="field">
+        <label for="sms_twilio_from">From number</label>
+        <input type="tel" id="sms_twilio_from" name="sms_twilio_from"
+               value="{{ sms.twilio_from }}" placeholder="+18885550142">
+        <p class="hint">Used only when no messaging service is set.</p>
       </div>
     </div>
 

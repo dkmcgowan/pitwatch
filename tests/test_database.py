@@ -351,15 +351,22 @@ async def test_counting_runs_from_the_clamp_readings(pool):
     rows = []
     # Three runs, shaped the way the real readings are: a high first sample, a
     # steady one some unpredictable time later, then nothing.
-    for minutes, gap in ((90, 2), (45, 200), (5, 60)):
-        start = now - timedelta(minutes=minutes)
+    #
+    # Packed into the last two minutes rather than the last two hours, because
+    # the count under test is the count since midnight and these have to be on
+    # the same side of it as now(). Spread over hours it failed for the first
+    # ninety minutes of every UTC day, which is a test that reports the hour it
+    # ran at rather than whether the counting works.
+    for seconds, gap in ((90, 2), (45, 20), (5, 1)):
+        start = now - timedelta(seconds=seconds)
         rows.append((start - timedelta(seconds=15), 0, 0.0))
         rows.append((start, 0, 16.4))
         rows.append((start + timedelta(seconds=gap), 0, 15.2))
-        rows.append((start + timedelta(seconds=gap + 3), 0, 0.0))
-    # And a day of sitting still, which must not count as anything.
+        rows.append((start + timedelta(seconds=gap + 1), 0, 0.0))
+    # And a long spell of sitting still before them, which must not count as
+    # anything.
     for index in range(40):
-        rows.append((now - timedelta(hours=20, seconds=index * 15), 0, 0.0))
+        rows.append((now - timedelta(minutes=30, seconds=index * 15), 0, 0.0))
 
     await pool.executemany("INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)", rows)
 

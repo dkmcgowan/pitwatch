@@ -258,7 +258,7 @@ class AlertEngine:
                 site = self._store.site.where or "PitWatch"
                 await email_sender.send(self._store.smtp, to, f"PitWatch: {site}", message)
             else:
-                await sms_sender.send(self._store.sms, self._store.smtp, to, message)
+                await sms_sender.send(self._store.sms, to, message)
         except Exception as error:  # noqa: BLE001 -- one bad address must not stop the rest
             log.error("Could not send %s to %s: %s", channel, to, error)
             await self._pool.execute(

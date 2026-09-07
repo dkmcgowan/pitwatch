@@ -75,7 +75,7 @@ def sent(monkeypatch):
         posted.append(("email", to, body))
         return "queued"
 
-    async def fake_sms(sms_settings, smtp_settings, to, message):
+    async def fake_sms(sms_settings, to, message):
         posted.append(("sms", to, message))
 
     monkeypatch.setattr("pitwatch.domain.engine.email_sender.send", fake_email)

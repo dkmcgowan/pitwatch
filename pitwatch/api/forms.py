@@ -260,6 +260,7 @@ def sms_from(form: FormData, existing: SmsSettings) -> SmsSettings:
         origination_number=text(form, "sms_origination_number"),
         sender_id=text(form, "sms_sender_id"),
         twilio_account_sid=text(form, "sms_twilio_account_sid"),
+        twilio_key_sid=text(form, "sms_twilio_key_sid"),
         twilio_auth_token=_kept_secret(
             form,
             "sms_twilio_auth_token",

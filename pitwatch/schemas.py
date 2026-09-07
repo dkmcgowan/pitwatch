@@ -405,10 +405,22 @@ class SmsSettings(BaseModel):
 
     # Twilio.
     #
-    # The account SID and token are the whole credential, so the token is
-    # written like a password and never sent back to the browser.
+    # The account SID is not a credential. It names the account in the URL
+    # every request is sent to, so it is required whichever way the request is
+    # signed, and it is the one Twilio identifier that is safe on screen.
     twilio_account_sid: str = ""
+    # The secret half, written like a password and never sent back to the
+    # browser. It is the account's own auth token when no API key is set, and
+    # the API key's secret when one is.
     twilio_auth_token: str = ""
+    # An API key, which is what Twilio recommends over the account auth token
+    # and for good reason: it can be revoked on its own, so a leaked one costs
+    # a rotation rather than a locked account, and revoking it cannot take the
+    # console down with it. When this is set it becomes the user half of the
+    # basic auth pair and the account SID stays in the URL, which is the part
+    # that catches people out: an API key SID is not a replacement for the
+    # account SID, it is a second thing alongside it.
+    twilio_key_sid: str = ""
     # One of these, and the messaging service wins where both are set. A
     # registered campaign is attached to a messaging service rather than to a
     # number, which is what A2P 10DLC approval actually gives you, and sending

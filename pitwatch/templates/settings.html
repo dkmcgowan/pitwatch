@@ -170,13 +170,25 @@
         <label for="sms_twilio_account_sid">Account SID</label>
         <input type="text" id="sms_twilio_account_sid" name="sms_twilio_account_sid"
                value="{{ sms.twilio_account_sid }}" placeholder="AC..." autocomplete="off">
-        <p class="hint">From the Twilio console home page.</p>
+        <p class="hint">From the Twilio console home page. Always needed, even
+          when signing with an API key: it names the account rather than
+          proving anything.</p>
       </div>
       <div class="field">
-        <label for="sms_twilio_auth_token">Auth token</label>
+        <label for="sms_twilio_key_sid">API key SID</label>
+        <input type="text" id="sms_twilio_key_sid" name="sms_twilio_key_sid"
+               value="{{ sms.twilio_key_sid }}" placeholder="SK..." autocomplete="off">
+        <p class="hint">Optional and recommended. An API key can be revoked on
+          its own, so a leaked one costs a rotation instead of the whole
+          account. Leave it empty to sign with the account's auth token.</p>
+      </div>
+      <div class="field">
+        <label for="sms_twilio_auth_token">Auth token or key secret</label>
         <input type="password" id="sms_twilio_auth_token" name="sms_twilio_auth_token"
                autocomplete="new-password"
                placeholder="{% if sms.twilio_auth_token %}unchanged{% else %}none set{% endif %}">
+        <p class="hint">The account's auth token, or the key's secret when an
+          API key SID is set above. Twilio shows a key secret once.</p>
         {% if sms.twilio_auth_token %}
         <label class="hint">
           <input type="checkbox" name="sms_clear_twilio_token"> Clear the stored token

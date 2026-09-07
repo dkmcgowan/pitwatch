@@ -164,9 +164,20 @@ async def send_via_sns(settings: SmsSettings, to: str, message: str) -> None:
 async def send_via_twilio(settings: SmsSettings, to: str, message: str) -> None:
     """Twilio's REST API, which is one form post and basic auth.
 
-    No SDK. The whole call is an account SID, a token, three form fields and a
+    No SDK. The whole call is an account SID, a secret, three form fields and a
     URL, and a dependency that has to be kept current for the rest of the
     project's life is a poor trade for the four lines it would save.
+
+    Two ways to sign it, and the account SID is in the URL either way:
+
+    - The account SID and its own auth token as the basic auth pair.
+    - An API key SID and its secret as the pair, with the account SID still
+      naming the account in the URL. This is what Twilio recommends, because a
+      key can be revoked by itself.
+
+    The account SID is therefore always required. Putting an API key SID in its
+    place builds a URL for an account that does not exist, which Twilio answers
+    with a 404 that says nothing useful, so that mistake is caught here.
 
     A messaging service is preferred over a bare number wherever one is set.
     That is what an A2P 10DLC registration is actually attached to, and sending
@@ -175,6 +186,12 @@ async def send_via_twilio(settings: SmsSettings, to: str, message: str) -> None:
     """
     if not settings.twilio_account_sid or not settings.twilio_auth_token:
         raise SmsError("No Twilio account SID and token are configured")
+    if settings.twilio_account_sid.startswith("SK"):
+        raise SmsError(
+            "That is an API key SID in the account SID box. An API key does not "
+            "replace the account SID: put the key SID in its own box, its secret "
+            "in the token box, and the account SID that starts with AC here."
+        )
     if not settings.twilio_messaging_service_sid and not settings.twilio_from:
         raise SmsError("Set a Twilio messaging service SID or a from number")
 
@@ -192,12 +209,15 @@ async def send_via_twilio(settings: SmsSettings, to: str, message: str) -> None:
         "https://api.twilio.com/2010-04-01/Accounts/"
         f"{quote(settings.twilio_account_sid)}/Messages.json"
     )
+    # The key signs for the account rather than instead of it, so only the user
+    # half of the pair changes.
+    user = settings.twilio_key_sid or settings.twilio_account_sid
     try:
         async with httpx2.AsyncClient(timeout=TIMEOUT_S) as client:
             response = await client.post(
                 url,
                 data=fields,
-                auth=(settings.twilio_account_sid, settings.twilio_auth_token),
+                auth=(user, settings.twilio_auth_token),
             )
     except httpx2.HTTPError as error:
         raise SmsError(f"Could not reach Twilio: {error}") from error

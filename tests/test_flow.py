@@ -284,6 +284,64 @@ def test_a_stored_password_is_never_sent_to_the_browser(client):
     assert "unchanged" in page
 
 
+def test_a_twilio_api_key_is_saved_alongside_the_account_sid(client):
+    """Twilio recommends an API key over the account auth token, and the way to
+    read that recommendation wrongly is to paste the key SID over the account
+    SID. They are two separate boxes because they do two separate jobs: the
+    account SID names the account in the URL and the key signs the request."""
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    client.post(
+        "/settings/sms",
+        data={
+            "sms_enabled": "on",
+            "sms_provider": "twilio",
+            "sms_twilio_account_sid": "AC0123456789",
+            "sms_twilio_key_sid": "SK5555555555",
+            "sms_twilio_auth_token": "the-key-secret",
+            "sms_twilio_messaging_service_sid": "MG9876",
+        },
+    )
+
+    sms = client.app.state.settings.sms
+    assert sms.twilio_account_sid == "AC0123456789"
+    assert sms.twilio_key_sid == "SK5555555555"
+    assert sms.twilio_auth_token == "the-key-secret"
+
+    # The key SID comes back on the page, because it is not a secret and
+    # somebody has to be able to tell which key is in use. The secret does not.
+    page = client.get("/settings").text
+    assert "SK5555555555" in page
+    assert "the-key-secret" not in page
+
+
+def test_the_twilio_secret_is_kept_when_the_box_is_left_empty(client):
+    """Same rule as SMTP and the Shelly. Saving the SMS section to add a key
+    SID must not quietly wipe the secret and leave the alarm unable to send."""
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+    client.post(
+        "/settings/sms",
+        data={
+            "sms_provider": "twilio",
+            "sms_twilio_account_sid": "AC0123456789",
+            "sms_twilio_auth_token": "the-key-secret",
+        },
+    )
+
+    client.post(
+        "/settings/sms",
+        data={
+            "sms_provider": "twilio",
+            "sms_twilio_account_sid": "AC0123456789",
+            "sms_twilio_key_sid": "SK5555555555",
+        },
+    )
+
+    assert client.app.state.settings.sms.twilio_auth_token == "the-key-secret"
+
+
 def test_the_shelly_password_is_kept_when_the_box_is_left_empty(client):
     """Same rule as SMTP, and easier to get wrong because it is a device.
 

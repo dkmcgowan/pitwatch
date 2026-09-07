@@ -215,6 +215,36 @@ async def test_the_account_sid_is_in_the_url_and_the_token_never_is(twilio_post)
     assert twilio_post.posted["auth"] == ("AC0123456789", "a-token")
 
 
+async def test_an_api_key_signs_for_the_account_rather_than_instead_of_it(twilio_post):
+    """Twilio recommends an API key over the account auth token, and a key is a
+    second thing alongside the account SID rather than a replacement for it.
+    The key signs the request; the account SID still names the account the
+    request is sent to."""
+    settings = _twilio(
+        twilio_key_sid="SK5555555555",
+        twilio_auth_token="the-key-secret",
+        twilio_from="+18885550142",
+    )
+
+    await sms_sender.send_via_twilio(settings, "+12125550142", "hi")
+
+    assert twilio_post.posted["url"].endswith("/Accounts/AC0123456789/Messages.json")
+    assert twilio_post.posted["auth"] == ("SK5555555555", "the-key-secret")
+
+
+async def test_an_api_key_sid_in_the_account_box_is_caught_here(twilio_post):
+    """The obvious way to read "use an API key instead" is to paste the key SID
+    over the account SID, which builds a URL for an account that does not exist.
+    Twilio answers that with a 404 and no useful words, so it is worth a
+    sentence before the request is made."""
+    settings = _twilio(twilio_account_sid="SK5555555555", twilio_from="+18885550142")
+
+    with pytest.raises(sms_sender.SmsError, match="does not replace the account SID"):
+        await sms_sender.send_via_twilio(settings, "+12125550142", "hi")
+
+    assert twilio_post.posted == {}, "and nothing was sent"
+
+
 async def test_a_refusal_from_twilio_is_raised_with_its_own_words(twilio_post):
     async def refuse(self, url, data=None, auth=None):
         return _FakeResponse(

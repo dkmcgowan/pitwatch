@@ -99,6 +99,9 @@ async def build_history(app, window: series.Window) -> dict:
     return {
         "window": window.key,
         "title": window.title,
+        "heading": window.heading,
+        "over": window.over,
+        "within": window.within,
         "from": (now - window.span).isoformat(),
         "to": now.isoformat(),
         "count_bucket": _seconds(window.count_bucket),
@@ -132,8 +135,8 @@ async def build_history(app, window: series.Window) -> dict:
 
 @router.get("/history", include_in_schema=False)
 async def history(request: Request, user: auth.SignedIn, window: str | None = None) -> JSONResponse:
-    chosen = series.window_for(window)
     app = request.app
+    chosen = series.window_for(window, app.state.settings.site.timezone)
 
     cache: dict[str, tuple[datetime, dict]] = getattr(app.state, "history_cache", None) or {}
     app.state.history_cache = cache

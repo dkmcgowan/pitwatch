@@ -670,7 +670,7 @@ async def test_calls_are_counted_from_the_cycles_and_not_from_the_amps(pool):
     await _a_call(pool, timedelta(hours=4), pump=2, both=True)
     await _a_call(pool, timedelta(hours=6), high=True)
 
-    counted = await series.calls_series(pool, series.WINDOWS["24h"], "UTC")
+    counted = await series.calls_series(pool, series.WINDOWS["today"], "UTC")
 
     assert sum(calls for _, calls, _, _ in counted) == 3
     assert sum(both for _, _, both, _ in counted) == 1
@@ -691,7 +691,7 @@ async def test_the_spacing_needs_the_call_before_the_window(pool):
     await _a_call(pool, timedelta(hours=23, minutes=30))
     await _a_call(pool, timedelta(hours=22, minutes=30))
 
-    gaps = await series.call_gaps(pool, series.WINDOWS["24h"])
+    gaps = await series.call_gaps(pool, series.WINDOWS["today"])
 
     assert len(gaps) == 2, "both of the ones inside the window have a spacing"
     assert [round(gap) for _, gap, _, _ in gaps] == [5400, 3600], gaps
@@ -705,7 +705,7 @@ async def test_a_run_carries_what_the_clamp_saw_and_what_it_did_not(pool):
     await _a_call(pool, timedelta(hours=1), steady=15.4)
     await _a_call(pool, timedelta(hours=2), pump=2)
 
-    runs = await series.runs_series(pool, series.WINDOWS["24h"])
+    runs = await series.runs_series(pool, series.WINDOWS["today"])
 
     assert [run.pump for run in runs] == [2, 1], "oldest first"
     assert runs[1].steady_current == pytest.approx(15.4)
@@ -723,8 +723,8 @@ async def test_the_daily_pattern_is_counted_in_the_buildings_own_time(pool):
 
     await _a_call(pool, timedelta(hours=3))
 
-    here = await series.hour_profile(pool, series.WINDOWS["24h"], "UTC")
-    there = await series.hour_profile(pool, series.WINDOWS["24h"], "Australia/Sydney")
+    here = await series.hour_profile(pool, series.WINDOWS["today"], "UTC")
+    there = await series.hour_profile(pool, series.WINDOWS["today"], "Australia/Sydney")
 
     assert sum(here.values()) == 1
     assert sum(there.values()) == 1
@@ -742,7 +742,7 @@ async def test_the_daily_pattern_counts_calls_rather_than_runs(pool):
 
     await _a_call(pool, timedelta(hours=3), both=True)
 
-    profile = await series.hour_profile(pool, series.WINDOWS["24h"], "UTC")
+    profile = await series.hour_profile(pool, series.WINDOWS["today"], "UTC")
 
     assert sum(profile.values()) == 1, "two runs, one filling of the pit"
 
@@ -759,8 +759,8 @@ async def test_runs_sit_above_calls_by_the_calls_that_took_both_pumps(pool):
     await _a_call(pool, timedelta(hours=2))
     await _a_call(pool, timedelta(hours=3), both=True)
 
-    calls = await series.calls_series(pool, series.WINDOWS["24h"], "UTC")
-    runs = await series.runs_series(pool, series.WINDOWS["24h"])
+    calls = await series.calls_series(pool, series.WINDOWS["today"], "UTC")
+    runs = await series.runs_series(pool, series.WINDOWS["today"])
 
     counted = sum(count for _, count, _, _ in calls)
     both = sum(mark for _, _, mark, _ in calls)
@@ -803,7 +803,7 @@ async def test_a_contact_closed_before_the_window_still_counts(pool):
         ],
     )
 
-    spans = await series.contact_spans(pool, [3, 4], series.WINDOWS["24h"])
+    spans = await series.contact_spans(pool, [3, 4], series.WINDOWS["today"])
 
     assert len(spans[3]) == 1
     opened, shut = spans[3][0]

@@ -84,7 +84,7 @@
 
   function clock(ms, window_) {
     const when = new Date(ms);
-    if (window_ === "24h") {
+    if (window_ === "today") {
       return when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     }
     return when.toLocaleDateString([], { month: "numeric", day: "numeric" });
@@ -338,7 +338,7 @@
 
     const from = at(data.from);
     const to = at(data.to);
-    const shape = box(container, 160, "Calls for water over the last " + data.title);
+    const shape = box(container, 160, "Calls for water " + data.over);
     const top = ceiling(
       Math.max.apply(
         null,
@@ -498,7 +498,7 @@
 
     const from = at(data.from);
     const to = at(data.to);
-    const shape = box(container, 150, "How long each run lasted over the last " + data.title);
+    const shape = box(container, 150, "How long each run lasted " + data.over);
     const top = ceiling(
       Math.max.apply(
         null,
@@ -597,7 +597,7 @@
 
     const from = at(data.from);
     const to = at(data.to);
-    const shape = box(container, 150, "What each run drew over the last " + data.title);
+    const shape = box(container, 150, "What each run drew " + data.over);
     const top = ceiling(
       Math.max.apply(
         null,
@@ -682,7 +682,7 @@
       return false;
     }
 
-    const shape = box(container, 140, "Calls by time of day over the last " + data.title);
+    const shape = box(container, 140, "Calls by time of day " + data.over);
     const top = ceiling(Math.max.apply(null, counts));
     const plot = frame(shape.canvas, shape.width, shape.height, top, {});
 
@@ -733,8 +733,8 @@
         "   " +
         calls +
         (calls === 1 ? " call" : " calls") +
-        " in " +
-        data.title
+        " " +
+        data.within
       );
     });
     return true;
@@ -794,7 +794,7 @@
     // rather than as a fact about what is on screen.
     const heading = document.querySelector("[data-window-title]");
     if (heading) {
-      heading.textContent = "The last " + data.title;
+      heading.textContent = data.heading;
     }
   }
 

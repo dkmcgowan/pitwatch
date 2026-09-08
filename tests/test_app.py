@@ -1911,7 +1911,7 @@ def test_the_history_page_draws_every_chart_over_one_window():
     import re
 
     windows = re.findall(r'data-window="([0-9a-z]+)"', page)
-    assert windows == ["24h", "7d", "30d"]
+    assert windows == ["today", "7d", "30d"]
     # One of them is on when the page opens, and it is the one the API defaults
     # to. Two that disagree means the page opens showing a week and saying a
     # day.
@@ -1989,11 +1989,11 @@ def test_the_summary_page_says_what_it_needs_before_it_offers_the_button():
         "summary.html", last=None, age="", ready=False, described=False, error=None
     )
 
-    assert "Generate summary" not in nothing
+    assert "New summary" not in nothing
     assert "settings" in nothing
 
     ready = render_page("summary.html", last=None, age="", ready=True, described=False, error=None)
-    assert "Generate summary" in ready
+    assert "New summary" in ready
     # And it says the description is missing without refusing to work without
     # one.
     assert "No description of the system" in ready
@@ -2160,3 +2160,73 @@ def test_the_severity_is_a_bar_rather_than_a_column_of_words():
     # cannot fit a phone without clipping the third one.
     page = render_page("alert_history.html", tab="history", open=[], past=[], messages=[])
     assert "table-scroll" not in page
+
+
+def test_today_is_today_and_not_the_last_twenty_four_hours():
+    """The dashboard has counted "today" since it was built, so a history page
+    answering "the last 24 hours" under the same word was two pages disagreeing
+    about the same building. The span is measured back from the building's own
+    midnight, which means it is whatever o'clock it is there."""
+    from datetime import UTC, datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from pitwatch.domain import series
+
+    zone = "America/New_York"
+    now = datetime.now(UTC)
+    midnight = now.astimezone(ZoneInfo(zone)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    window = series.window_for("today", zone)
+
+    assert window.span <= timedelta(hours=25), "never longer than a day, DST included"
+    elapsed = now - midnight.astimezone(UTC)
+    assert abs(window.span - max(elapsed, timedelta(minutes=1))) < timedelta(seconds=5)
+
+    # And a floor, so a page opened a second after midnight asks for something
+    # a chart can hold rather than an interval of nothing.
+    assert window.span >= timedelta(minutes=1)
+
+    # The other two do not move.
+    assert series.window_for("7d", zone).span == timedelta(days=7)
+    assert series.window_for("30d", zone).span == timedelta(days=30)
+
+
+def test_every_window_carries_the_english_it_is_read_in():
+    """Gluing a preposition onto a label in the browser gives "The last Today"
+    and "3 calls in Today". Each phrase is written out instead."""
+    from pitwatch.domain.series import WINDOWS
+
+    today = WINDOWS["today"]
+    assert (today.title, today.heading, today.over, today.within) == (
+        "Today",
+        "Today",
+        "today",
+        "today",
+    )
+
+    week = WINDOWS["7d"]
+    assert week.heading == "The last 7 days"
+    assert "Calls for water " + week.over == "Calls for water over the last 7 days"
+    assert "3 calls " + week.within == "3 calls in the last 7 days"
+
+    for window in WINDOWS.values():
+        assert not window.heading.startswith("The last The")
+
+
+def test_the_summary_page_says_what_it_is_and_offers_a_refresh():
+    """It is an AI summary and the page should say so, the way the settings
+    section that configures it does. And the button is pressed again and again
+    on a page that already has one, so it reads as another rather than a first."""
+    page = render_page("summary.html", ready=True, described=True, last=None, age="", error=None)
+
+    assert "AI Summary" in page
+    assert ">New summary<" in page
+
+    # The note used to say it knows nothing that is not on this page, which is
+    # not true: it is sent a week of figures the page never draws.
+    note = page.split('id="note-summary"', 1)[1]
+    assert "not on this page" not in note
+    assert "reading of the numbers" not in note
+    # What is worth keeping from it: this costs money and only happens on a
+    # press, and the building is not named to the model.
+    assert "presses the button" in note and "no address" in note

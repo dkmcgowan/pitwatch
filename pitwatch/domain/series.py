@@ -40,40 +40,86 @@ than a fact about this one, and drawn beside the steady current it was the
 larger number and therefore the one the eye read. The spacing survives as a
 single median in the figures, which is the part of it worth reading.
 
-Windows are 24 hours, 7 days and 30 days. Raw readings are kept ninety days, so
+Windows are today, 7 days and 30 days. Raw readings are kept ninety days, so
 every window is inside what is there.
+
+Today is today, not the last twenty four hours. Everything on the dashboard is
+already counted that way, "14 today" and "0 this month", so a history page that
+answered a different question under the same word would be two pages disagreeing
+about the same building. Its span is measured back from the building's own
+midnight and is therefore whatever o'clock it is there.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
 import asyncpg
+
+from pitwatch import clock
 
 log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class Window:
-    """One choice of how far back to look, and how finely."""
+    """One choice of how far back to look, and how finely.
+
+    The three phrases are here rather than built in the browser because they are
+    English rather than data. "The last Today" and "3 calls in Today" are what
+    comes out of gluing a preposition onto a label, and every one of these is
+    read by somebody.
+    """
 
     key: str
+    # On the button.
     title: str
+    # Over the figures.
+    heading: str
+    # After a chart's subject: "Calls for water <over>".
+    over: str
+    # After a count: "3 calls <within>".
+    within: str
     span: timedelta
     # How wide a bar is on the counting charts. Runs and calls are individual
     # events drawn one dot each, so they have no bucket of their own.
     count_bucket: timedelta
+    # Whether `span` is measured back from now or from the building's midnight.
+    # Only today is the second, and its span is therefore whatever o'clock it
+    # is there rather than the twenty four hours in this field.
+    from_midnight: bool = False
 
 
 WINDOWS: dict[str, Window] = {
-    "24h": Window(
-        key="24h", title="24 hours", span=timedelta(hours=24), count_bucket=timedelta(hours=1)
+    "today": Window(
+        key="today",
+        title="Today",
+        heading="Today",
+        over="today",
+        within="today",
+        span=timedelta(hours=24),
+        count_bucket=timedelta(hours=1),
+        from_midnight=True,
     ),
-    "7d": Window(key="7d", title="7 days", span=timedelta(days=7), count_bucket=timedelta(days=1)),
+    "7d": Window(
+        key="7d",
+        title="7 days",
+        heading="The last 7 days",
+        over="over the last 7 days",
+        within="in the last 7 days",
+        span=timedelta(days=7),
+        count_bucket=timedelta(days=1),
+    ),
     "30d": Window(
-        key="30d", title="30 days", span=timedelta(days=30), count_bucket=timedelta(days=1)
+        key="30d",
+        title="30 days",
+        heading="The last 30 days",
+        over="over the last 30 days",
+        within="in the last 30 days",
+        span=timedelta(days=30),
+        count_bucket=timedelta(days=1),
     ),
 }
 
@@ -178,9 +224,22 @@ ORDER BY channel, ts DESC
 """
 
 
-def window_for(key: str | None) -> Window:
-    """The window somebody asked for, or the default if it is not one of ours."""
-    return WINDOWS.get(key or "", WINDOWS[DEFAULT_WINDOW])
+def window_for(key: str | None, zone: str = "UTC") -> Window:
+    """The window somebody asked for, or the default if it is not one of ours.
+
+    Today is resolved here, once, against the building's clock, and handed on as
+    an ordinary span. Every query downstream asks for `now() - span` and none of
+    them has to know that one of the three windows moves.
+    """
+    base = WINDOWS.get(key or "", WINDOWS[DEFAULT_WINDOW])
+    if not base.from_midnight:
+        return base
+    now = datetime.now(UTC)
+    midnight = clock.local(now, zone).replace(hour=0, minute=0, second=0, microsecond=0)
+    # A floor, because a page opened a second after midnight would otherwise ask
+    # for an interval of nothing and draw an empty chart where "today" is right
+    # but useless. One minute is still today and is a shape a chart can hold.
+    return replace(base, span=max(now - midnight.astimezone(UTC), timedelta(minutes=1)))
 
 
 def median(values: list[float]) -> float | None:

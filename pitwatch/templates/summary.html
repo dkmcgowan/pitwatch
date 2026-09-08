@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% set active = 'summary' %}
-{% block title %}Summary{% endblock %}
+{% block title %}AI Summary{% endblock %}
 
 {% block content %}
 
@@ -18,13 +18,13 @@
 
   <section class="card chart-card">
     <div class="card-head">
-      <h2 class="section-heading">Summary
+      <h2 class="section-heading">AI Summary
         <button type="button" class="info-mark" data-info="summary" aria-label="What this is">i</button>
       </h2>
       {% if ready %}
       <form method="post" action="/summary" data-summary-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="button" data-summary-button>Generate summary</button>
+        <button type="submit" class="button" data-summary-button>New summary</button>
       </form>
       {% endif %}
     </div>
@@ -32,7 +32,7 @@
     {% if not ready %}
     <p class="hint">
       Nothing to ask with yet. The key and the model live on the
-      <a href="/settings">settings page</a>, under The summary.
+      <a href="/settings">settings page</a>, under AI Summary.
     </p>
     {% elif not described %}
     <p class="hint">
@@ -56,14 +56,13 @@
     {% endif %}
 
     <dialog class="note" id="note-summary">
-      <h3 class="note-title">Summary</h3>
+      <h3 class="note-title">AI Summary</h3>
       <div class="hint">
-        <p>The last week of daily figures, plus the context prompt from the
-          settings page, sent to OpenAI and read back as a few paragraphs. It
-          happens when somebody presses the button, never on a schedule.</p>
-        <p>It is a reading of the numbers, not an inspection: it cannot hear
-          the pump, and it knows nothing that is not on this page. No address
-          and no account names go with them.</p>
+        <p>The last week of daily figures, plus what you wrote about the
+          building and the pumps on the settings page, sent to OpenAI and read
+          back as a few paragraphs on how the pumps are working. It happens when
+          somebody presses the button, never on a schedule, and no address and
+          no account names go with it.</p>
       </div>
       <p class="note-close">Click anywhere to close</p>
     </dialog>

@@ -989,7 +989,7 @@ def test_the_history_reads_the_window_it_was_asked_for(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
-    for window in ("24h", "7d", "30d"):
+    for window in ("today", "7d", "30d"):
         payload = client.get(f"/api/history?window={window}").json()
         assert payload["window"] == window
         assert set(payload) >= {
@@ -1057,7 +1057,7 @@ def test_a_summary_without_a_key_says_so_rather_than_failing(client):
     client.post("/setup", data=SETUP_FORM)
 
     page = client.get("/summary").text
-    assert "Generate summary" not in page
+    assert "New summary" not in page
 
     response = client.post("/summary", follow_redirects=False)
     assert response.status_code == 303

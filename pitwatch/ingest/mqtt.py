@@ -443,19 +443,18 @@ class MqttReader:
     # -- asking --------------------------------------------------------------
 
     async def _ask_loop(self, stop: asyncio.Event) -> None:
-        """Ask the sources that have something to be asked.
+        """Ask the clamps that have something to be asked.
 
-        Only while a pump is turning, where the source says so. The panel's own
-        run contact is what decides that, so a pit sitting still is a pit
-        nothing is polling.
+        Only while a pump is turning. The panel's own run contact decides that,
+        so a pit sitting still is a pit nothing is polling: a day of runs is
+        about four minutes of asking in twenty four hours.
         """
         asking = [clamp for clamp in self._settings.used_clamps if clamp.asks]
         if not asking:
             return
 
         while not stop.is_set():
-            waiting = [clamp for clamp in asking if clamp.ask_while_running]
-            if waiting and not self._running.is_set():
+            if not self._running.is_set():
                 # Nothing to do until the panel says a pump started. The tail
                 # is for the decay: a motor coasting down draws less than it
                 # did and the contact has already opened.
@@ -472,8 +471,6 @@ class MqttReader:
                     return
 
             for clamp in asking:
-                if clamp.ask_while_running and not self._running.is_set():
-                    continue
                 await self._ask(clamp)
 
             delay = min(clamp.ask_every_s for clamp in asking)

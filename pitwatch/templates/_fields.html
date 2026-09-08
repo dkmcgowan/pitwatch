@@ -6,13 +6,16 @@
    the whole reason this file exists. #}
 
 {% macro mqtt_fields(mqtt, roles) %}
-{# The broker, then the three kinds of thing to listen to. Hints are one line
-   where they earn one: this page had a paragraph under every box and the
-   paragraphs were doing the job the field names should do. #}
+{# The broker, then the three kinds of thing to listen to.
+
+   Almost every hint that was under a box has gone. A label that needs a
+   paragraph under it is a label that should have been better, and a paragraph
+   explaining our own deployment rather than the setting is worse than
+   nothing. #}
 <div class="field">
   <label>
     <input type="checkbox" name="mqtt_enabled" {% if mqtt.enabled %}checked{% endif %}>
-    Listen to a broker
+    Enable MQTT
   </label>
 </div>
 
@@ -23,8 +26,6 @@
     <label for="mqtt_host">Address</label>
     <input type="text" id="mqtt_host" name="mqtt_host" value="{{ mqtt.host }}"
            placeholder="127.0.0.1" autocomplete="off">
-    <p class="hint">The bundled broker runs on this machine. Your devices reach
-      it at this machine's address on your network.</p>
   </div>
   <div class="field">
     <label for="mqtt_port">Port</label>
@@ -37,13 +38,10 @@
   </div>
   <div class="field">
     <label for="mqtt_password">Password</label>
+    {# Left empty to keep what is stored, because the stored one is never sent
+       to the browser. Typing a new one replaces it. #}
     <input type="password" id="mqtt_password" name="mqtt_password" autocomplete="new-password"
            placeholder="{% if mqtt.password %}unchanged{% else %}none set{% endif %}">
-    {% if mqtt.password %}
-    <label class="hint">
-      <input type="checkbox" name="mqtt_clear_password"> Clear the stored password
-    </label>
-    {% endif %}
   </div>
   <div class="field">
     <label>
@@ -67,9 +65,6 @@
 
 <h3>Current clamps</h3>
 
-<p class="hint">A reading is a number. Say where it arrives and where in the
-  body to find it.</p>
-
 {% for clamp in mqtt.clamps %}
 <div class="card source-card">
   <h4>Pump {{ clamp.pump }}</h4>
@@ -83,16 +78,15 @@
       <label for="clamp{{ clamp.pump }}_path">Reading at</label>
       <input type="text" id="clamp{{ clamp.pump }}_path" name="clamp{{ clamp.pump }}_path"
              value="{{ clamp.path }}" placeholder="current" autocomplete="off">
-      <p class="hint">Dots step into nested objects. Empty means the body is
-        the number.</p>
+      <p class="hint">Leave empty when the body is just the number.</p>
     </div>
   </div>
 
-  <details {% if clamp.asks %}open{% endif %}>
+  <details class="ask" {% if clamp.asks %}open{% endif %}>
     <summary>Ask for a reading</summary>
-    <p class="hint">For a meter that goes quiet while a motor runs steady. It
-      publishes on change, so a twelve second run gives two readings in the
-      first three seconds and nothing after.</p>
+    <p class="hint">A meter that publishes on change says nothing while a motor
+      runs steady. Set a topic to ask on and it is asked while the pump runs.
+      Leave it empty and nothing is asked.</p>
     <div class="grid">
       <div class="field">
         <label for="clamp{{ clamp.pump }}_ask_topic">Ask on</label>
@@ -101,7 +95,7 @@
                autocomplete="off">
       </div>
       <div class="field">
-        <label for="clamp{{ clamp.pump }}_ask_payload">By publishing</label>
+        <label for="clamp{{ clamp.pump }}_ask_payload">Payload</label>
         <input type="text" id="clamp{{ clamp.pump }}_ask_payload"
                name="clamp{{ clamp.pump }}_ask_payload" value="{{ clamp.ask_payload }}"
                autocomplete="off">
@@ -111,22 +105,12 @@
         <input type="text" id="clamp{{ clamp.pump }}_reply_topic"
                name="clamp{{ clamp.pump }}_reply_topic" value="{{ clamp.reply_topic }}"
                autocomplete="off">
-        <p class="hint">The two pumps need different ones, or one answer counts
-          as both.</p>
       </div>
       <div class="field">
         <label for="clamp{{ clamp.pump }}_reply_path">Answer at</label>
         <input type="text" id="clamp{{ clamp.pump }}_reply_path"
                name="clamp{{ clamp.pump }}_reply_path" value="{{ clamp.reply_path }}"
                placeholder="result.current" autocomplete="off">
-        <p class="hint">An answer often nests deeper than the topic above.</p>
-      </div>
-      <div class="field">
-        <label>
-          <input type="checkbox" name="clamp{{ clamp.pump }}_ask_while_running"
-                 {% if clamp.ask_while_running %}checked{% endif %}>
-          Only while running
-        </label>
       </div>
       <div class="field">
         <label for="clamp{{ clamp.pump }}_ask_every_s">How often (s)</label>
@@ -141,11 +125,7 @@
 
 <h3>Panel inputs</h3>
 
-<p class="hint">Give each input a topic that publishes on or off when it moves.
-  Leave <strong>value at</strong> empty when the body is just the state. Fill it
-  in when the body is JSON, with the key the state is under: several inputs may
-  share one topic and each read its own key out of it.</p>
-
+<div class="card table-card">
 <div class="table-scroll">
 <table class="channels">
   <thead>
@@ -153,7 +133,7 @@
       <th>Input</th>
       <th>Carries</th>
       <th>Topic</th>
-      <th>Value at</th>
+      <th>Key in body</th>
       <th>On when</th>
     </tr>
   </thead>
@@ -176,7 +156,7 @@
       </td>
       <td>
         <input type="text" name="input_{{ one.channel }}_path" value="{{ one.path }}"
-               aria-label="Input {{ one.channel }} value at" autocomplete="off"
+               aria-label="Input {{ one.channel }} key in body" autocomplete="off"
                class="narrow">
       </td>
       <td>
@@ -191,16 +171,14 @@
   </tbody>
 </table>
 </div>
+<p class="hint"><strong>Key in body</strong> is only for a device that wraps the
+  state in JSON. Leave it empty when the body is just <code>on</code> or
+  <code>0</code>.</p>
+</div>
 
-<h3>Is it still there</h3>
+<h3>Device health</h3>
 
-<p class="hint">A device that has said nothing lately has stopped. Silence is
-  the test rather than the broker's last will, which stays true through an
-  outage and reports the device gone a tenth of a second before reporting it
-  back. Point each one at any topic that device publishes on a schedule: a
-  heartbeat where there is one, or the readings themselves where there is
-  not.</p>
-
+<div class="card table-card">
 <div class="table-scroll">
 <table class="channels">
   <thead>
@@ -215,11 +193,11 @@
     <tr>
       <td>
         <input type="text" name="health_{{ loop.index0 }}_name" value="{{ check.name }}"
-               placeholder="Panel module" aria-label="Device name" autocomplete="off">
+               aria-label="Device name" autocomplete="off">
       </td>
       <td>
         <input type="text" name="health_{{ loop.index0 }}_topic" value="{{ check.topic }}"
-               aria-label="Device heartbeat topic" autocomplete="off">
+               aria-label="Device topic" autocomplete="off">
       </td>
       <td>
         <input type="number" name="health_{{ loop.index0 }}_expect_s" value="{{ check.expect_s }}"
@@ -230,7 +208,10 @@
   </tbody>
 </table>
 </div>
-<p class="hint">Zero never holds silence against a device.</p>
+<p class="hint">Any topic the device publishes on a schedule. Silence for about
+  two and a half of these and it is reported offline; <strong>0</strong> never
+  holds silence against it.</p>
+</div>
 {% endmacro %}
 
 

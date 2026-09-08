@@ -132,7 +132,6 @@ def clamp_from(form: FormData, pump: int) -> ClampSource:
         ask_payload=text(form, f"clamp{pump}_ask_payload"),
         reply_topic=text(form, f"clamp{pump}_reply_topic"),
         reply_path=text(form, f"clamp{pump}_reply_path"),
-        ask_while_running=checkbox(form, f"clamp{pump}_ask_while_running"),
         ask_every_s=number(form, f"clamp{pump}_ask_every_s", 1.0),
     )
 

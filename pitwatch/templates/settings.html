@@ -13,7 +13,7 @@
 
 <section class="card settings-section">
   <details name="settings">
-    <summary><h2>This site</h2></summary>
+    <summary><h2>Site</h2></summary>
   <form method="post" action="/settings/site">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     {{ fields.site_fields(site) }}
@@ -274,7 +274,7 @@
    out from the readings, and the key is somebody's OpenAI account. #}
 <section class="card settings-section">
   <details name="settings">
-    <summary><h2>The summary</h2></summary>
+    <summary><h2>Summary</h2></summary>
   <form method="post" action="/settings/summary" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 

@@ -200,7 +200,10 @@ class ClampSource(BaseModel):
     # every answer.
     reply_topic: str = Field(default="", max_length=300)
     reply_path: str = Field(default="", max_length=200)
-    ask_while_running: bool = True
+    # How often to ask, while the pump is running. There is no switch for
+    # whether to ask only while running, because that was a setting with one
+    # sensible value: on a pump monitor, a topic to ask on means ask while the
+    # pump is turning. An empty ask topic is how you say "do not ask".
     ask_every_s: float = Field(default=1.0, gt=0, le=3600)
 
     @property

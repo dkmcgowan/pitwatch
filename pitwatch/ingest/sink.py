@@ -27,8 +27,8 @@ from datetime import UTC, datetime
 
 import asyncpg
 
-from pitwatch.ingest.inputs import IoEvent
-from pitwatch.ingest.shelly import EmSample
+from pitwatch.ingest.contacts import IoEvent
+from pitwatch.ingest.readings import EmSample
 
 log = logging.getLogger(__name__)
 

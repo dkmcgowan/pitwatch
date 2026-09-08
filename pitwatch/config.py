@@ -69,7 +69,6 @@ class Config(BaseSettings):
 
     # Seeds, applied only when the settings table is empty. See the module
     # docstring.
-    seed_shelly_host: str | None = None
     # The broker ships in the compose file, so unlike the meter and the panel
     # module its address and credentials are already known at first boot. Seeding
     # them is what makes `docker compose up` arrive working rather than arrive

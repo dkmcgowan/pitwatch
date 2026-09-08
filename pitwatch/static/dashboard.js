@@ -449,7 +449,18 @@
   // it is the reason a device that is off is hollow rather than red: running
   // on the clamps alone is a normal way to run, and a permanent red for it
   // would teach whoever reads this page that red means nothing.
-  const DEVICE_NAMES = { shelly: "Shelly EM", inputs: "The X-408" };
+  // Named after the job rather than the hardware, because the hardware behind
+  // a source is a setting now. A name that is not here falls back to the role,
+  // which is already a word rather than an id.
+  // Singular, because these are read into "X is connected". "The panel
+  // contacts is connected" is what naming them after the role rather than the
+  // thing gets you, and the sentence is what somebody actually reads.
+  const DEVICE_NAMES = {
+    contacts: "The panel module",
+    clamp1: "The meter",
+    clamp2: "The second meter",
+    heartbeat: "The module heartbeat",
+  };
 
   function renderLinks(devices) {
     const known = devices || {};

@@ -256,9 +256,9 @@ def test_only_inputs_carrying_something_are_shown():
     """Eight rows of "nothing" is not a dashboard, it is a settings page nobody
     asked to see. An input with no role is still read and still recorded; it
     just has no lamp to appear in."""
-    from pitwatch.schemas import ChannelMap, InputsSettings
+    from pitwatch.schemas import ChannelMap, MqttSettings
 
-    settings = InputsSettings(
+    settings = MqttSettings(
         channels=[
             ChannelMap(channel=2, role="lead_float"),
             ChannelMap(channel=5, role="pump1_run"),
@@ -283,11 +283,11 @@ def test_only_inputs_carrying_something_are_shown():
 def render_settings(**overrides) -> str:
     from jinja2 import Environment, FileSystemLoader
 
+    from pitwatch.ingest import payloads
     from pitwatch.schemas import (
         DASHBOARD_ROLES,
-        InputsSettings,
+        MqttSettings,
         PumpsSettings,
-        ShellySettings,
         SiteSettings,
         SmsSettings,
         SmtpSettings,
@@ -301,8 +301,10 @@ def render_settings(**overrides) -> str:
     context = {
         "site": SiteSettings(),
         "weather": WeatherSettings(),
-        "shelly": ShellySettings(),
-        "inputs": InputsSettings(),
+        "mqtt": MqttSettings(),
+        "profiles": payloads.PROFILES,
+        "shelly": MqttSettings(),
+        "inputs": MqttSettings(),
         "pumps": PumpsSettings(),
         "smtp": SmtpSettings(),
         "sms": SmsSettings(),
@@ -317,7 +319,15 @@ def render_settings(**overrides) -> str:
 
 
 def submitted(html: str) -> list[tuple[str, str]]:
-    """What a browser would post from that page, left exactly as rendered."""
+    """What a browser would post from that page, left exactly as rendered.
+
+    Entities are decoded, because a browser decodes them. A value containing a
+    quote is written into the attribute as &#34; and posted back as a quote,
+    and reading the attribute literally would report a round trip failure for a
+    page that works. The ask payload is JSON, so this is not hypothetical.
+    """
+    import html as entities
+
     fields: list[tuple[str, str]] = []
     for tag in re.finditer(r"<input [^>]*>", html):
         name = re.search(r'name="([^"]+)"', tag.group())
@@ -331,11 +341,11 @@ def submitted(html: str) -> list[tuple[str, str]]:
                 fields.append((name.group(1), "on"))
             continue
         value = re.search(r'value="([^"]*)"', tag.group())
-        fields.append((name.group(1), value.group(1) if value else ""))
+        fields.append((name.group(1), entities.unescape(value.group(1)) if value else ""))
     for select in re.finditer(r'<select [^>]*name="([^"]+)"[^>]*>(.*?)</select>', html, re.S):
         chosen = re.search(r'<option value="([^"]*)"[^>]*selected', select.group(2))
         if chosen:
-            fields.append((select.group(1), chosen.group(1)))
+            fields.append((select.group(1), entities.unescape(chosen.group(1))))
     return fields
 
 
@@ -352,8 +362,8 @@ def test_saving_the_settings_page_unchanged_changes_nothing():
     from pitwatch.api import forms
     from pitwatch.schemas import (
         ChannelMap,
-        InputsSettings,
-        ShellySettings,
+        MqttSettings,
+        MqttSource,
         SiteSettings,
     )
 
@@ -368,33 +378,61 @@ def test_saving_the_settings_page_unchanged_changes_nothing():
         notify_delay_s=11,
         notify_cooldown_s=1234,
     )
-    shelly = ShellySettings(enabled=True, host="10.0.0.5", pump1_channel=1, pump2_channel=0)
-    inputs = InputsSettings(
+    mqtt = MqttSettings(
         enabled=True,
         host="10.0.0.6",
         port=8883,
         username="panel",
         password="broker-secret",
         encrypted=True,
-        topic="site/inputs",
-        status_topic="site/status",
-        client_id="pitwatch-822",
+        client_id="pitwatch-123",
         debounce_ms=750,
+        sources=[
+            MqttSource(
+                name="Pump 1 clamp",
+                role="clamp1",
+                topic="meter/status/em1:0",
+                profile="number",
+                path="current",
+                channel=0,
+                expect_s=45,
+                ask_topic="meter/rpc",
+                ask_payload='{"method":"EM1.GetStatus"}',
+                reply_topic="pitwatch/rpc",
+                reply_path="result.current",
+                ask_while_running=True,
+            ),
+            MqttSource(
+                name="Pump 2 clamp",
+                role="clamp2",
+                topic="meter/status/em1:1",
+                profile="number",
+                path="current",
+                channel=1,
+            ),
+            MqttSource(
+                name="Panel inputs", role="contacts", topic="site/inputs", profile="contact_map"
+            ),
+            MqttSource(
+                name="Panel module",
+                role="heartbeat",
+                topic="site/heartbeat",
+                profile="number",
+                expect_s=90,
+            ),
+        ],
         channels=[
             ChannelMap(channel=1, role="lead_float"),
             ChannelMap(channel=7, role="pump1_fault", invert=True),
         ],
     )
-    form = FormData(submitted(render_settings(site=site, shelly=shelly, inputs=inputs)))
+    form = FormData(submitted(render_settings(site=site, mqtt=mqtt)))
 
     assert forms.site_from(form) == site
     # The stored password is never rendered, so the round trip is given the
     # settings it is checking against, exactly as the route does. Everything
     # else on the page has to survive on what the page itself carries.
-    assert forms.inputs_from(form, inputs) == inputs
-    # The Shelly password is never rendered back, so it is the one field that
-    # cannot survive this on its own; everything else on that section must.
-    assert forms.shelly_from(form, shelly) == shelly
+    assert forms.mqtt_from(form, mqtt) == mqtt
 
 
 # -- the panel door ----------------------------------------------------------
@@ -412,7 +450,7 @@ def io(*steps):
     """
     from datetime import UTC, datetime, timedelta
 
-    from pitwatch.ingest.inputs import IoEvent
+    from pitwatch.ingest.contacts import IoEvent
     from pitwatch.ingest.sink import LiveIo
 
     live = LiveIo()
@@ -434,9 +472,9 @@ P1, P2, F1, F2 = 5, 6, 7, 8
 
 
 def wired():
-    from pitwatch.schemas import ChannelMap, InputsSettings
+    from pitwatch.schemas import ChannelMap, MqttSettings
 
-    return InputsSettings(
+    return MqttSettings(
         channels=[
             ChannelMap(channel=P1, role="pump1_run"),
             ChannelMap(channel=P2, role="pump2_run"),
@@ -520,18 +558,18 @@ def test_unassigned_run_inputs_answer_nothing():
     """Rather than reading as "neither has ever run", which looks the same on
     screen and means something entirely different."""
     from pitwatch.api.live import lead_and_lag
-    from pitwatch.schemas import InputsSettings
+    from pitwatch.schemas import MqttSettings
 
-    assert lead_and_lag(InputsSettings(), io((P1, True))) == ("--", "--")
+    assert lead_and_lag(MqttSettings(), io((P1, True))) == ("--", "--")
 
 
 def test_a_lamp_with_no_input_is_not_a_lamp_that_is_off():
     """Three states, and the middle one is the whole point. A lamp reading off
     when it means nobody wired it is a lamp that gets believed."""
     from pitwatch.api.live import panel_state
-    from pitwatch.schemas import ChannelMap, InputsSettings
+    from pitwatch.schemas import ChannelMap, MqttSettings
 
-    inputs = InputsSettings(
+    inputs = MqttSettings(
         channels=[
             ChannelMap(channel=3, role="high_water"),
             ChannelMap(channel=4, role="system_alert"),
@@ -556,9 +594,9 @@ def test_the_lamp_mapping_makes_the_round_trip_with_the_inputs():
     from starlette.datastructures import FormData
 
     from pitwatch.api import forms
-    from pitwatch.schemas import ChannelMap, InputsSettings
+    from pitwatch.schemas import ChannelMap, MqttSettings
 
-    inputs = InputsSettings(
+    mqtt = MqttSettings(
         enabled=True,
         host="10.0.0.6",
         channels=[
@@ -572,9 +610,9 @@ def test_the_lamp_mapping_makes_the_round_trip_with_the_inputs():
             ChannelMap(channel=8, role="pump2_fault", invert=True),
         ],
     )
-    page = render_settings(inputs=inputs)
+    page = render_settings(mqtt=mqtt)
 
-    assert forms.inputs_from(FormData(submitted(page)), inputs) == inputs
+    assert forms.mqtt_from(FormData(submitted(page)), mqtt) == mqtt
 
 
 # -- what a pump has been drawing --------------------------------------------
@@ -1423,7 +1461,7 @@ def test_the_live_state_records_a_rise_and_not_a_level():
     clamp on this meter reads 0.000 exactly, so anything at all is a start."""
     from datetime import UTC, datetime, timedelta
 
-    from pitwatch.ingest.shelly import EmSample
+    from pitwatch.ingest.readings import EmSample
     from pitwatch.ingest.sink import LiveState
 
     live = LiveState()
@@ -1602,24 +1640,33 @@ def test_the_settings_page_asks_for_a_broker_and_not_for_a_poll_interval():
     """
     page = render_settings()
 
-    for name in ("inputs_host", "inputs_port", "inputs_username", "inputs_password"):
+    for name in ("mqtt_host", "mqtt_port", "mqtt_username", "mqtt_password"):
         assert f'name="{name}"' in page, name
-    for name in ("inputs_topic", "inputs_status_topic", "inputs_client_id"):
+    for name in ("source_contacts_topic", "source_contacts_profile", "mqtt_client_id"):
         assert f'name="{name}"' in page, name
 
     for gone in ("inputs_poll_ms", "inputs_unit_id", "inputs_timeout_s"):
         assert gone not in page, gone
 
+    # The status topic went with the last will. It was the device's own word
+    # for whether it was there, and measured on the real panel it stayed true
+    # through an outage and announced the device was gone a tenth of a second
+    # before announcing it was back. Silence is the test now, and every source
+    # carries its own interval.
+    assert "status_topic" not in page
+    for role in ("contacts", "heartbeat", "clamp1", "clamp2"):
+        assert f'name="source_{role}_expect_s"' in page, role
+
     # The one piece of processing that survived the change of protocol, because
     # contacts bounce whatever is carrying the news of it.
-    assert 'name="inputs_debounce_ms"' in page
+    assert 'name="mqtt_debounce_ms"' in page
 
 
 def test_the_stored_broker_password_is_never_rendered():
-    from pitwatch.schemas import InputsSettings
+    from pitwatch.schemas import MqttSettings
 
     page = render_settings(
-        inputs=InputsSettings(enabled=True, host="10.0.0.6", password="broker-secret")
+        inputs=MqttSettings(enabled=True, host="10.0.0.6", password="broker-secret")
     )
 
     assert "broker-secret" not in page
@@ -1645,13 +1692,16 @@ def test_the_lamps_are_chosen_on_the_input_that_carries_them():
 def render_page(name: str, **context) -> str:
     from jinja2 import Environment, FileSystemLoader
 
-    from pitwatch.schemas import SiteSettings, WeatherSettings
+    from pitwatch.ingest import payloads
+    from pitwatch.schemas import MqttSettings, SiteSettings, WeatherSettings
 
     env = Environment(loader=FileSystemLoader("pitwatch/templates"), autoescape=True)
     env.globals["csrf_token"] = lambda: "token"
     env.globals["version"] = "test"
     context.setdefault("site", SiteSettings(name="A pit"))
     context.setdefault("weather", WeatherSettings())
+    context.setdefault("mqtt", MqttSettings())
+    context.setdefault("profiles", payloads.PROFILES)
     context.setdefault("user", None)
     return env.get_template(name).render(**context)
 

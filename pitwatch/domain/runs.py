@@ -38,8 +38,8 @@ from datetime import datetime
 
 import asyncpg
 
-from pitwatch.ingest.inputs import IoEvent
-from pitwatch.schemas import InputsSettings, ShellySettings
+from pitwatch.ingest.contacts import IoEvent
+from pitwatch.schemas import MqttSettings
 
 log = logging.getLogger(__name__)
 
@@ -135,15 +135,15 @@ class RunRecorder:
 
     def _pump_for(self, channel: int) -> int | None:
         """Which pump's run contact this input carries, if it carries one."""
-        inputs: InputsSettings = self._store.inputs
+        settings: MqttSettings = self._store.mqtt
         for pump in (1, 2):
-            if inputs.channel_for(f"pump{pump}_run") == channel:
+            if settings.channel_for(f"pump{pump}_run") == channel:
                 return pump
         return None
 
     def _clamp_for(self, pump: int) -> int | None:
-        shelly: ShellySettings = self._store.shelly
-        return shelly.clamp_for_pump.get(pump)
+        settings: MqttSettings = self._store.mqtt
+        return settings.clamp_for_pump.get(pump)
 
     # -- the edges ---------------------------------------------------------
 
@@ -352,7 +352,7 @@ class RunRecorder:
         # call. Read off the contact's own history rather than from whatever it
         # happens to say now, because by the time the pumps have finished the
         # float has usually dropped again, which is the system working.
-        high_channel = self._store.inputs.channel_for("high_water")
+        high_channel = self._store.mqtt.channel_for("high_water")
         high_water = False
         if high_channel:
             high_water = bool(

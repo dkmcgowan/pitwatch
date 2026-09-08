@@ -15,9 +15,9 @@ import pytest
 
 from pitwatch.auth import DEFAULT_PASSWORD, DEFAULT_USERNAME, authenticate, ensure_default_admin
 from pitwatch.db import migrate, migration_files
-from pitwatch.ingest.shelly import EmSample
+from pitwatch.ingest.readings import EmSample
 from pitwatch.ingest.sink import LiveState, SampleSink, record_device_status
-from pitwatch.schemas import ChannelMap, InputsSettings, ShellySettings
+from pitwatch.schemas import ChannelMap, MqttSettings
 
 
 async def test_migrations_apply_to_an_empty_database(pool):
@@ -115,14 +115,14 @@ async def test_one_email_address_belongs_to_one_person(pool):
 
 
 async def test_settings_round_trip(store):
-    saved = InputsSettings(
+    saved = MqttSettings(
         enabled=True,
         host="192.168.1.51",
         channels=[ChannelMap(channel=3, role="high_water", invert=True)],
     )
 
     await store.put(saved)
-    read_back = store.inputs
+    read_back = store.mqtt
 
     assert read_back.host == "192.168.1.51"
     assert read_back.channels[2].role == "high_water"
@@ -130,24 +130,34 @@ async def test_settings_round_trip(store):
 
 
 async def test_settings_survive_a_reload(pool, store):
+    from pitwatch.schemas import MqttSource
     from pitwatch.settings import SettingsStore
 
-    await store.put(ShellySettings(enabled=True, host="10.0.0.9", pump1_channel=1, pump2_channel=0))
+    await store.put(
+        MqttSettings(
+            enabled=True,
+            host="10.0.0.9",
+            sources=[
+                MqttSource(role="clamp1", topic="a", profile="number", channel=1),
+                MqttSource(role="clamp2", topic="b", profile="number", channel=0),
+            ],
+        )
+    )
 
     fresh = SettingsStore(pool)
     await fresh.load()
 
-    assert fresh.shelly.host == "10.0.0.9"
+    assert fresh.mqtt.host == "10.0.0.9"
     # Both stored, both read back as they were saved.
-    assert fresh.shelly.clamp_for_pump == {1: 1, 2: 0}
+    assert fresh.mqtt.clamp_for_pump == {1: 1, 2: 0}
 
 
 async def test_saving_a_setting_wakes_the_subscribers(store):
     queue = store.subscribe()
 
-    await store.put(ShellySettings(host="10.0.0.9"))
+    await store.put(MqttSettings(host="10.0.0.9"))
 
-    assert queue.get_nowait() == ShellySettings.KEY
+    assert queue.get_nowait() == MqttSettings.KEY
 
 
 async def test_a_password_verifies_and_a_wrong_one_does_not(pool):
@@ -791,22 +801,25 @@ def _store(pump1_run=1, pump2_run=2, high_water=3, clamp1=1, clamp2=0):
     clamp belongs to which pump."""
     from types import SimpleNamespace
 
-    from pitwatch.schemas import ChannelMap, InputsSettings, ShellySettings
+    from pitwatch.schemas import ChannelMap, MqttSettings, MqttSource
 
     return SimpleNamespace(
-        inputs=InputsSettings(
+        mqtt=MqttSettings(
             channels=[
                 ChannelMap(channel=pump1_run, role="pump1_run"),
                 ChannelMap(channel=pump2_run, role="pump2_run"),
                 ChannelMap(channel=high_water, role="high_water"),
-            ]
+            ],
+            sources=[
+                MqttSource(role="clamp1", topic="a", profile="number", channel=clamp1),
+                MqttSource(role="clamp2", topic="b", profile="number", channel=clamp2),
+            ],
         ),
-        shelly=ShellySettings(pump1_channel=clamp1, pump2_channel=clamp2),
     )
 
 
 def _edge(channel, state, at):
-    from pitwatch.ingest.inputs import IoEvent
+    from pitwatch.ingest.contacts import IoEvent
 
     return IoEvent(ts=at, channel=channel, label=f"DI{channel}", state=state, raw=state)
 

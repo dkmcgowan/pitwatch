@@ -118,7 +118,7 @@ def test_the_token_is_accepted_in_a_header(client):
     token = token_from(client, "/settings")
 
     response = client.post(
-        "/api/test/shelly",
+        "/api/test/source",
         data={"shelly_host": ""},
         headers={"x-csrf-token": token},
     )

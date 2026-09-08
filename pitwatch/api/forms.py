@@ -16,12 +16,13 @@ from starlette.datastructures import FormData
 from pitwatch.ingest import weather
 from pitwatch.schemas import (
     ALERT_ORDER,
+    SOURCE_ROLES,
     AlertsSettings,
     ChannelMap,
-    InputsSettings,
+    MqttSettings,
+    MqttSource,
     PumpSettings,
     PumpsSettings,
-    ShellySettings,
     SiteSettings,
     SmsSettings,
     SmtpSettings,
@@ -121,38 +122,37 @@ def weather_from(form: FormData) -> WeatherSettings:
     )
 
 
-def shelly_from(form: FormData, existing: ShellySettings | None = None) -> ShellySettings:
-    # Same rule as the SMTP password: the stored device password is never sent
-    # to a browser, so an empty box means leave it alone.
-    password = optional_text(form, "shelly_password")
-    if password is None and existing is not None and not checkbox(form, "shelly_clear_password"):
-        password = existing.password
-
-    return ShellySettings(
-        enabled=checkbox(form, "shelly_enabled"),
-        host=text(form, "shelly_host"),
-        mode=text(form, "shelly_mode", "client") or "client",
-        password=password,
-        # Both are asked for and both are stored. The form keeps them apart in
-        # the browser; the model checks it again here, because a form is not a
-        # guarantee.
-        pump1_channel=integer(form, "shelly_pump1_channel", 0),
-        pump2_channel=integer(form, "shelly_pump2_channel", 1),
-        heartbeat_s=integer(form, "shelly_heartbeat_s", 30),
+def source_from(form: FormData, role: str) -> MqttSource:
+    """One row of the sources table."""
+    return MqttSource(
+        name=text(form, f"source_{role}_name"),
+        role=role,
+        topic=text(form, f"source_{role}_topic"),
+        profile=text(form, f"source_{role}_profile"),
+        path=text(form, f"source_{role}_path"),
+        input_number=optional_integer(form, f"source_{role}_input_number"),
+        channel=optional_integer(form, f"source_{role}_channel"),
+        expect_s=integer(form, f"source_{role}_expect_s", 0),
+        ask_topic=text(form, f"source_{role}_ask_topic"),
+        ask_payload=text(form, f"source_{role}_ask_payload"),
+        reply_topic=text(form, f"source_{role}_reply_topic"),
+        reply_path=text(form, f"source_{role}_reply_path"),
+        ask_while_running=checkbox(form, f"source_{role}_ask_while_running"),
+        ask_every_s=number(form, f"source_{role}_ask_every_s", 1.0),
     )
 
 
-def inputs_from(form: FormData, existing: InputsSettings | None = None) -> InputsSettings:
-    """The broker to listen to, and what each of the eight inputs is called.
+def mqtt_from(form: FormData, existing: MqttSettings | None = None) -> MqttSettings:
+    """The broker, what each input carries, and what to listen to.
 
-    A blank name means nothing is wired to that input. There is nothing else to
-    read: the input number is the identity, so there is no separate list of
-    names to keep in step with it and no way for the two to disagree.
+    One form where there were two, because there is one connection now. The
+    sections were named after the hardware, which is what forced a code change
+    every time somebody wanted to use different hardware.
     """
-    # Same rule as the SMTP and device passwords: the stored one is never sent
-    # to the browser, so an empty box means unchanged rather than cleared.
-    password = optional_text(form, "inputs_password")
-    if password is None and existing is not None and not checkbox(form, "inputs_clear_password"):
+    # Same rule as the SMTP password: the stored one is never sent to the
+    # browser, so an empty box means unchanged rather than cleared.
+    password = optional_text(form, "mqtt_password")
+    if password is None and existing is not None and not checkbox(form, "mqtt_clear_password"):
         password = existing.password
 
     channels = [
@@ -168,20 +168,16 @@ def inputs_from(form: FormData, existing: InputsSettings | None = None) -> Input
         )
         for number_ in range(1, 9)
     ]
-    return InputsSettings(
-        enabled=checkbox(form, "inputs_enabled"),
-        host=text(form, "inputs_host"),
-        port=integer(form, "inputs_port", 1883),
-        username=text(form, "inputs_username"),
+    return MqttSettings(
+        enabled=checkbox(form, "mqtt_enabled"),
+        host=text(form, "mqtt_host"),
+        port=integer(form, "mqtt_port", 1883),
+        username=text(form, "mqtt_username"),
         password=password or "",
-        encrypted=checkbox(form, "inputs_encrypted"),
-        topic=text(form, "inputs_topic", "pitwatch/inputs") or "pitwatch/inputs",
-        status_topic=text(form, "inputs_status_topic", "pitwatch/status") or "pitwatch/status",
-        client_id=text(form, "inputs_client_id", "pitwatch") or "pitwatch",
-        heartbeat_topic=text(form, "inputs_heartbeat_topic", "pitwatch/heartbeat")
-        or "pitwatch/heartbeat",
-        heartbeat_s=integer(form, "inputs_heartbeat_s", 60),
-        debounce_ms=integer(form, "inputs_debounce_ms", 0),
+        encrypted=checkbox(form, "mqtt_encrypted"),
+        client_id=text(form, "mqtt_client_id", "pitwatch") or "pitwatch",
+        debounce_ms=integer(form, "mqtt_debounce_ms", 0),
+        sources=[source_from(form, role) for role in SOURCE_ROLES],
         channels=channels,
     )
 

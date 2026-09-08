@@ -100,7 +100,7 @@ async def facts(app, window: series.Window = WINDOW) -> dict:
     """
     store: SettingsStore = app.state.settings
     pool: asyncpg.Pool = app.state.pool
-    clamp = store.shelly.clamp_for_pump
+    clamp = store.mqtt.clamp_for_pump
     history: CurrentHistory | None = getattr(app.state, "history", None)
 
     pumps = []
@@ -178,7 +178,7 @@ async def facts(app, window: series.Window = WINDOW) -> dict:
         ),
     }
 
-    inputs = store.inputs
+    inputs = store.mqtt
     assigned = list(inputs.used_channels)
     spans = await series.contact_spans(pool, [mapped.channel for mapped in assigned], window)
     contacts = [

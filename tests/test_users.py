@@ -417,13 +417,13 @@ def test_a_signed_in_non_admin_cannot_reach_the_dashboard_lamps(client):
     assert page.status_code in (303, 403), page.status_code
 
     save = client.post(
-        "/settings/inputs", data={"channel_3_role": "high_water"}, follow_redirects=False
+        "/settings/mqtt", data={"channel_3_role": "high_water"}, follow_redirects=False
     )
     assert save.status_code in (303, 403)
 
     # And alerts, which has its own place in the header now.
     assert client.get("/alerts", follow_redirects=False).status_code in (303, 403)
-    assert client.app.state.settings.inputs.channel_for("high_water") is None
+    assert client.app.state.settings.mqtt.channel_for("high_water") is None
 
 
 # -- the list, and the forms that are not on it ------------------------------

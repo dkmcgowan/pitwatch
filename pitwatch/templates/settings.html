@@ -21,19 +21,10 @@
 </section>
 
 <section class="card">
-  <h2>The Shelly EM</h2>
-  <form method="post" action="/settings/shelly" autocomplete="off">
+  <h2>Devices</h2>
+  <form method="post" action="/settings/mqtt" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    {{ fields.shelly_fields(shelly) }}
-    <button type="submit" class="button">Save</button>
-  </form>
-</section>
-
-<section class="card">
-  <h2>The panel inputs</h2>
-  <form method="post" action="/settings/inputs">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    {{ fields.inputs_fields(inputs, roles) }}
+    {{ fields.mqtt_fields(mqtt, roles, profiles) }}
     <button type="submit" class="button">Save</button>
   </form>
 </section>

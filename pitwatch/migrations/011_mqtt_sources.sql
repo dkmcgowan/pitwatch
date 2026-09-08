@@ -11,20 +11,21 @@
 -- anything. Everything that was configured stays configured, under a shape
 -- that does not know what a Shelly is.
 --
--- Three things are deliberately not guessed at:
+-- The clamp sources are filled in with topics and an ask payload that suit a
+-- Shelly Gen2 or Gen3 meter, because that is what is on the pit this was
+-- written against and a working default beats an empty box. Nothing in the
+-- code knows that: they are four strings in a settings row, and anybody with
+-- different hardware edits them. That is the whole point of the change.
 --
--- 1. The meter's topics. It was read over a websocket, so there were no topics
---    to carry over, and inventing them would produce an installation that
---    looks configured and hears nothing. The clamp sources are written with
---    their roles, their channels and their ask payloads ready, and an empty
---    topic, which reads as "not configured yet" everywhere.
--- 2. The clamp channels. Which meter channel is pump 1 is a fact about which
+-- Two things are deliberately not guessed at:
+--
+-- 1. The clamp channels. Which meter channel is pump 1 is a fact about which
 --    clamp somebody put around which wire, and the readings already stored are
 --    filed under those numbers. Changing them would leave last month's amps
 --    describing the other pump.
--- 3. Whether MQTT is on. It carries over the old inputs setting, because the
---    contacts were already arriving this way and they are the half that
---    decides whether a pump ran.
+-- 2. Whether the connection is on. It carries over the old inputs setting,
+--    because the contacts were already arriving this way and they are the half
+--    that decides whether a pump ran.
 
 INSERT INTO setting (key, value, updated_at)
 SELECT
@@ -68,21 +69,24 @@ SELECT
                 'path',    '',
                 'expect_s', coalesce((inputs.value ->> 'heartbeat_s')::int, 0)
             ),
-            -- The two clamps, ready but not connected. A topic has to be typed
-            -- in once, because there never was one: the meter was read over a
-            -- websocket. Everything else is filled in, including the request
-            -- that fetches a reading mid run, which is the one thing a meter
-            -- publishing on change cannot do for itself.
+            -- The two clamps. There were no topics to carry over, because the
+            -- meter was read over a websocket, so these are defaults rather
+            -- than migrated values: the topics and the request a Shelly Gen2
+            -- or Gen3 answers to. The request is the one thing a meter
+            -- publishing on change cannot do for itself, and it is four
+            -- strings in a settings row rather than anything the code knows.
             jsonb_build_object(
                 'name',     'Pump 1 clamp',
                 'role',     'clamp1',
-                'topic',    '',
+                'topic',    'shellyemg3/status/em1:0',
                 'profile',  'number',
                 'path',     'current',
                 'channel',  coalesce((shelly.value ->> 'pump1_channel')::int, 0),
                 'expect_s', 45,
-                'ask_topic',   '',
-                'ask_payload', '',
+                'ask_topic',   'shellyemg3/rpc',
+                'ask_payload',
+                    '{"id":1,"src":"pitwatch","method":"EM1.GetStatus","params":{"id":0}}',
+                'reply_topic', 'pitwatch/rpc',
                 'reply_path',  'result.current',
                 'ask_while_running', true,
                 'ask_every_s', 1.0
@@ -90,13 +94,15 @@ SELECT
             jsonb_build_object(
                 'name',     'Pump 2 clamp',
                 'role',     'clamp2',
-                'topic',    '',
+                'topic',    'shellyemg3/status/em1:1',
                 'profile',  'number',
                 'path',     'current',
                 'channel',  coalesce((shelly.value ->> 'pump2_channel')::int, 1),
                 'expect_s', 45,
-                'ask_topic',   '',
-                'ask_payload', '',
+                'ask_topic',   'shellyemg3/rpc',
+                'ask_payload',
+                    '{"id":2,"src":"pitwatch","method":"EM1.GetStatus","params":{"id":1}}',
+                'reply_topic', 'pitwatch/rpc',
                 'reply_path',  'result.current',
                 'ask_while_running', true,
                 'ask_every_s', 1.0
@@ -111,10 +117,10 @@ ON CONFLICT (key) DO NOTHING;
 -- A fresh install has neither row, so the join above produces nothing and the
 -- settings model's own defaults apply. Nothing to do here for that case.
 
--- The old rows stay for now. They are what this was built from, they cost a
--- few hundred bytes, and an operator who has to roll back to the previous
--- release should find their meter's address where they left it. They go when
--- the readers that read them go.
+-- And the old rows go, because the readers that read them are gone in the same
+-- commit. Leaving settings behind for code that no longer exists is how a
+-- settings table turns into an archaeology site.
+DELETE FROM setting WHERE key IN ('shelly', 'inputs');
 
 -- Sources report themselves by role, so device_status stops being a closed set
 -- of device names. It was already widened once, to add the weather poller, and
@@ -126,3 +132,5 @@ ALTER TABLE device_status ADD CONSTRAINT device_status_device_check
 INSERT INTO device_status (device)
 VALUES ('contacts'), ('heartbeat'), ('clamp1'), ('clamp2')
 ON CONFLICT (device) DO NOTHING;
+
+DELETE FROM device_status WHERE device IN ('shelly', 'inputs');

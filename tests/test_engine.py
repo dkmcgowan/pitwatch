@@ -16,10 +16,10 @@ from pitwatch.domain.engine import AlertEngine
 from pitwatch.schemas import (
     AlertsSettings,
     ChannelMap,
-    InputsSettings,
+    MqttSettings,
+    MqttSource,
     PumpsSettings,
     Severity,
-    ShellySettings,
     SiteSettings,
     SmsSettings,
     SmtpSettings,
@@ -46,8 +46,13 @@ def _store(alerts: AlertsSettings | None = None, **contact_states):
     return SimpleNamespace(
         alerts=alerts or AlertsSettings(),
         site=SiteSettings(name="A pit"),
-        inputs=InputsSettings(channels=channels),
-        shelly=ShellySettings(pump1_channel=0, pump2_channel=1),
+        mqtt=MqttSettings(
+            channels=channels,
+            sources=[
+                MqttSource(role="clamp1", topic="a", profile="number", channel=0),
+                MqttSource(role="clamp2", topic="b", profile="number", channel=1),
+            ],
+        ),
         pumps=PumpsSettings(),
         smtp=SmtpSettings(),
         sms=SmsSettings(),
@@ -160,7 +165,7 @@ async def test_a_rule_with_nothing_to_read_says_nothing(pool, sent):
     one somebody learns to ignore."""
     await _a_person(pool)
     store = _store()
-    store.inputs = InputsSettings(channels=[])  # nothing wired at all
+    store.mqtt = MqttSettings(channels=[])  # nothing wired at all
 
     await _engine(pool, store, _Contacts()).sweep()
 

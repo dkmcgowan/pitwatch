@@ -48,8 +48,8 @@ from datetime import UTC, datetime
 import aiomqtt
 
 from pitwatch.ingest import payloads
-from pitwatch.ingest.inputs import Debouncer, IoEvent
-from pitwatch.ingest.shelly import EmSample
+from pitwatch.ingest.contacts import Debouncer, IoEvent
+from pitwatch.ingest.readings import EmSample
 from pitwatch.schemas import MqttSettings, MqttSource
 
 log = logging.getLogger(__name__)
@@ -496,4 +496,113 @@ class MqttReader:
             await self._report(source, online, error)
 
 
-__all__ = ["MqttError", "MqttReader", "topic_matches"]
+async def probe(settings: MqttSettings, source: MqttSource, wait_s: float = 5.0) -> dict:
+    """Listen on one topic for one body and report what it said.
+
+    The settings page calls this while somebody is standing at the panel, so
+    they can lift a float by hand and watch a row change. That is by far the
+    fastest way to get the channel map right, and reading the wire labels is
+    how it ends up wrong.
+
+    It waits rather than asks, because for most sources there is nothing to
+    ask: a device publishing on change that has nothing to report has nothing
+    to say, and the honest answer is to say so. Where a source does have
+    something to ask, it is asked once first, so a meter sitting on an idle pit
+    still answers.
+
+    One probe for every kind of source, which is the point. There were two, one
+    per device, and each knew what its device published.
+    """
+    if not source.topic:
+        return {"ok": False, "error": "Give the source a topic to listen on first"}
+
+    heard: dict = {}
+    try:
+        async with asyncio.timeout(wait_s):
+            async with aiomqtt.Client(
+                hostname=settings.host,
+                port=settings.port,
+                username=settings.username or None,
+                password=settings.password or None,
+                identifier=f"{settings.client_id}-probe",
+                tls_params=aiomqtt.TLSParameters() if settings.encrypted else None,
+            ) as client:
+                await client.subscribe(source.topic)
+                if source.asks:
+                    if source.answers_on != source.topic:
+                        await client.subscribe(source.answers_on)
+                    await client.publish(source.ask_topic, source.ask_payload)
+
+                async for message in client.messages:
+                    topic = str(message.topic)
+                    raw = message.payload
+                    text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
+                    reply = source.asks and topic_matches(source.answers_on, topic)
+                    path = source.answer_path if reply else source.path
+                    heard = _read_for_probe(settings, source, text, path)
+                    if heard.get("ok"):
+                        heard["topic"] = topic
+                        return heard
+    except TimeoutError:
+        return {
+            "ok": False,
+            # Not a failure. The connection was fine and nothing moved, which
+            # is the ordinary answer from a device that speaks on change. The
+            # page uses this to keep listening rather than to give up.
+            "waiting": True,
+            "error": (
+                f"Connected to {settings.host}:{settings.port} and heard nothing useful on "
+                f"{source.topic} in {wait_s:.0f} seconds. A device that publishes on change "
+                "says nothing when nothing has changed, so this is the ordinary answer on a "
+                "quiet pit. Lift a float or start a pump and try again."
+            ),
+        }
+    except (aiomqtt.MqttError, OSError) as error:
+        return {"ok": False, "error": f"Could not reach {settings.host}: {error}"}
+    return heard or {"ok": False, "error": "Nothing arrived"}
+
+
+def _read_for_probe(settings: MqttSettings, source: MqttSource, text: str, path: str) -> dict:
+    """What one body meant, in a shape the settings page can draw."""
+    try:
+        if source.profile in payloads.CONTACT_PROFILES:
+            states = payloads.contact_states(source.profile, text, path)
+            if source.input_number and source.profile == "contact":
+                only = next(iter(states.values()), None)
+                states = {} if only is None else {source.input_number: only}
+            if not states:
+                return {"ok": False}
+            return {
+                "ok": True,
+                "kind": "contacts",
+                "body": text[:400],
+                "channels": [
+                    {
+                        "channel": mapped.channel,
+                        "label": mapped.title,
+                        "raw": states.get(mapped.channel),
+                        "state": (
+                            None
+                            if states.get(mapped.channel) is None
+                            else (
+                                not states[mapped.channel]
+                                if mapped.invert
+                                else states[mapped.channel]
+                            )
+                        ),
+                    }
+                    for mapped in settings.channels
+                ],
+            }
+        reading = payloads.value(source.profile, text, path)
+        if reading is None:
+            # A frame that does not carry what was asked for. Keep listening:
+            # a meter publishes several shapes on one topic and only some of
+            # them are the one wanted.
+            return {"ok": False}
+        return {"ok": True, "kind": "value", "value": reading, "body": text[:400]}
+    except payloads.PayloadError as error:
+        return {"ok": False, "error": str(error), "body": text[:400]}
+
+
+__all__ = ["MqttError", "MqttReader", "probe", "topic_matches"]

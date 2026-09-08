@@ -274,7 +274,7 @@ class AlertEngine:
     # -- what the contacts say ----------------------------------------------
 
     def _contact(self, role: str) -> bool | None:
-        channel = self._store.inputs.channel_for(role)
+        channel = self._store.mqtt.channel_for(role)
         if not channel:
             return None
         return self._live_io.state_of(channel)
@@ -349,7 +349,7 @@ class AlertEngine:
         leave the history page unable to say a message was ever sent.
         """
         rules = self._store.alerts
-        inputs = self._store.inputs
+        inputs = self._store.mqtt
         for event in events:
             if not event.state:
                 continue
@@ -490,7 +490,7 @@ class AlertEngine:
         found = {}
         for pump in (1, 2):
             running = self._contact(f"pump{pump}_run")
-            channel = self._store.shelly.clamp_for_pump.get(pump)
+            channel = self._store.mqtt.clamp_for_pump.get(pump)
             if running is None or channel is None:
                 continue
             proven = await self._pool.fetchval(
@@ -522,7 +522,7 @@ class AlertEngine:
         found = {}
         for pump in (1, 2):
             limit = getattr(rule, f"pump{pump}_amps", None)
-            channel = self._store.shelly.clamp_for_pump.get(pump)
+            channel = self._store.mqtt.clamp_for_pump.get(pump)
             if not limit or channel is None:
                 continue
             rows = await self._pool.fetch(
@@ -547,7 +547,7 @@ class AlertEngine:
             return None
         found = {}
         for pump in (1, 2):
-            channel = self._store.shelly.clamp_for_pump.get(pump)
+            channel = self._store.mqtt.clamp_for_pump.get(pump)
             if channel is None:
                 continue
             typical = await self._history.typical(self._pool, channel, domain.RUNNING_AMPS)
@@ -572,7 +572,7 @@ class AlertEngine:
             return None
         found = {}
         for pump in (1, 2):
-            if not self._store.inputs.channel_for(f"pump{pump}_run"):
+            if not self._store.mqtt.channel_for(f"pump{pump}_run"):
                 continue
             recent = await self._recent.from_contacts(self._pool, pump, self._store.site.timezone)
             moved = recent.duration_drift_s
@@ -601,8 +601,8 @@ class AlertEngine:
         """
         rows = await self._pool.fetch("SELECT device, online FROM device_status")
         configured = {
-            "shelly": bool(self._store.shelly.enabled and self._store.shelly.host),
-            "inputs": bool(self._store.inputs.enabled and self._store.inputs.host),
+            "shelly": bool(self._store.mqtt.enabled and self._store.mqtt.host),
+            "inputs": bool(self._store.mqtt.enabled and self._store.mqtt.host),
         }
         gone = [
             _DEVICE_NAMES[row["device"]]

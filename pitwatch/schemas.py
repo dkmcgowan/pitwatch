@@ -86,204 +86,6 @@ class ChannelMap(BaseModel):
         return f"DI{self.channel}"
 
 
-class InputsSettings(BaseModel):
-    """The panel contacts, which arrive over MQTT.
-
-    The device is a ControlByWeb X-408: eight optically isolated inputs, 4 to
-    26 V DC, which suits a 24 V panel. It publishes when an input changes
-    rather than answering when asked, so there is no polling loop here and no
-    poll interval to tune. That is the whole reason for the change: Modbus is
-    master and slave by design and a slave may never speak first, so watching
-    it meant asking five times a second forever and still being up to a poll
-    late.
-
-    **Everything arrives on one topic.** The device is configured to publish
-    all eight inputs together in one JSON body whenever any of them changes, so
-    every message carries the complete state. A message that carried only the
-    input that changed would leave this holding a picture assembled from
-    fragments, and a fragment lost on a reconnect would leave that picture
-    quietly wrong.
-
-    **Online and offline come from the broker.** The device sets a birth
-    message when it connects and a last will that the broker publishes for it
-    when it stops, so a device that loses power says so through the broker
-    rather than being noticed missing after a timeout.
-    """
-
-    KEY: ClassVar[str] = "inputs"
-
-    enabled: bool = False
-
-    # The broker. Bundled alongside this application by default, on the host's
-    # own network, which is why the default is a loopback address: the device
-    # dials in from the LAN and this reads from the same machine.
-    host: str = "127.0.0.1"
-    port: int = Field(default=1883, ge=1, le=65535)
-    username: str = ""
-    password: str = ""
-    # Off by default because the bundled broker listens on loopback. Turn it on
-    # for a broker somewhere else, and set the port to 8883.
-    encrypted: bool = False
-
-    # What the device publishes to, and what the broker publishes for it when
-    # the device stops talking. Both are typed into the device as well; the
-    # instructions in the README give the exact words.
-    topic: str = Field(default="pitwatch/inputs", min_length=1, max_length=200)
-    status_topic: str = Field(default="pitwatch/status", min_length=1, max_length=200)
-
-    # The module's own periodic "I am still here", and how often to expect it.
-    #
-    # The birth and last will pair covers the clean cases well: the broker
-    # publishes the will on the module's behalf the moment the socket drops. It
-    # has one hole, and it is the dangerous direction. A will only reaches a
-    # subscriber that is connected when it fires, so if the module dies while
-    # PitWatch is down, PitWatch comes back, finds a healthy broker, and marks
-    # the module online because nothing has contradicted it. Green forever, on a
-    # module in pieces.
-    #
-    # A heartbeat closes it. Anything arriving on this topic is proof of life,
-    # whatever it says: the device's default body carries an id and an uptime
-    # and no status field at all, and it would be wrong to read it for one.
-    #
-    # Sixty because that is the module's own default, so the two agree out of
-    # the box and the README asks for both in the same breath.
-    #
-    # This was zero to begin with, on the argument that an installation whose
-    # module sends no heartbeat would sit permanently red and teach somebody to
-    # ignore the indicator. That argument does not survive contact with what the
-    # red actually says: "No heartbeat for 180 s, expected every 60 s", which
-    # names the problem and the fix. An unexplained red is what teaches people
-    # to stop looking; a legible one is a setup step asking to be finished. And
-    # a check that only protects the installations whose owner knew to switch it
-    # on protects the wrong half of them.
-    #
-    # Zero still means never hold silence against the module, for a module that
-    # genuinely cannot send one.
-    heartbeat_topic: str = Field(default="pitwatch/heartbeat", max_length=200)
-    heartbeat_s: int = Field(default=60, ge=0, le=3600)
-
-    # How this client identifies itself to the broker. Two clients sharing an
-    # id knock each other off, so it is worth being able to change.
-    client_id: str = Field(default="pitwatch", min_length=1, max_length=64)
-
-    # How long a state has to hold before it counts as a change.
-    #
-    # Off by default, because the module already does it.
-    #
-    # Contacts bounce and a float bobs on the water, so something has to wait
-    # and see whether a change lasts. The X-408 has that setting per input and
-    # applies it at the contact, which is the better place: the bounce never
-    # becomes eight MQTT messages in the first place. Doing it again here only
-    # adds latency, and this is the path an alarm travels down.
-    #
-    # It stays configurable, and not every module debounces. Set it where the
-    # hardware does not, and leave it at zero where the hardware does, which
-    # makes this a straight passthrough: the first message wins, with no
-    # candidate and no timer.
-    debounce_ms: int = Field(default=0, ge=0, le=30_000)
-
-    channels: list[ChannelMap] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def fill_in_every_channel(self) -> InputsSettings:
-        """Always eight, in order, whatever was saved.
-
-        The module has eight inputs whether or not anything is wired to them,
-        and a settings page that showed only the configured ones would have no
-        row to configure the next one in.
-        """
-        by_channel = {channel.channel: channel for channel in self.channels}
-        self.channels = [
-            by_channel.get(number, ChannelMap(channel=number)) for number in range(1, 9)
-        ]
-        return self
-
-    @model_validator(mode="after")
-    def one_input_per_role(self) -> InputsSettings:
-        """A role belongs to one input.
-
-        Two lamps drawn from one contact was allowed while the mapping ran the
-        other way round, and a simple panel really can bring out one contact
-        that is both its high water float and its alarm. It is not worth the
-        confusion here: with the meaning chosen on the input, the same input
-        claiming two meanings has nowhere to be written down, and silently
-        keeping one of them would be worse than saying so.
-        """
-        seen: dict[str, int] = {}
-        for mapped in self.channels:
-            if not mapped.role:
-                continue
-            if mapped.role in seen:
-                raise ValueError(
-                    f"{mapped.title} is on DI{seen[mapped.role]} and DI{mapped.channel}. "
-                    "Each one belongs to a single input."
-                )
-            seen[mapped.role] = mapped.channel
-        return self
-
-    @property
-    def used_channels(self) -> list[ChannelMap]:
-        """The inputs that have been told what they mean, in input order."""
-        return [channel for channel in self.channels if channel.used]
-
-    def channel_for(self, role: str) -> int | None:
-        """Which input carries a role, or None if nothing has been given it."""
-        for mapped in self.channels:
-            if mapped.role == role:
-                return mapped.channel
-        return None
-
-    def label_for(self, channel: int) -> str:
-        """What to call an input, falling back to its terminal marking.
-
-        Never empty. A reading from an input whose role has since been cleared
-        still has to be describable, and DI4 is what is printed on the module.
-        """
-        for mapped in self.channels:
-            if mapped.channel == channel:
-                return mapped.title
-        return f"DI{channel}"
-
-
-class ShellySettings(BaseModel):
-    KEY: ClassVar[str] = "shelly"
-
-    enabled: bool = False
-    host: str = ""
-    # 'client' means PitWatch dials the device and holds the socket open, which
-    # works on a flat network and needs nothing configured on the Shelly.
-    # 'outbound' means the device dials PitWatch, which is what you want when
-    # the Shelly cannot be reached from here but can reach out.
-    mode: str = Field(default="client", pattern="^(client|outbound)$")
-    # Only set when the device has a password on its local web interface.
-    password: str | None = None
-    # Which em1 instance is on each pump. Both are stored and both are read
-    # back as they were saved. An earlier version stored only pump 1 and
-    # returned `1 - pump1_channel` for pump 2, which meant a setting nobody had
-    # written and a rule that had to be remembered everywhere it was read. The
-    # browser keeps the two in step; that is a convenience, not the source of
-    # truth.
-    pump1_channel: int = Field(default=0, ge=0, le=1)
-    pump2_channel: int = Field(default=1, ge=0, le=1)
-    # The device pushes on change. This poll exists only to notice that it has
-    # stopped pushing, which a silent socket does not tell us.
-    heartbeat_s: int = Field(default=30, ge=5, le=600)
-
-    @model_validator(mode="after")
-    def clamps_differ(self) -> ShellySettings:
-        if self.pump1_channel == self.pump2_channel:
-            raise ValueError(
-                "The two pumps cannot read the same clamp. There are two clamps "
-                "and two pumps, so one goes to each."
-            )
-        return self
-
-    @property
-    def clamp_for_pump(self) -> dict[int, int]:
-        """Pump number to clamp, read straight from what was saved."""
-        return {1: self.pump1_channel, 2: self.pump2_channel}
-
-
 class PumpSettings(BaseModel):
     """What one motor is.
 
@@ -548,6 +350,19 @@ class MqttSource(BaseModel):
         return self.name or self.topic or self.role or "source"
 
 
+# The four jobs a source can do, in the order they are shown. Roles rather than
+# device names: what pump 1 draws, what pump 2 draws, which contacts are closed,
+# and that something is still alive.
+SOURCE_ROLES: tuple[str, ...] = ("clamp1", "clamp2", "contacts", "heartbeat")
+
+SOURCE_NAMES: dict[str, str] = {
+    "clamp1": "Pump 1 clamp",
+    "clamp2": "Pump 2 clamp",
+    "contacts": "Panel inputs",
+    "heartbeat": "Panel module",
+}
+
+
 class MqttSettings(BaseModel):
     """The broker, and everything PitWatch listens to on it.
 
@@ -596,11 +411,90 @@ class MqttSettings(BaseModel):
     channels: list[ChannelMap] = Field(default_factory=list)
 
     @model_validator(mode="after")
+    def fill_in_every_source(self) -> MqttSettings:
+        """Always four, in order, whatever was saved.
+
+        The same reasoning as the eight inputs below. A page showing only the
+        sources somebody had already configured would have no row to configure
+        the next one in, and a fresh install would show an empty box where the
+        whole of ingest is meant to be.
+
+        A row with no topic is not a source. `used_sources` is what the reader
+        subscribes to, and an empty topic keeps a row out of it.
+
+        The duplicate check is here rather than in a validator of its own,
+        because filling in by role would quietly drop the second of two rows
+        claiming the same job and there would be nothing left to complain
+        about.
+        """
+        seen: set[str] = set()
+        for source in self.sources:
+            if not source.role:
+                continue
+            if source.role in seen:
+                raise ValueError(
+                    f"Two sources both say they are {source.role}. Readings from both "
+                    f"would be filed under one pump."
+                )
+            seen.add(source.role)
+
+        by_role = {source.role: source for source in self.sources if source.role}
+        self.sources = [
+            by_role.get(role, MqttSource(role=role, name=SOURCE_NAMES[role]))
+            for role in SOURCE_ROLES
+        ]
+        return self
+
+    @model_validator(mode="after")
     def fill_in_every_channel(self) -> MqttSettings:
+        """Always eight, in order, whatever was saved.
+
+        A module brings out eight inputs whether or not anything is wired to
+        them, and a settings page showing only the configured ones would have
+        no row to configure the next one in.
+        """
         by_channel = {channel.channel: channel for channel in self.channels}
         self.channels = [
             by_channel.get(number, ChannelMap(channel=number)) for number in range(1, 9)
         ]
+        return self
+
+    @model_validator(mode="after")
+    def one_input_per_role(self) -> MqttSettings:
+        """Two inputs claiming to be the high float is a panel nobody can read.
+
+        Caught here rather than on the page, because the page is not the only
+        way a setting gets written.
+        """
+        seen: dict[str, int] = {}
+        for mapped in self.channels:
+            if not mapped.role:
+                continue
+            if mapped.role in seen:
+                raise ValueError(
+                    f"Inputs {seen[mapped.role]} and {mapped.channel} both say they carry "
+                    f"{mapped.title}. Each one lives on a single input."
+                )
+            seen[mapped.role] = mapped.channel
+        return self
+
+    @model_validator(mode="after")
+    def clamps_record_apart(self) -> MqttSettings:
+        """Both pumps filed under one channel is two motors in one bucket.
+
+        Nothing downstream could tell them apart afterwards, and the readings
+        would look like one pump running twice as often.
+        """
+        used: dict[int, str] = {}
+        for source in self.sources:
+            if source.role not in ("clamp1", "clamp2") or source.channel is None:
+                continue
+            if source.channel in used:
+                raise ValueError(
+                    f"{used[source.channel]} and {source.role} would both record under "
+                    f"channel {source.channel}. The two pumps cannot read the same clamp."
+                )
+            used[source.channel] = source.role
         return self
 
     @property
@@ -622,6 +516,33 @@ class MqttSettings(BaseModel):
             if channel.role == role:
                 return channel.channel
         return None
+
+    def label_for(self, channel: int) -> str:
+        """What to call an input, falling back to its terminal marking.
+
+        Never empty. A reading from an input whose role has since been cleared
+        still has to be describable, and DI4 is what is printed on the module.
+        """
+        for mapped in self.channels:
+            if mapped.channel == channel:
+                return mapped.title
+        return f"DI{channel}"
+
+    @property
+    def clamp_for_pump(self) -> dict[int, int]:
+        """Which recorded channel holds each pump's readings.
+
+        Read off the sources rather than from a pair of fields, because a
+        source is where that fact now lives. The fallback matters on a fresh
+        install with nothing configured: pump 1 under 0 and pump 2 under 1 is
+        the arrangement every two channel meter ships with, and a dashboard
+        asking for readings has to have an answer either way.
+        """
+        found = {}
+        for pump in (1, 2):
+            source = self.source_for(f"clamp{pump}")
+            found[pump] = source.channel if source and source.channel is not None else pump - 1
+        return found
 
 
 class Severity(StrEnum):
@@ -1106,8 +1027,6 @@ SETTING_MODELS: tuple[type[BaseModel], ...] = (
     WeatherSettings,
     MqttSettings,
     AlertsSettings,
-    ShellySettings,
-    InputsSettings,
     PumpsSettings,
     SmtpSettings,
     SmsSettings,

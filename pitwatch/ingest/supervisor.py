@@ -20,19 +20,18 @@ import asyncpg
 
 from pitwatch.domain.engine import AlertEngine
 from pitwatch.domain.runs import RunRecorder
-from pitwatch.ingest.inputs import InputsReader
-from pitwatch.ingest.shelly import ShellyReader
+from pitwatch.ingest.mqtt import MqttReader
 from pitwatch.ingest.sink import IoSink, LiveIo, LiveState, SampleSink, record_device_status
 from pitwatch.ingest.weather import WeatherReader
-from pitwatch.schemas import InputsSettings, ShellySettings, SiteSettings, WeatherSettings
+from pitwatch.schemas import MqttSettings, SiteSettings, WeatherSettings
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
 
 # Which settings key each reader cares about. Saving an SMTP password should
-# not drop the connection to the meter, so anything not listed here is ignored.
-SHELLY_KEYS = {ShellySettings.KEY}
-INPUT_KEYS = {InputsSettings.KEY}
+# not drop the connection to the broker, so anything not listed here is
+# ignored.
+MQTT_KEYS = {MqttSettings.KEY}
 # Two keys, because the coordinates live on the site and the switch lives on
 # the weather settings. Moving the pit and turning the rain off are both
 # reasons to restart the poller.
@@ -59,10 +58,10 @@ class Supervisor:
         self.sink = SampleSink(pool, live)
         self.io_sink = IoSink(pool, live_io)
 
-        # The live Shelly reader, so the panel's run contacts can tell it when
-        # to look closely. None whenever the meter is not configured or is
-        # between reconnections, which is why every use is guarded.
-        self._shelly: ShellyReader | None = None
+        # The live reader, so the panel's run contacts can tell it when to ask
+        # the meter for a reading. None whenever nothing is configured or the
+        # connection is between attempts, which is why every use is guarded.
+        self._reader: MqttReader | None = None
 
         self._tasks: dict[str, asyncio.Task] = {}
         self._stops: dict[str, asyncio.Event] = {}
@@ -74,8 +73,7 @@ class Supervisor:
         self._spawn("sink", self.sink.run)
         if self._engine is not None:
             self._spawn("alerts", self._engine.run)
-        await self._start_shelly()
-        await self._start_inputs()
+        await self._start_mqtt()
         await self._start_weather()
 
         self._queue = self._store.subscribe()
@@ -99,40 +97,41 @@ class Supervisor:
 
     # -- readers ------------------------------------------------------------
 
-    async def _start_shelly(self) -> None:
-        # Dropped first, so a restart or a disabled meter cannot leave the run
-        # contacts talking to a reader whose socket has gone.
-        self._shelly = None
-        settings = self._store.shelly
+    async def _start_mqtt(self) -> None:
+        """One connection, carrying everything the panel has to say.
+
+        There were two of these, and only one of them was MQTT: the meter was
+        read over a websocket PitWatch opened to the device. That direction is
+        what this change is about. A pull design needs a route from the
+        application to every device, which works on a LAN and stops the moment
+        the application is anywhere else, and it hides its own dependencies:
+        the meter sat on a guest network for fifteen days with no route to the
+        broker and nothing noticed, because the only path in use was the one
+        the firewall happened to allow.
+        """
+        # Dropped first, so a restart cannot leave the run contacts talking to
+        # a reader whose connection has gone.
+        self._reader = None
+        settings = self._store.mqtt
+
+        async def on_status(role: str, online: bool, error: str | None) -> None:
+            await record_device_status(self._pool, role, online, error)
+
         if not settings.enabled or not settings.host:
-            log.info("Shelly ingest is off: no address configured")
-            await record_device_status(self._pool, "shelly", False, "Not configured")
+            log.info("Ingest is off: no broker configured")
+            for source in settings.used_sources:
+                await record_device_status(self._pool, source.role, False, "Not configured")
             return
-
-        async def on_status(online: bool, error: str | None) -> None:
-            await record_device_status(self._pool, "shelly", online, error)
-
-        reader = ShellyReader(settings, self.sink.submit, on_status)
-        self._shelly = reader
-        self._spawn("shelly", reader.run)
-        log.info("Shelly ingest started for %s", settings.host)
-
-    async def _start_inputs(self) -> None:
-        settings = self._store.inputs
-        if not settings.enabled or not settings.host:
-            log.info("Panel input ingest is off")
-            await record_device_status(self._pool, "inputs", False, "Not configured")
+        if not settings.used_sources:
+            log.info("Ingest has nothing to listen to: no sources configured")
             return
-
-        async def on_status(online: bool, error: str | None) -> None:
-            await record_device_status(self._pool, "inputs", online, error)
 
         known = await self.io_sink.prime()
 
-        # The contacts are what a run is made of now, so every batch goes to
-        # the recorder as well as to the event log. Recorded after, not
-        # instead: if the derived layer fails, what the panel actually said is
-        # already safely written down.
+        # The contacts are what a run is made of, so every batch goes to the
+        # recorder as well as to the event log. Recorded after, not instead: if
+        # the derived layer fails, what the panel actually said is already
+        # safely written down.
         recorder = RunRecorder(self._pool, self._store)
 
         async def on_events(events) -> None:
@@ -147,10 +146,20 @@ class Supervisor:
                 await self._engine.on_events(events)
                 self._engine.nudge()
 
-        reader = InputsReader(settings, on_events, on_status, initial_state=known)
-        self._spawn("inputs", reader.run)
+        reader = MqttReader(
+            settings,
+            on_events=on_events,
+            on_samples=self.sink.submit,
+            on_status=on_status,
+            initial_state=known,
+        )
+        self._reader = reader
+        self._spawn("mqtt", reader.run)
         log.info(
-            "Panel input ingest listening to the broker at %s:%d", settings.host, settings.port
+            "Listening to the broker at %s:%d for %d source(s)",
+            settings.host,
+            settings.port,
+            len(settings.used_sources),
         )
 
     async def _start_weather(self) -> None:
@@ -183,22 +192,24 @@ class Supervisor:
     def _watch_the_clamps(self) -> None:
         """Tell the meter to look closely while a pump is turning.
 
-        The meter publishes on change, which on a pit that runs for twelve
-        seconds means two or three readings in the first four and nothing
-        after. The panel knows when a pump started, so the reader is asked to
-        poll for the length of the run rather than being left to notice.
+        A meter publishes on change, which on a pit that runs for twelve
+        seconds means two or three readings in the first three and nothing
+        after. Measured again over MQTT on 2026-09-07 and it was the same
+        shape, because it is the same notification down a different pipe. The
+        panel knows when a pump started, so the reader is asked to poll for the
+        length of the run rather than being left to notice.
 
         Read from the live contact state rather than from the events just
         handled, because a body carries every input and what matters here is
         whether either pump is running now, not which one changed.
         """
-        reader = self._shelly
+        reader = self._reader
         if reader is None:
             return
-        inputs = self._store.inputs
+        settings = self._store.mqtt
         running = False
         for pump in (1, 2):
-            channel = inputs.channel_for(f"pump{pump}_run")
+            channel = settings.channel_for(f"pump{pump}_run")
             if channel and self._live_io.state_of(channel):
                 running = True
         reader.watch_run(running)
@@ -243,14 +254,10 @@ class Supervisor:
             while not self._queue.empty():
                 keys.add(self._queue.get_nowait())
 
-            if keys & SHELLY_KEYS:
-                log.info("Shelly settings changed, restarting ingest")
-                await self._kill("shelly")
-                await self._start_shelly()
-            if keys & INPUT_KEYS:
-                log.info("Panel input settings changed, restarting ingest")
-                await self._kill("inputs")
-                await self._start_inputs()
+            if keys & MQTT_KEYS:
+                log.info("Broker settings changed, restarting ingest")
+                await self._kill("mqtt")
+                await self._start_mqtt()
             if keys & WEATHER_KEYS:
                 log.info("Weather settings changed, restarting the poller")
                 await self._kill("weather")

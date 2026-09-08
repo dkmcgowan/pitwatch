@@ -59,20 +59,33 @@ SETUP_FORM = {
     "site_timezone": "America/New_York",
     "notify_delay_s": "5",
     "notify_cooldown_s": "900",
-    "shelly_enabled": "on",
-    "shelly_host": "192.168.1.50",
-    "shelly_pump1_channel": "1",
-    "shelly_pump2_channel": "0",
-    "shelly_heartbeat_s": "30",
-    "inputs_enabled": "on",
-    "inputs_host": "192.168.1.51",
-    "inputs_port": "1883",
-    "inputs_username": "pitwatch",
-    "inputs_password": "broker-secret",
-    "inputs_topic": "pitwatch/inputs",
-    "inputs_status_topic": "pitwatch/status",
-    "inputs_client_id": "pitwatch",
-    "inputs_debounce_ms": "500",
+    # One broker where there were two device sections, and a row per job.
+    "mqtt_enabled": "on",
+    "mqtt_host": "192.168.1.51",
+    "mqtt_port": "1883",
+    "mqtt_username": "pitwatch",
+    "mqtt_password": "broker-secret",
+    "mqtt_client_id": "pitwatch",
+    "mqtt_debounce_ms": "500",
+    "source_contacts_name": "Panel inputs",
+    "source_contacts_topic": "pitwatch/inputs",
+    "source_contacts_profile": "contact_map",
+    "source_heartbeat_name": "Panel module",
+    "source_heartbeat_topic": "pitwatch/heartbeat",
+    "source_heartbeat_profile": "number",
+    "source_heartbeat_expect_s": "60",
+    "source_clamp1_name": "Pump 1 clamp",
+    "source_clamp1_topic": "meter/status/em1:1",
+    "source_clamp1_profile": "number",
+    "source_clamp1_path": "current",
+    "source_clamp1_channel": "1",
+    "source_clamp1_expect_s": "45",
+    "source_clamp2_name": "Pump 2 clamp",
+    "source_clamp2_topic": "meter/status/em1:0",
+    "source_clamp2_profile": "number",
+    "source_clamp2_path": "current",
+    "source_clamp2_channel": "0",
+    "source_clamp2_expect_s": "45",
     "channel_1_role": "lead_float",
     "channel_2_role": "lag_float",
     "channel_3_role": "high_water",
@@ -108,7 +121,8 @@ def test_setup_saves_everything(client):
     settings = client.get("/settings")
     assert settings.status_code == 200
     assert "192.168.1.51" in settings.text
-    assert "The panel inputs" in settings.text
+    assert "Panel inputs" in settings.text, "the source kept the name it was given"
+    assert "pitwatch/inputs" in settings.text, "and the topic it listens on"
 
 
 def test_setup_sends_you_to_settings_once_it_has_been_used(client):
@@ -153,9 +167,8 @@ def test_the_clamp_choice_is_stored_the_way_it_was_made(client):
     assert state["pumps"]["2"]["channel"] == 0
     assert state["pumps"]["1"]["name"] == "Pump 1"
 
-    stored = client.app.state.settings.shelly
-    assert stored.pump1_channel == 1
-    assert stored.pump2_channel == 0
+    stored = client.app.state.settings.mqtt
+    assert stored.clamp_for_pump == {1: 1, 2: 0}
 
 
 def test_swapping_the_clamps_takes_effect_both_ways(client):
@@ -163,8 +176,8 @@ def test_swapping_the_clamps_takes_effect_both_ways(client):
     client.post("/setup", data=SETUP_FORM)
 
     client.post(
-        "/settings/shelly",
-        data=SETUP_FORM | {"shelly_pump1_channel": "0", "shelly_pump2_channel": "1"},
+        "/settings/mqtt",
+        data=SETUP_FORM | {"source_clamp1_channel": "0", "source_clamp2_channel": "1"},
     )
 
     state = client.get("/api/state").json()
@@ -182,14 +195,14 @@ def test_putting_both_pumps_on_one_clamp_is_refused(client):
     client.post("/setup", data=SETUP_FORM)
 
     response = client.post(
-        "/settings/shelly",
-        data=SETUP_FORM | {"shelly_pump1_channel": "1", "shelly_pump2_channel": "1"},
+        "/settings/mqtt",
+        data=SETUP_FORM | {"source_clamp1_channel": "1", "source_clamp2_channel": "1"},
     )
 
     assert response.status_code == 400
     assert "same clamp" in response.text
     # And the previous, valid mapping is untouched.
-    assert client.app.state.settings.shelly.clamp_for_pump == {1: 1, 2: 0}
+    assert client.app.state.settings.mqtt.clamp_for_pump == {1: 1, 2: 0}
 
 
 def test_settings_need_a_sign_in(client):
@@ -342,56 +355,48 @@ def test_the_twilio_secret_is_kept_when_the_box_is_left_empty(client):
     assert client.app.state.settings.sms.twilio_auth_token == "the-key-secret"
 
 
-def test_the_shelly_password_is_kept_when_the_box_is_left_empty(client):
-    """Same rule as SMTP, and easier to get wrong because it is a device.
+def test_the_broker_password_is_kept_when_the_box_is_left_empty(client):
+    """Saving the sources to change a topic must not silently drop the broker
+    password and leave the panel unheard."""
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
 
-    Saving the Shelly section to change the clamp mapping must not silently
-    drop the device password and leave ingest unable to authenticate.
+    client.post(
+        "/settings/mqtt", data={k: v for k, v in SETUP_FORM.items() if k != "mqtt_password"}
+    )
+
+    assert client.app.state.settings.mqtt.password == "broker-secret"
+
+
+def test_the_broker_password_can_be_cleared_on_purpose(client):
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    without = {k: v for k, v in SETUP_FORM.items() if k != "mqtt_password"}
+    client.post("/settings/mqtt", data=without | {"mqtt_clear_password": "on"})
+
+    assert client.app.state.settings.mqtt.password == ""
+
+
+def test_the_broker_password_never_reaches_the_browser(client):
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    assert "broker-secret" not in client.get("/settings").text
+
+
+def test_the_listen_button_reports_a_broker_it_cannot_reach(client):
+    """Unreachable is an answer, not an error.
+
+    192.0.2.1 is reserved for documentation and routes nowhere, so this
+    exercises the failure path without depending on what is on the network.
     """
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-    client.post(
-        "/settings/shelly",
-        data=SETUP_FORM | {"shelly_password": "the-device-password"},
-    )
-
-    # Swapping means moving both, now that both are stored rather than one
-    # being inferred from the other.
-    client.post(
-        "/settings/shelly",
-        data=SETUP_FORM | {"shelly_pump1_channel": "0", "shelly_pump2_channel": "1"},
-    )
-
-    store = client.app.state.settings
-    assert store.shelly.password == "the-device-password"
-    assert store.shelly.clamp_for_pump == {1: 0, 2: 1}
-
-
-def test_the_shelly_password_can_be_cleared_on_purpose(client):
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-    client.post("/settings/shelly", data=SETUP_FORM | {"shelly_password": "the-device-password"})
-
-    client.post("/settings/shelly", data=SETUP_FORM | {"shelly_clear_password": "on"})
-
-    assert client.app.state.settings.shelly.password is None
-
-
-def test_the_shelly_password_never_reaches_the_browser(client):
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-    client.post("/settings/shelly", data=SETUP_FORM | {"shelly_password": "the-device-password"})
-
-    assert "the-device-password" not in client.get("/settings").text
-
-
-def test_the_inputs_test_button_reports_a_broker_it_cannot_reach(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     response = client.post(
-        "/api/test/inputs",
-        data={"inputs_host": "192.0.2.1", "inputs_port": "1883"},
+        "/api/test/source",
+        data=SETUP_FORM | {"role": "contacts", "mqtt_host": "192.0.2.1"},
     )
 
     assert response.status_code == 200
@@ -411,8 +416,7 @@ def test_the_state_endpoint_reports_every_source(client):
     would have needed widening again per device, which is the wart the MQTT
     sources exist to remove.
 
-    Mid transition, so the two old device rows are still here. They go when the
-    readers that write them go, and this failing then is the reminder.
+    The two old device rows are gone with the readers that wrote them.
     """
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
@@ -421,33 +425,18 @@ def test_the_state_endpoint_reports_every_source(client):
 
     assert {"clamp1", "clamp2", "contacts", "heartbeat"} <= set(state["devices"]), "the sources"
     assert "weather" in state["devices"]
-    assert {"shelly", "inputs"} <= set(state["devices"]), "still here until their readers go"
+    assert not {"shelly", "inputs"} & set(state["devices"]), "the old names went with the readers"
     assert state["site"]["name"] == "Basement pit"
 
 
-def test_the_shelly_test_button_needs_a_sign_in_once_there_is_an_account(client):
+def test_the_listen_button_needs_a_sign_in_once_there_is_an_account(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
     client.post("/logout")
 
-    response = client.post("/api/test/shelly", data={"shelly_host": "192.168.1.50"})
+    response = client.post("/api/test/source", data={"role": "contacts"})
 
     assert response.status_code == 401
-
-
-def test_the_shelly_test_button_reports_a_device_it_cannot_reach(client):
-    """Unreachable is an answer, not an error.
-
-    192.0.2.1 is reserved for documentation and routes nowhere, so this
-    exercises the failure path without depending on what is on the network.
-    """
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-
-    response = client.post("/api/test/shelly", data={"shelly_host": "192.0.2.1"})
-
-    assert response.status_code == 200
-    assert response.json()["ok"] is False
 
 
 def test_the_dashboard_replaces_the_setup_prompt_once_configured(client):
@@ -498,12 +487,12 @@ def test_the_live_feed_reports_a_pump_with_no_readings_as_unknown(client):
     assert pump["drawing_current"] is False
 
 
-SHELLY_ONLY_FORM = {
+CLAMPS_ONLY_FORM = {
     key: value
     for key, value in SETUP_FORM.items()
-    # Everything except the panel module section, which is how you set this up
-    # while the I/O module is still in the post.
-    if not key.startswith(("inputs_", "channel_"))
+    # Everything except the contacts and what each input carries, which is how
+    # you set this up while the I/O module is still in the post.
+    if not key.startswith(("source_contacts_", "source_heartbeat_", "channel_"))
 }
 
 
@@ -514,14 +503,14 @@ def test_setup_works_with_only_the_clamps_configured(client):
     in ten minutes and the I/O module needs the panel opened up.
     """
     sign_in_as_admin(client)
-    response = client.post("/setup", data=SHELLY_ONLY_FORM, follow_redirects=False)
+    response = client.post("/setup", data=CLAMPS_ONLY_FORM, follow_redirects=False)
 
     assert response.status_code == 303
     assert client.get("/").status_code == 200
 
     state = client.get("/api/state").json()
     assert state["pumps"]["1"]["name"] == "Pump 1"
-    assert state["devices"]["shelly"]["configured"] is True
+    assert state["devices"]["clamp1"]["configured"] is True
 
 
 def test_an_unconfigured_device_is_not_reported_as_a_fault(client):
@@ -531,18 +520,18 @@ def test_an_unconfigured_device_is_not_reported_as_a_fault(client):
     reads this page to ignore the one place that goes red when it matters.
     """
     sign_in_as_admin(client)
-    client.post("/setup", data=SHELLY_ONLY_FORM)
+    client.post("/setup", data=CLAMPS_ONLY_FORM)
 
-    inputs = client.get("/api/state").json()["devices"]["inputs"]
+    contacts = client.get("/api/state").json()["devices"]["contacts"]
 
-    assert inputs["configured"] is False
-    assert inputs["online"] is False
-    assert inputs["last_error"] is None
+    assert contacts["configured"] is False
+    assert contacts["online"] is False
+    assert contacts["last_error"] is None
 
 
 def test_every_contact_reads_as_unknown_without_the_io_module(client):
     sign_in_as_admin(client)
-    client.post("/setup", data=SHELLY_ONLY_FORM)
+    client.post("/setup", data=CLAMPS_ONLY_FORM)
 
     state = client.get("/api/state").json()
 
@@ -569,17 +558,14 @@ def test_adding_the_io_module_later_does_not_need_a_restart(client):
     in the environment.
     """
     sign_in_as_admin(client)
-    client.post("/setup", data=SHELLY_ONLY_FORM)
-    assert client.get("/api/state").json()["devices"]["inputs"]["configured"] is False
+    client.post("/setup", data=CLAMPS_ONLY_FORM)
+    assert client.get("/api/state").json()["devices"]["contacts"]["configured"] is False
 
-    client.post(
-        "/settings/inputs",
-        data={key: value for key, value in SETUP_FORM.items() if key != "shelly_host"},
-    )
+    client.post("/settings/mqtt", data=SETUP_FORM)
 
     state = client.get("/api/state").json()
-    assert state["devices"]["inputs"]["configured"] is True
-    assert client.app.state.settings.inputs.host == "192.168.1.51"
+    assert state["devices"]["contacts"]["configured"] is True
+    assert client.app.state.settings.mqtt.host == "192.168.1.51"
 
 
 def test_the_dashboard_shows_amps_and_nothing_derived_from_voltage(client):
@@ -807,23 +793,23 @@ def test_naming_an_input_is_all_it_takes_to_watch_it(client):
     client.post("/setup", data=SETUP_FORM)
 
     client.post(
-        "/settings/inputs",
+        "/settings/mqtt",
         data={
-            "inputs_enabled": "on",
-            "inputs_host": "192.168.1.51",
+            "mqtt_enabled": "on",
+            "mqtt_host": "192.168.1.51",
             "channel_1_role": "lead_float",
             "channel_2_role": "high_water",
             "channel_2_on_when": "absent",
         },
     )
 
-    channels = client.app.state.settings.inputs.channels
+    channels = client.app.state.settings.mqtt.channels
     assert channels[0].role == "lead_float"
     assert channels[1].role == "high_water"
     assert channels[1].invert is True
     # Everything not named in that post now carries nothing, which is the only
     # way clearing one can work when a form posts the whole section.
-    assert [c.channel for c in client.app.state.settings.inputs.used_channels] == [1, 2]
+    assert [c.channel for c in client.app.state.settings.mqtt.used_channels] == [1, 2]
 
 
 def test_taking_a_lamp_off_an_input_leaves_the_input_working(client):
@@ -834,11 +820,11 @@ def test_taking_a_lamp_off_an_input_leaves_the_input_working(client):
     """
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
-    assert len(client.app.state.settings.inputs.used_channels) == 8
+    assert len(client.app.state.settings.mqtt.used_channels) == 8
 
-    client.post("/settings/inputs", data=SETUP_FORM | {"channel_4_role": ""})
+    client.post("/settings/mqtt", data=SETUP_FORM | {"channel_4_role": ""})
 
-    used = client.app.state.settings.inputs.used_channels
+    used = client.app.state.settings.mqtt.used_channels
     assert [c.channel for c in used] == [1, 2, 3, 5, 6, 7, 8]
 
     panel = client.get("/api/state").json()["panel"]
@@ -853,11 +839,11 @@ def test_moving_a_lamp_to_another_input_moves_what_the_dashboard_reads(client):
     # High water was on DI3. Put it on DI4 instead, which means DI4 has to give
     # up the system alert first: one meaning, one input.
     client.post(
-        "/settings/inputs",
+        "/settings/mqtt",
         data=SETUP_FORM | {"channel_3_role": "", "channel_4_role": "high_water"},
     )
 
-    inputs = client.app.state.settings.inputs
+    inputs = client.app.state.settings.mqtt
     assert inputs.channel_for("high_water") == 4
     assert inputs.channel_for("system_alert") is None
 
@@ -874,7 +860,7 @@ def test_choosing_what_an_input_carries_lights_its_lamp(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
-    inputs = client.app.state.settings.inputs
+    inputs = client.app.state.settings.mqtt
     assert inputs.channel_for("high_water") == 3
     assert inputs.channel_for("pump2_fault") == 8
 
@@ -908,10 +894,10 @@ def test_one_input_cannot_carry_two_lamps(client):
     client.post("/setup", data=SETUP_FORM)
 
     save = client.post(
-        "/settings/inputs",
+        "/settings/mqtt",
         data={
-            "inputs_enabled": "on",
-            "inputs_host": "192.168.1.51",
+            "mqtt_enabled": "on",
+            "mqtt_host": "192.168.1.51",
             "channel_3_role": "high_water",
             "channel_4_role": "high_water",
         },
@@ -1108,21 +1094,25 @@ def test_signing_in_still_takes_over_the_root(client):
     assert "ejector pit sits below the sewer line" not in signed_in.text
 
 
-def test_each_device_gets_its_own_indicator(client):
-    """One dot for both of them meant a green Shelly hid an X-408 that was not
-    set up, which is exactly the state somebody needs to see on a fresh
+def test_each_source_gets_its_own_indicator(client):
+    """One dot for everything meant a working meter hid a panel module that was
+    not set up, which is exactly the state somebody needs to see on a fresh
     install. They also fail for entirely different reasons, so which one is
-    down is the useful half of the answer."""
+    down is the useful half of the answer.
+
+    Named after the job now rather than the hardware, because the hardware
+    behind a source is a setting.
+    """
     sign_in_as_admin(client)
-    client.post("/setup", data=SHELLY_ONLY_FORM)
+    client.post("/setup", data=CLAMPS_ONLY_FORM)
 
     page = client.get("/").text
-    assert 'data-link="shelly"' in page
-    assert 'data-link="inputs"' in page
+    assert 'data-link="contacts"' in page
+    assert 'data-link="clamp1"' in page
 
     devices = client.get("/api/state").json()["devices"]
-    assert devices["shelly"]["configured"] is True
-    assert devices["inputs"]["configured"] is False
+    assert devices["clamp1"]["configured"] is True
+    assert devices["contacts"]["configured"] is False
 
 
 def test_a_seeded_device_is_not_a_device_that_is_there(client):
@@ -1130,10 +1120,10 @@ def test_a_seeded_device_is_not_a_device_that_is_there(client):
     before anybody types anything. Whether a module is plugged into it is not,
     and seeding it on meant a fresh install opened reporting a fault about
     hardware still in its box."""
-    inputs = client.app.state.settings.inputs
+    inputs = client.app.state.settings.mqtt
 
     assert inputs.enabled is False
-    assert client.app.state.settings.shelly.enabled is False
+    assert client.app.state.settings.mqtt.enabled is False
 
 
 def become_a_watcher(client) -> None:

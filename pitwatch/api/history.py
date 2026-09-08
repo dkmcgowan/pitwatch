@@ -82,7 +82,7 @@ async def build_history(app, window: series.Window) -> dict:
     runs = await series.runs_series(pool, window)
     hours = await series.hour_profile(pool, window, zone)
 
-    clamp = store.shelly.clamp_for_pump
+    clamp = store.mqtt.clamp_for_pump
     pumps = {}
     for number, pump in store.pumps.by_number.items():
         channel = clamp[number]

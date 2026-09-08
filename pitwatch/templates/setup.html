@@ -59,13 +59,8 @@
 </section>
 
 <section class="card">
-  <h2>The Shelly EM</h2>
-  {{ fields.shelly_fields(shelly) }}
-</section>
-
-<section class="card">
-  <h2>The panel inputs</h2>
-  {{ fields.inputs_fields(inputs, roles) }}
+  <h2>Devices</h2>
+  {{ fields.mqtt_fields(mqtt, roles, profiles) }}
 </section>
 
 <section class="card">

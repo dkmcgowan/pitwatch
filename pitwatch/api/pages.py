@@ -24,6 +24,7 @@ from pitwatch import auth
 from pitwatch import summary as summaries
 from pitwatch.api import forms
 from pitwatch.domain import alerts as alert_specs
+from pitwatch.ingest import payloads
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
 from pitwatch.schemas import DASHBOARD_ROLES
@@ -44,6 +45,10 @@ def _context(request: Request, **extra) -> dict:
         # page that renders those rows needs it and forgetting it renders eight
         # empty dropdowns rather than an error.
         "roles": DASHBOARD_ROLES,
+        # The shapes a published body can be read as. Beside the roles for the
+        # same reason: every page rendering a source row needs it, and
+        # forgetting it renders an empty dropdown rather than an error.
+        "profiles": payloads.PROFILES,
         **extra,
     }
 
@@ -65,8 +70,7 @@ async def setup_page(request: Request, admin: auth.IsAdmin):
         "setup.html",
         _context(
             request,
-            shelly=store.shelly,
-            inputs=store.inputs,
+            mqtt=store.mqtt,
             pumps=store.pumps,
             error=None,
         ),
@@ -80,8 +84,7 @@ async def setup_submit(request: Request, admin: auth.IsAdmin):
 
     try:
         site = forms.site_from(form)
-        shelly = forms.shelly_from(form, store.shelly)
-        inputs = forms.inputs_from(form, store.inputs)
+        mqtt = forms.mqtt_from(form, store.mqtt)
         pumps = forms.pumps_from(form)
     except (ValueError, ValidationError) as error:
         return _templates(request).TemplateResponse(
@@ -89,15 +92,14 @@ async def setup_submit(request: Request, admin: auth.IsAdmin):
             "setup.html",
             _context(
                 request,
-                shelly=store.shelly,
-                inputs=store.inputs,
+                mqtt=store.mqtt,
                 pumps=store.pumps,
                 error=_readable(error),
             ),
             status_code=400,
         )
 
-    for value in (site, shelly, inputs, pumps):
+    for value in (site, mqtt, pumps):
         await store.put(value)
 
     # The person doing the setup is the first person alerts should reach, and
@@ -120,8 +122,7 @@ async def settings_page(request: Request, admin: auth.IsAdmin, saved: str | None
         "settings.html",
         _context(
             request,
-            shelly=store.shelly,
-            inputs=store.inputs,
+            mqtt=store.mqtt,
             pumps=store.pumps,
             smtp=store.smtp,
             sms=store.sms,
@@ -327,10 +328,8 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
         match section:
             case "site":
                 await store.put(forms.site_from(form))
-            case "shelly":
-                await store.put(forms.shelly_from(form, store.shelly))
-            case "inputs":
-                await store.put(forms.inputs_from(form, store.inputs))
+            case "mqtt":
+                await store.put(forms.mqtt_from(form, store.mqtt))
             case "pumps":
                 await store.put(forms.pumps_from(form))
             case "smtp":
@@ -349,8 +348,7 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
             "settings.html",
             _context(
                 request,
-                shelly=store.shelly,
-                inputs=store.inputs,
+                mqtt=store.mqtt,
                 pumps=store.pumps,
                 smtp=store.smtp,
                 sms=store.sms,

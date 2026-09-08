@@ -21,9 +21,8 @@ from pydantic import BaseModel
 from pitwatch.config import Config
 from pitwatch.schemas import (
     AlertsSettings,
-    InputsSettings,
+    MqttSettings,
     PumpsSettings,
-    ShellySettings,
     SiteSettings,
     SmsSettings,
     SmtpSettings,
@@ -135,12 +134,8 @@ class SettingsStore:
         return self.get(SiteSettings)
 
     @property
-    def shelly(self) -> ShellySettings:
-        return self.get(ShellySettings)
-
-    @property
-    def inputs(self) -> InputsSettings:
-        return self.get(InputsSettings)
+    def mqtt(self) -> MqttSettings:
+        return self.get(MqttSettings)
 
     @property
     def pumps(self) -> PumpsSettings:
@@ -207,22 +202,20 @@ async def seed_from_environment(store: SettingsStore, config: Config) -> None:
     if await store.is_setup_complete():
         return
 
-    # Both of these seed an address and leave the device switched off.
+    # The connection and nothing else, left switched off.
     #
-    # Knowing where something would be is not the same as knowing it is there.
-    # A device seeded on means a fresh install starts by reporting a fault
-    # about hardware that is still in its box, and the first thing anybody
-    # learns is that the red light does not mean anything.
-    if config.seed_shelly_host and not store.shelly.host:
-        await store.put(ShellySettings(host=config.seed_shelly_host.strip()))
-        log.info("Seeded the Shelly address from the environment")
-
+    # Knowing where a broker would be is not the same as knowing anything is
+    # publishing to it. Seeded on, a fresh install would start by reporting a
+    # fault about hardware still in its box, and the first thing anybody learns
+    # is that the red light does not mean anything.
+    #
+    # No sources either. What each input carries is a claim about how somebody
+    # wired a panel, and which topic a meter publishes on is a claim about how
+    # somebody configured it. Guessing either would put lamps on a dashboard
+    # describing equipment nobody has connected.
     if config.seed_broker_host:
-        # The connection only. What each input carries is a claim about how
-        # somebody wired a panel, and guessing that would put eight lamps on
-        # the dashboard describing a module nobody has connected yet.
         await store.put(
-            InputsSettings(
+            MqttSettings(
                 host=config.seed_broker_host.strip(),
                 port=config.seed_broker_port or 1883,
                 username=(config.seed_broker_username or "").strip(),

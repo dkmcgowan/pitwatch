@@ -5,90 +5,18 @@
    also rewrite the channel map. The markup is identical either way, which is
    the whole reason this file exists. #}
 
-{% macro shelly_fields(shelly) %}
+{% macro mqtt_fields(mqtt, roles, profiles) %}
+{# One broker, one connection, and a table of what to listen to.
+
+   There were two sections here, one per device, and only one of them was even
+   MQTT: the meter was read over a websocket PitWatch opened to it. Naming the
+   hardware is what forced a code change every time somebody wanted different
+   hardware, and the pull direction is what stopped working the moment the
+   application was anywhere the panel could not see. #}
 <div class="field">
   <label>
-    <input type="checkbox" name="shelly_enabled" {% if shelly.enabled %}checked{% endif %}>
-    Read current from a Shelly EM
-  </label>
-</div>
-
-<div class="grid">
-  <div class="field">
-    <label for="shelly_host">Address</label>
-    <input type="text" id="shelly_host" name="shelly_host" value="{{ shelly.host }}"
-           placeholder="192.168.1.50" autocomplete="off">
-    <p class="hint">Give it a static address or a DHCP reservation. PitWatch
-      does not go looking for a device that has moved.</p>
-  </div>
-
-  <div class="field">
-    <label for="shelly_password">Device password</label>
-    <input type="password" id="shelly_password" name="shelly_password" autocomplete="new-password"
-           placeholder="{% if shelly.password %}unchanged{% else %}none set{% endif %}">
-    <p class="hint">Only if you set one on the Shelly itself. The user name
-      there is always <code>admin</code>.</p>
-    {% if shelly.password %}
-    <label class="hint">
-      <input type="checkbox" name="shelly_clear_password"> Clear the stored password
-    </label>
-    {% endif %}
-  </div>
-</div>
-
-<div class="field">
-  <label>Which clamp is on which pump</label>
-  <p class="hint">The clamps are identical, so this is the one thing the device
-    cannot work out. Press <strong>Test connection</strong>, start a pump by
-    hand, and see which reading moves.</p>
-
-  {# Both pumps are shown, both are pickable and both are submitted and stored.
-     Changing one moves the other in the browser, because there are only two
-     clamps and that is almost always what you meant; it is a convenience, and
-     the saved value is whatever the form actually sent. #}
-  <div class="table-scroll">
-  <table class="clamps">
-    <tbody>
-      <tr>
-        <th scope="row">Pump 1</th>
-        <td>
-          <select id="shelly_pump1_channel" name="shelly_pump1_channel" data-clamp="1">
-            <option value="0" {% if shelly.pump1_channel == 0 %}selected{% endif %}>Clamp 1 (em1:0)</option>
-            <option value="1" {% if shelly.pump1_channel == 1 %}selected{% endif %}>Clamp 2 (em1:1)</option>
-          </select>
-        </td>
-        <td class="mono muted" data-clamp-reading="1"></td>
-      </tr>
-      <tr>
-        <th scope="row">Pump 2</th>
-        <td>
-          <select id="shelly_pump2_channel" name="shelly_pump2_channel"
-                  data-clamp="2" aria-describedby="clamp-note">
-            <option value="0" {% if shelly.pump2_channel == 0 %}selected{% endif %}>Clamp 1 (em1:0)</option>
-            <option value="1" {% if shelly.pump2_channel == 1 %}selected{% endif %}>Clamp 2 (em1:1)</option>
-          </select>
-        </td>
-        <td class="mono muted" data-clamp-reading="2"></td>
-      </tr>
-    </tbody>
-  </table>
-  </div>
-  <p class="hint" id="clamp-note">Changing either moves the other. Both on one
-    clamp is refused when you save.</p>
-</div>
-
-<div class="field">
-  <button type="button" class="button secondary" data-test-shelly>Test connection</button>
-  <div class="test-result" data-shelly-result hidden></div>
-</div>
-{% endmacro %}
-
-
-{% macro inputs_fields(inputs, roles) %}
-<div class="field">
-  <label>
-    <input type="checkbox" name="inputs_enabled" {% if inputs.enabled %}checked{% endif %}>
-    Read the panel contacts from an X-408
+    <input type="checkbox" name="mqtt_enabled" {% if mqtt.enabled %}checked{% endif %}>
+    Listen to a broker
   </label>
 </div>
 
@@ -96,99 +24,199 @@
 
 <div class="grid">
   <div class="field">
-    <label for="inputs_host">Address</label>
-    <input type="text" id="inputs_host" name="inputs_host" value="{{ inputs.host }}"
+    <label for="mqtt_host">Address</label>
+    <input type="text" id="mqtt_host" name="mqtt_host" value="{{ mqtt.host }}"
            placeholder="127.0.0.1" autocomplete="off">
     <p class="hint">The broker that comes with PitWatch runs on this machine,
-      which is why this is a loopback address. The module reaches it at the
-      host's own address on your network.</p>
+      which is why this is a loopback address. Your devices reach it at this
+      machine's own address on your network.</p>
   </div>
   <div class="field">
-    <label for="inputs_port">Port</label>
-    <input type="number" id="inputs_port" name="inputs_port" value="{{ inputs.port }}" min="1" max="65535">
+    <label for="mqtt_port">Port</label>
+    <input type="number" id="mqtt_port" name="mqtt_port" value="{{ mqtt.port }}" min="1" max="65535">
     <p class="hint">1883 plain, 8883 encrypted.</p>
   </div>
   <div class="field">
-    <label for="inputs_username">User name</label>
-    <input type="text" id="inputs_username" name="inputs_username"
-           value="{{ inputs.username }}" autocomplete="off">
+    <label for="mqtt_username">User name</label>
+    <input type="text" id="mqtt_username" name="mqtt_username"
+           value="{{ mqtt.username }}" autocomplete="off">
   </div>
   <div class="field">
-    <label for="inputs_password">Password</label>
-    <input type="password" id="inputs_password" name="inputs_password" autocomplete="new-password"
-           placeholder="{% if inputs.password %}unchanged{% else %}none set{% endif %}">
-    {% if inputs.password %}
+    <label for="mqtt_password">Password</label>
+    <input type="password" id="mqtt_password" name="mqtt_password" autocomplete="new-password"
+           placeholder="{% if mqtt.password %}unchanged{% else %}none set{% endif %}">
+    {% if mqtt.password %}
     <label class="hint">
-      <input type="checkbox" name="inputs_clear_password"> Clear the stored password
+      <input type="checkbox" name="mqtt_clear_password"> Clear the stored password
     </label>
     {% endif %}
   </div>
   <div class="field">
     <label>
-      <input type="checkbox" name="inputs_encrypted" {% if inputs.encrypted %}checked{% endif %}>
+      <input type="checkbox" name="mqtt_encrypted" {% if mqtt.encrypted %}checked{% endif %}>
       Encrypted
     </label>
     <p class="hint">For a broker somewhere else. The bundled one listens on
       this machine only.</p>
   </div>
   <div class="field">
-    <label for="inputs_client_id">Client name</label>
-    <input type="text" id="inputs_client_id" name="inputs_client_id"
-           value="{{ inputs.client_id }}" autocomplete="off">
+    <label for="mqtt_client_id">Client name</label>
+    <input type="text" id="mqtt_client_id" name="mqtt_client_id"
+           value="{{ mqtt.client_id }}" autocomplete="off">
     <p class="hint">How PitWatch identifies itself. Two clients sharing a name
-      knock each other off.</p>
+      knock each other off, which is not hypothetical: it is what publishes a
+      device's last will when it reconnects.</p>
+  </div>
+  <div class="field">
+    <label for="mqtt_debounce_ms">Contact debounce (ms)</label>
+    <input type="number" id="mqtt_debounce_ms" name="mqtt_debounce_ms"
+           value="{{ mqtt.debounce_ms }}" min="0" max="30000" step="10">
+    <p class="hint">How long a contact has to hold before it counts. Leave at
+      zero where the module already does it at the terminal, which is the
+      better place: the bounce never becomes a message at all.</p>
   </div>
 </div>
 
-<h3>Topics</h3>
+<h3>What to listen to</h3>
 
-<div class="grid">
-  <div class="field">
-    <label for="inputs_topic">Inputs</label>
-    <input type="text" id="inputs_topic" name="inputs_topic" value="{{ inputs.topic }}"
-           autocomplete="off">
-    <p class="hint">Where the module publishes all eight inputs together. Every
-      message carries the whole state, so nothing is assembled from fragments
-      and a message lost on a reconnect cannot leave this quietly wrong.</p>
+<p class="hint">Four jobs, and nothing here knows what your hardware is. Give
+  each one a topic, say how to read the body, and say how long silence is
+  allowed to last. Leave a topic empty and that source is simply not
+  configured.</p>
+
+{% for source in mqtt.sources %}
+<div class="card source-card">
+  <h4>{{ source.name or source.role }}</h4>
+  <div class="grid">
+    <div class="field">
+      <label for="source_{{ source.role }}_name">Name</label>
+      <input type="text" id="source_{{ source.role }}_name"
+             name="source_{{ source.role }}_name" value="{{ source.name }}"
+             autocomplete="off">
+      <p class="hint">What to call it in a log line and on the dashboard.</p>
+    </div>
+    <div class="field">
+      <label for="source_{{ source.role }}_topic">Topic</label>
+      <input type="text" id="source_{{ source.role }}_topic"
+             name="source_{{ source.role }}_topic" value="{{ source.topic }}"
+             autocomplete="off">
+      <p class="hint">What to subscribe to. Wildcards are the broker's, so
+        <code>+</code> and <code>#</code> work.</p>
+    </div>
+    <div class="field">
+      <label for="source_{{ source.role }}_profile">Body is</label>
+      <select id="source_{{ source.role }}_profile" name="source_{{ source.role }}_profile">
+        <option value="">Not configured</option>
+        {% for name, label in profiles %}
+        <option value="{{ name }}" {% if source.profile == name %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="source_{{ source.role }}_path">Path</label>
+      <input type="text" id="source_{{ source.role }}_path"
+             name="source_{{ source.role }}_path" value="{{ source.path }}"
+             placeholder="current" autocomplete="off">
+      <p class="hint">Where in the body the value is. Dots step into nested
+        objects: <code>power.l1.amps</code>. Leave empty for a bare value.</p>
+    </div>
+    <div class="field">
+      <label for="source_{{ source.role }}_expect_s">Expect something every (s)</label>
+      <input type="number" id="source_{{ source.role }}_expect_s"
+             name="source_{{ source.role }}_expect_s" value="{{ source.expect_s }}"
+             min="0" max="86400" step="5">
+      <p class="hint">Silence for about two and a half of these and it is
+        reported offline. Zero never holds silence against it. This is the
+        liveness signal rather than the broker's last will, which stays true
+        through an outage and announces the device is gone a tenth of a second
+        before announcing it is back.</p>
+    </div>
+    {% if source.role in ("clamp1", "clamp2") %}
+    <div class="field">
+      <label for="source_{{ source.role }}_channel">Recorded as channel</label>
+      <input type="number" id="source_{{ source.role }}_channel"
+             name="source_{{ source.role }}_channel"
+             value="{{ source.channel if source.channel is not none else '' }}"
+             min="0" max="63">
+      <p class="hint">Which channel these readings are filed under. Changing it
+        leaves the readings already stored describing the other pump.</p>
+    </div>
+    {% else %}
+    <div class="field">
+      <label for="source_{{ source.role }}_input_number">Which input</label>
+      <input type="number" id="source_{{ source.role }}_input_number"
+             name="source_{{ source.role }}_input_number"
+             value="{{ source.input_number if source.input_number is not none else '' }}"
+             min="1" max="8">
+      <p class="hint">Only for a device that publishes one contact per topic.
+        Leave empty when one body carries them all.</p>
+    </div>
+    {% endif %}
   </div>
+
+  <details {% if source.asks %}open{% endif %}>
+    <summary>Ask for a reading</summary>
+    <p class="hint">Optional, and only for a device that goes quiet while
+      something is still happening. A contact module publishes when a contact
+      moves and there is nothing to ask it in between. A meter publishes on
+      change, so a motor running steady produces nothing after the first few
+      seconds, and it gets asked.</p>
+    <div class="grid">
+      <div class="field">
+        <label for="source_{{ source.role }}_ask_topic">Ask on</label>
+        <input type="text" id="source_{{ source.role }}_ask_topic"
+               name="source_{{ source.role }}_ask_topic" value="{{ source.ask_topic }}"
+               autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="source_{{ source.role }}_ask_payload">By publishing</label>
+        <input type="text" id="source_{{ source.role }}_ask_payload"
+               name="source_{{ source.role }}_ask_payload" value="{{ source.ask_payload }}"
+               autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="source_{{ source.role }}_reply_topic">Answer arrives on</label>
+        <input type="text" id="source_{{ source.role }}_reply_topic"
+               name="source_{{ source.role }}_reply_topic" value="{{ source.reply_topic }}"
+               autocomplete="off">
+        <p class="hint">Leave empty when the answer comes back on the ordinary
+          topic.</p>
+      </div>
+      <div class="field">
+        <label for="source_{{ source.role }}_reply_path">Answer path</label>
+        <input type="text" id="source_{{ source.role }}_reply_path"
+               name="source_{{ source.role }}_reply_path" value="{{ source.reply_path }}"
+               placeholder="result.current" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>
+          <input type="checkbox" name="source_{{ source.role }}_ask_while_running"
+                 {% if source.ask_while_running %}checked{% endif %}>
+          Only while a pump is running
+        </label>
+        <p class="hint">The panel's own run contact decides. A day of runs is
+          about four minutes of asking in twenty four hours.</p>
+      </div>
+      <div class="field">
+        <label for="source_{{ source.role }}_ask_every_s">How often (s)</label>
+        <input type="number" id="source_{{ source.role }}_ask_every_s"
+               name="source_{{ source.role }}_ask_every_s" value="{{ source.ask_every_s }}"
+               min="0.1" max="3600" step="0.1">
+      </div>
+    </div>
+  </details>
+
   <div class="field">
-    <label for="inputs_status_topic">Online or offline</label>
-    <input type="text" id="inputs_status_topic" name="inputs_status_topic"
-           value="{{ inputs.status_topic }}" autocomplete="off">
-    <p class="hint">The module says <code>online</code> here when it connects,
-      and the broker says <code>offline</code> on its behalf when it stops. A
-      module that loses power announces it rather than being noticed missing
-      after a timeout.</p>
-  </div>
-  <div class="field">
-    <label for="inputs_heartbeat_topic">Heartbeat topic</label>
-    <input type="text" id="inputs_heartbeat_topic" name="inputs_heartbeat_topic"
-           value="{{ inputs.heartbeat_topic }}" maxlength="200">
-    <p class="hint">Where the module says it is still there, on its own
-      schedule. Anything arriving here counts, whatever it says.</p>
-  </div>
-  <div class="field">
-    <label for="inputs_heartbeat_s">Expect one every (s)</label>
-    <input type="number" id="inputs_heartbeat_s" name="inputs_heartbeat_s"
-           value="{{ inputs.heartbeat_s }}" min="0" max="3600" step="10">
-    <p class="hint">Match the module's own interval, which is <code>60</code>
-      by default, as this is. Silence for about two and a half of these and the
-      module is reported offline. Set it to <code>0</code> only for a module
-      that cannot send one at all: that turns the check off rather than holding
-      silence against a device nobody asked to speak.</p>
-  </div>
-  <div class="field">
-    <label for="inputs_debounce_ms">Ignore changes shorter than (ms)</label>
-    <input type="number" id="inputs_debounce_ms" name="inputs_debounce_ms"
-           value="{{ inputs.debounce_ms }}" min="0" max="30000" step="50">
-    <p class="hint">Contacts bounce, and a float bobs on the water, so a change
-      has to last this long before it counts. Applies to all eight inputs.
-      Leave it at <code>0</code> if the module debounces its own inputs, which
-      the X-408 does: doing it twice only delays the alarm.</p>
+    <button type="button" class="button secondary" data-test-source="{{ source.role }}">Listen</button>
+    <p class="hint">Subscribes and waits for one body. A device that publishes
+      on change says nothing until something changes, so lift a float or start a
+      pump while this is listening.</p>
+    <div class="test-result" data-source-result="{{ source.role }}" hidden></div>
   </div>
 </div>
+{% endfor %}
 
-<h3>What each input is wired to</h3>
+<h3>What each input carries</h3>
 
 <div class="table-scroll">
 <table class="channels">
@@ -200,7 +228,7 @@
     </tr>
   </thead>
   <tbody>
-  {% for channel in inputs.channels %}
+  {% for channel in mqtt.channels %}
     <tr>
       <th scope="row">DI{{ channel.channel }}</th>
       <td>
@@ -227,17 +255,7 @@
   </tbody>
 </table>
 </div>
-
-<div class="field">
-  <button type="button" class="button secondary" data-test-inputs>Listen for a change</button>
-  <p class="hint">Waits for the module to publish. It only publishes when
-    something changes, so lift a float or push a contactor in while this is
-    listening; silence here means nothing moved, not that nothing works.</p>
-  <div class="test-result" data-inputs-result hidden></div>
-</div>
 {% endmacro %}
-
-
 
 
 {% macro site_fields(site) %}

@@ -19,11 +19,11 @@ from pitwatch.schemas import (
     SETTING_MODELS,
     AlertsSettings,
     ChannelMap,
-    InputsSettings,
+    MqttSettings,
+    MqttSource,
     PumpSettings,
     PumpsSettings,
     Severity,
-    ShellySettings,
     ShortCyclingRule,
 )
 
@@ -33,44 +33,49 @@ def test_channel_numbers_outside_the_module_are_rejected():
         ChannelMap(channel=9)
 
 
-def test_shelly_defaults_put_one_pump_on_each_clamp():
-    settings = ShellySettings()
+def test_a_clamp_records_under_the_channel_its_source_names():
+    """Which channel a pump's readings are filed under is a fact about which
+    clamp somebody put around which wire. Read off the source, because that is
+    where it lives now."""
+    settings = MqttSettings(
+        sources=[
+            MqttSource(role="clamp1", topic="a", profile="number", channel=1),
+            MqttSource(role="clamp2", topic="b", profile="number", channel=0),
+        ]
+    )
 
-    assert {settings.pump1_channel, settings.pump2_channel} == {0, 1}
-
-
-def test_both_clamp_assignments_are_stored_and_read_back_as_saved():
-    """No derivation. What was saved is what comes back.
-
-    An earlier version stored only pump 1 and returned `1 - pump1_channel` for
-    pump 2, which meant reading a setting nobody had written.
-    """
-    settings = ShellySettings(pump1_channel=1, pump2_channel=0)
-
-    assert settings.pump1_channel == 1
-    assert settings.pump2_channel == 0
     assert settings.clamp_for_pump == {1: 1, 2: 0}
 
-    swapped = ShellySettings(pump1_channel=0, pump2_channel=1)
-    assert swapped.clamp_for_pump == {1: 0, 2: 1}
+
+def test_a_pit_with_no_clamps_configured_still_answers():
+    """A fresh install has no sources and a dashboard still has to ask. Pump 1
+    under 0 and pump 2 under 1 is what every two channel meter ships with."""
+    assert MqttSettings().clamp_for_pump == {1: 0, 2: 1}
 
 
-def test_both_pumps_cannot_read_the_same_clamp():
-    with pytest.raises(ValidationError, match="cannot read the same clamp"):
-        ShellySettings(pump1_channel=1, pump2_channel=1)
+def test_two_sources_cannot_claim_the_same_job():
+    """Readings from both would be filed under one pump, and there would be
+    nothing to notice it by."""
+    with pytest.raises(ValidationError, match="both say they are clamp1"):
+        MqttSettings(
+            sources=[
+                MqttSource(role="clamp1", topic="a", profile="number"),
+                MqttSource(role="clamp1", topic="b", profile="number"),
+            ]
+        )
 
 
-def test_a_partial_setting_falls_back_rather_than_being_guessed_at():
-    """Nothing carries settings forward while the schema is still moving.
-
-    A stored value that names only pump 1 no longer has pump 2 inferred for it.
-    It fails the check that the two differ and the store falls back to defaults,
-    which is the wipe and set up again path, and is deliberate: a half applied
-    compatibility shim turns "your settings are gone" into "your settings are
-    subtly wrong", and only one of those is obvious.
-    """
-    with pytest.raises(ValidationError, match="cannot read the same clamp"):
-        ShellySettings.model_validate({"host": "10.0.0.9", "pump1_channel": 1})
+def test_two_inputs_cannot_carry_the_same_thing():
+    """Two inputs claiming to be the high float is a panel nobody can read.
+    Caught in the model rather than on the page, because the page is not the
+    only way a setting gets written."""
+    with pytest.raises(ValidationError, match="both say they carry"):
+        MqttSettings(
+            channels=[
+                ChannelMap(channel=1, role="high_water"),
+                ChannelMap(channel=2, role="high_water"),
+            ]
+        )
 
 
 def test_pump_settings_are_looked_up_by_number():
@@ -104,7 +109,7 @@ def test_every_settings_model_survives_a_save_and_a_load():
     install that has not set it. A validator that rejects the model's own
     default values is the specific way this goes wrong, and it did: adding a
     check that the two clamps differ, while both defaulted to the same number,
-    would have made ShellySettings unloadable.
+    would have made MqttSettings unloadable.
 
     This runs without a database, which is where the equivalent failure was
     caught late twice.
@@ -351,7 +356,7 @@ def test_the_page_and_the_model_agree_about_which_rules_exist():
 def test_every_input_is_present_whether_or_not_it_carries_anything():
     """The module has eight inputs regardless, and the settings page needs a row
     to configure the next one in."""
-    settings = InputsSettings(channels=[ChannelMap(channel=3, role="high_water")])
+    settings = MqttSettings(channels=[ChannelMap(channel=3, role="high_water")])
 
     assert [channel.channel for channel in settings.channels] == [1, 2, 3, 4, 5, 6, 7, 8]
     assert settings.channels[2].role == "high_water"
@@ -363,7 +368,7 @@ def test_an_input_with_no_role_still_reads_it_just_does_not_light_a_lamp():
     caption and on switch, and it was never the on switch: every input is read
     and recorded whatever it is called. The role only decides whether it
     appears on the dashboard."""
-    settings = InputsSettings(channels=[ChannelMap(channel=3, role="high_water")])
+    settings = MqttSettings(channels=[ChannelMap(channel=3, role="high_water")])
 
     assert settings.channels[2].used is True
     assert settings.channels[0].used is False
@@ -382,7 +387,7 @@ def test_a_role_belongs_to_one_input():
     it down, and quietly keeping one of the two would be worse than saying so.
     """
     with pytest.raises(ValidationError):
-        InputsSettings(
+        MqttSettings(
             channels=[
                 ChannelMap(channel=1, role="high_water"),
                 ChannelMap(channel=2, role="high_water"),
@@ -391,7 +396,7 @@ def test_a_role_belongs_to_one_input():
 
 
 def test_the_dashboard_can_find_the_input_carrying_a_role():
-    settings = InputsSettings(
+    settings = MqttSettings(
         channels=[
             ChannelMap(channel=3, role="high_water"),
             ChannelMap(channel=5, role="pump1_run"),
@@ -406,7 +411,7 @@ def test_the_dashboard_can_find_the_input_carrying_a_role():
 def test_an_input_always_has_something_to_call_it():
     """Including one carrying nothing, because a reading from it still has to
     be describable. DI4 is what is printed on the module."""
-    settings = InputsSettings(channels=[ChannelMap(channel=3, role="high_water")])
+    settings = MqttSettings(channels=[ChannelMap(channel=3, role="high_water")])
 
     assert settings.label_for(3) == "High water"
     assert settings.label_for(4) == "DI4"

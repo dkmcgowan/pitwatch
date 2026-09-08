@@ -24,13 +24,12 @@ from pitwatch.domain.history import (
     SignalHistory,
     Typical,
 )
-from pitwatch.ingest import inputs as inputs_ingest
-from pitwatch.ingest import shelly as shelly_ingest
+from pitwatch.ingest import mqtt as mqtt_ingest
 from pitwatch.ingest import weather as weather_ingest
 from pitwatch.ingest.sink import LiveIo, LiveState
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
-from pitwatch.schemas import DASHBOARD_ROLES, InputsSettings
+from pitwatch.schemas import DASHBOARD_ROLES, MqttSettings
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -46,7 +45,7 @@ RAIN_AHEAD = timedelta(hours=24)
 
 # What the pill reads when an input is on and when it is off.
 #
-def lead_and_lag(inputs: InputsSettings, live_io: LiveIo) -> tuple[str, str]:
+def lead_and_lag(inputs: MqttSettings, live_io: LiveIo) -> tuple[str, str]:
     """The two words in the middle of the panel, in pump order.
 
     Written to match the controller on the wall, because the point of this
@@ -119,7 +118,7 @@ def lead_and_lag(inputs: InputsSettings, live_io: LiveIo) -> tuple[str, str]:
 
 
 def panel_state(
-    inputs: InputsSettings,
+    inputs: MqttSettings,
     live_io: LiveIo,
     closings: dict[int, Closings] | None = None,
     both_ran: Closings | None = None,
@@ -197,17 +196,19 @@ async def build_state(app) -> dict:
     live_io: LiveIo = app.state.live_io
     pool = app.state.pool
 
-    shelly = store.shelly
+    mqtt = store.mqtt
     pumps = store.pumps
 
     # "Not set up" and "should be talking and is not" are different answers and
     # the dashboard has to be able to tell them apart. Running with only the
     # clamps connected is a normal way to start, and it should not paint a red
     # fault on the page for a device nobody has configured yet.
-    configured = {
-        "shelly": bool(shelly.enabled and shelly.host),
-        "inputs": bool(store.inputs.enabled and store.inputs.host),
-    }
+    # "Not set up" and "should be talking and is not" are different answers and
+    # the dashboard has to tell them apart. A source with no topic is one
+    # nobody has configured yet, and painting a red fault for it would teach
+    # whoever reads this page that red means nothing.
+    listening = bool(mqtt.enabled and mqtt.host)
+    configured = {source.role: listening and source.configured for source in mqtt.sources}
     devices = {
         row["device"]: {
             "configured": configured.get(row["device"], False),
@@ -218,7 +219,7 @@ async def build_state(app) -> dict:
         for row in await pool.fetch("SELECT * FROM device_status")
     }
 
-    clamp = shelly.clamp_for_pump
+    clamp = mqtt.clamp_for_pump
     pump_settings = pumps.by_number
 
     # What each pump has been drawing when it runs, which is the number that
@@ -244,7 +245,7 @@ async def build_state(app) -> dict:
         # still here.
         if counter is None:
             recent[number] = Recent()
-        elif store.inputs.channel_for(f"pump{number}_run"):
+        elif store.mqtt.channel_for(f"pump{number}_run"):
             recent[number] = await counter.from_contacts(pool, number, store.site.timezone)
         else:
             recent[number] = await counter.recent(
@@ -252,7 +253,7 @@ async def build_state(app) -> dict:
             )
 
     def running_now(number: int, drawing: bool) -> bool:
-        channel = store.inputs.channel_for(f"pump{number}_run")
+        channel = store.mqtt.channel_for(f"pump{number}_run")
         if not channel:
             return drawing
         said = live_io.state_of(channel)
@@ -299,7 +300,7 @@ async def build_state(app) -> dict:
             "recent": _with_live_rise(recent[number], live.rose_at(channel)),
         }
 
-    inputs = store.inputs
+    inputs = store.mqtt
     # The inputs a lamp is drawn from, which is simply the ones that have been
     # told what they carry. It used to be the set named on a second page, and
     # the two could disagree.
@@ -335,35 +336,6 @@ async def build_state(app) -> dict:
 @router.get("/state", include_in_schema=False)
 async def state(request: Request) -> JSONResponse:
     return JSONResponse(await build_state(request.app))
-
-
-@router.post("/test/shelly", include_in_schema=False)
-async def test_shelly(request: Request) -> JSONResponse:
-    """Connect to a Shelly and report what it says.
-
-    Takes the address from the form rather than from the saved settings, so the
-    button works before anything has been saved, which is the moment it is
-    most useful. It is behind a sign in once an account exists, because
-    otherwise it is a way to make the server open connections to arbitrary
-    hosts on the local network.
-    """
-    form = await request.form()
-    try:
-        settings = forms.shelly_from(form)
-    except (ValueError, ValidationError) as error:
-        return JSONResponse({"ok": False, "error": str(error)}, status_code=400)
-
-    if not settings.host:
-        return JSONResponse({"ok": False, "error": "Enter a broker address first"}, status_code=400)
-
-    try:
-        return JSONResponse(await shelly_ingest.probe(settings))
-    except shelly_ingest.ShellyAuthError as error:
-        return JSONResponse({"ok": False, "error": str(error)}, status_code=200)
-    except (shelly_ingest.ShellyError, OSError, TimeoutError) as error:
-        return JSONResponse(
-            {"ok": False, "error": f"Could not reach {settings.host}: {error}"}, status_code=200
-        )
 
 
 @router.post("/geocode", include_in_schema=False)
@@ -405,30 +377,39 @@ async def geocode(request: Request, user: auth.SignedIn) -> JSONResponse:
     )
 
 
-@router.post("/test/inputs", include_in_schema=False)
-async def test_inputs(request: Request) -> JSONResponse:
-    """Listen for one published body and report it, raw and interpreted.
+@router.post("/test/source", include_in_schema=False)
+async def test_source(request: Request, user: auth.SignedIn) -> JSONResponse:
+    """Listen on one source's topic and report what arrives.
 
-    The setup page calls this while the channel map is open, so someone at the
-    panel can lift a float by hand and watch a row change. That is by far the
-    fastest way to get the mapping right, and reading the wire labels is how it
-    ends up wrong.
+    One button for every kind of source, where there were two, one per device.
+    The settings page calls it while somebody is standing at the panel, so they
+    can lift a float by hand and watch a row change: by far the fastest way to
+    get the channel map right, and reading the wire labels is how it ends up
+    wrong.
 
-    It waits rather than asks, because there is nothing to ask: the module
-    publishes on change, so if nothing moves there is nothing to hear.
+    Takes the form as it stands rather than what is saved, because the moment a
+    test button is most useful is before anything has been committed. Behind a
+    sign in, because it makes the server open a connection on request.
     """
     form = await request.form()
     store: SettingsStore = request.app.state.settings
+    if not forms.text(form, "mqtt_host"):
+        return JSONResponse({"ok": False, "error": "Enter a broker address first"}, status_code=400)
+
+    role = forms.text(form, "role")
+    if role not in forms.SOURCE_ROLES:
+        return JSONResponse({"ok": False, "error": f"No such source {role!r}"}, status_code=400)
+
     try:
-        settings = forms.inputs_from(form, store.inputs)
+        settings = forms.mqtt_from(form, store.mqtt)
     except (ValueError, ValidationError) as error:
         return JSONResponse({"ok": False, "error": str(error)}, status_code=400)
 
-    if not settings.host:
-        return JSONResponse({"ok": False, "error": "Enter a broker address first"}, status_code=400)
+    source = next((one for one in settings.sources if one.role == role), None)
+    if source is None:
+        return JSONResponse({"ok": False, "error": f"No such source {role!r}"}, status_code=400)
 
-    result = await inputs_ingest.probe(settings)
-    return JSONResponse(result)
+    return JSONResponse(await mqtt_ingest.probe(settings, source))
 
 
 @router.post("/test/email", include_in_schema=False)

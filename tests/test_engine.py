@@ -257,6 +257,53 @@ async def test_a_failed_send_is_written_down_rather_than_raised(pool, monkeypatc
 # -- the rules that need a clamp ---------------------------------------------
 
 
+async def test_a_pump_with_no_runs_on_record_is_not_reported_idle(pool, sent):
+    """This one shipped and sent a text at three in the morning.
+
+    The readings were wiped on 2026-09-08. Twenty two minutes later pump 1 ran,
+    and the rule announced that pump 2 had not run in twenty five hours: with
+    no rows for pump 2 it invented a number one hour past the threshold, so
+    "nothing recorded" read as "definitely broken". A fresh installation would
+    have done the same on its first ever call for water.
+
+    A pump with no runs on record has not been idle, it has not been watched.
+    """
+    await _a_person(pool)
+    engine = _engine(pool, _store(), _wire(_Contacts()))
+
+    # The whole record is one run of pump 1, a minute old. Pump 2 has none.
+    await pool.execute(
+        "INSERT INTO pump_run (pump, started_at, ended_at, duration_s, started_by) "
+        "VALUES (1, now() - interval '60 seconds', now() - interval '48 seconds', 12, 'contact')"
+    )
+
+    await engine.sweep()
+
+    raised = [row["rule"] for row in await pool.fetch("SELECT rule FROM alert")]
+    assert "pump_idle" not in raised, "a minute of watching cannot support a claim about a day"
+
+
+async def test_a_pump_that_really_has_sat_out_is_still_reported(pool, sent):
+    """The guard must not turn the rule off. Once the record reaches back
+    further than the threshold, never having run is exactly what it is for: an
+    overload nobody saw, a failed contactor coil, a seized motor."""
+    await _a_person(pool)
+    engine = _engine(pool, _store(), _wire(_Contacts()))
+
+    # Two days of pump 1 doing all the work, and pump 2 never once starting.
+    await pool.execute(
+        "INSERT INTO pump_run (pump, started_at, ended_at, duration_s, started_by) "
+        "VALUES (1, now() - interval '2 days', now() - interval '2 days' + interval '12 seconds',"
+        "        12, 'contact'),"
+        "       (1, now() - interval '60 seconds', now() - interval '48 seconds', 12, 'contact')"
+    )
+
+    await engine.sweep()
+
+    raised = [row["rule"] for row in await pool.fetch("SELECT rule FROM alert")]
+    assert "pump_idle" in raised
+
+
 async def test_a_contactor_with_no_current_stays_quiet_on_an_unfitted_clamp(pool, sent):
     """The reference installation has one CT and two pumps, so pump 2's channel
     reads a perfectly convincing 0.00 A on every run.

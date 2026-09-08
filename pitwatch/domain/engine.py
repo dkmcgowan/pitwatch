@@ -430,6 +430,19 @@ class AlertEngine:
         Only meaningful once the other pump has actually been running, which is
         what makes this different from nothing having run: a quiet pit is not
         an idle pump, and this must not fire on a dry week.
+
+        **A pump with no runs on record has not been idle, it has not been
+        watched.** This used to invent a number for that case, one hour past
+        the threshold, which meant "nothing recorded" was read as "definitely
+        broken". The first run after the readings were wiped on 2026-09-08 sent
+        a text saying pump 2 had not run in 25 hours, twenty two minutes after
+        the table was emptied. A fresh installation would have done the same on
+        its first ever call for water.
+
+        So an unseen pump is measured from when there was anything to see. The
+        claim is "has not run in N hours", and making it honestly requires N
+        hours of watching. It still fires eventually on a pump that genuinely
+        never starts, once the record is old enough to support the sentence.
         """
         if not rule.idle_hours:
             return None
@@ -437,6 +450,8 @@ class AlertEngine:
             "SELECT pump, max(started_at) AS last FROM pump_run GROUP BY pump"
         )
         last = {row["pump"]: row["last"] for row in rows}
+        # The oldest run on record, which is how far back the evidence goes.
+        watching_since = await self._pool.fetchval("SELECT min(started_at) FROM pump_run")
         now = datetime.now(UTC)
         found = {}
         for pump in (1, 2):
@@ -447,7 +462,16 @@ class AlertEngine:
                 # says this pump is the problem.
                 found[pump] = None
                 continue
-            idle_h = (now - mine).total_seconds() / 3600 if mine else rule.idle_hours + 1
+            if mine is not None:
+                idle_h = (now - mine).total_seconds() / 3600
+            elif watching_since is not None:
+                # Never seen. That is only worth reporting once the record
+                # reaches back further than the threshold, because before then
+                # the sentence would be describing our own short memory.
+                idle_h = (now - watching_since).total_seconds() / 3600
+            else:
+                found[pump] = None
+                continue
             over = idle_h >= rule.idle_hours
             found[pump] = Finding(pump=pump, values={"hours": int(idle_h)}) if over else None
         return found

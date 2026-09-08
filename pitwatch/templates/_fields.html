@@ -19,8 +19,6 @@
   </label>
 </div>
 
-<h3>The broker</h3>
-
 <div class="grid">
   <div class="field">
     <label for="mqtt_host">Address</label>
@@ -90,44 +88,41 @@
     </div>
   </div>
 
-  <details class="ask" {% if clamp.asks %}open{% endif %}>
-    <summary>Ask for a reading</summary>
-    <p class="hint">A meter that publishes on change says nothing while a motor
-      runs steady. Set a topic to ask on and it is asked while the pump runs.
-      Leave it empty and nothing is asked.</p>
-    <div class="grid">
-      <div class="field">
-        <label for="clamp{{ clamp.pump }}_ask_topic">Ask on</label>
-        <input type="text" id="clamp{{ clamp.pump }}_ask_topic"
-               name="clamp{{ clamp.pump }}_ask_topic" value="{{ clamp.ask_topic }}"
-               autocomplete="off">
-      </div>
-      <div class="field">
-        <label for="clamp{{ clamp.pump }}_ask_payload">Payload</label>
-        <input type="text" id="clamp{{ clamp.pump }}_ask_payload"
-               name="clamp{{ clamp.pump }}_ask_payload" value="{{ clamp.ask_payload }}"
-               autocomplete="off">
-      </div>
-      <div class="field">
-        <label for="clamp{{ clamp.pump }}_reply_topic">Answer arrives on</label>
-        <input type="text" id="clamp{{ clamp.pump }}_reply_topic"
-               name="clamp{{ clamp.pump }}_reply_topic" value="{{ clamp.reply_topic }}"
-               autocomplete="off">
-      </div>
-      <div class="field">
-        <label for="clamp{{ clamp.pump }}_reply_path">Answer at</label>
-        <input type="text" id="clamp{{ clamp.pump }}_reply_path"
-               name="clamp{{ clamp.pump }}_reply_path" value="{{ clamp.reply_path }}"
-               placeholder="result.current" autocomplete="off">
-      </div>
-      <div class="field">
-        <label for="clamp{{ clamp.pump }}_ask_every_s">How often (s)</label>
-        <input type="number" id="clamp{{ clamp.pump }}_ask_every_s"
-               name="clamp{{ clamp.pump }}_ask_every_s" value="{{ clamp.ask_every_s }}"
-               min="0.1" max="3600" step="0.1">
-      </div>
+  <p class="hint">A meter that publishes on change says nothing while a motor
+    runs steady. Set a topic to ask on and it is asked while the pump runs;
+    leave it empty and nothing is asked.</p>
+  <div class="grid">
+    <div class="field">
+      <label for="clamp{{ clamp.pump }}_ask_topic">Ask on</label>
+      <input type="text" id="clamp{{ clamp.pump }}_ask_topic"
+             name="clamp{{ clamp.pump }}_ask_topic" value="{{ clamp.ask_topic }}"
+             autocomplete="off">
     </div>
-  </details>
+    <div class="field">
+      <label for="clamp{{ clamp.pump }}_ask_payload">Payload</label>
+      <input type="text" id="clamp{{ clamp.pump }}_ask_payload"
+             name="clamp{{ clamp.pump }}_ask_payload" value="{{ clamp.ask_payload }}"
+             autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="clamp{{ clamp.pump }}_reply_topic">Answer arrives on</label>
+      <input type="text" id="clamp{{ clamp.pump }}_reply_topic"
+             name="clamp{{ clamp.pump }}_reply_topic" value="{{ clamp.reply_topic }}"
+             autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="clamp{{ clamp.pump }}_reply_path">Answer at</label>
+      <input type="text" id="clamp{{ clamp.pump }}_reply_path"
+             name="clamp{{ clamp.pump }}_reply_path" value="{{ clamp.reply_path }}"
+             placeholder="result.current" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="clamp{{ clamp.pump }}_ask_every_s">How often (s)</label>
+      <input type="number" id="clamp{{ clamp.pump }}_ask_every_s"
+             name="clamp{{ clamp.pump }}_ask_every_s" value="{{ clamp.ask_every_s }}"
+             min="0.1" max="3600" step="0.1">
+    </div>
+  </div>
 </div>
 {% endfor %}
 

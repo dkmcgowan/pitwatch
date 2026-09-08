@@ -38,10 +38,18 @@
   </div>
   <div class="field">
     <label for="mqtt_password">Password</label>
-    {# Left empty to keep what is stored, because the stored one is never sent
-       to the browser. Typing a new one replaces it. #}
+    {# The stored one is never sent to the browser, so the box arrives empty
+       and an empty box has to mean "unchanged": otherwise saving this section
+       to change a topic would wipe the password every time. Which is also why
+       clearing it needs a checkbox rather than a backspace. There is nothing
+       to backspace. #}
     <input type="password" id="mqtt_password" name="mqtt_password" autocomplete="new-password"
            placeholder="{% if mqtt.password %}unchanged{% else %}none set{% endif %}">
+    {% if mqtt.password %}
+    <label class="hint">
+      <input type="checkbox" name="mqtt_clear_password"> Clear the stored password
+    </label>
+    {% endif %}
   </div>
   <div class="field">
     <label>

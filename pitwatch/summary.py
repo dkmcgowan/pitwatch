@@ -233,9 +233,15 @@ async def facts(app, window: series.Window = WINDOW) -> dict:
         for mapped in assigned
     ]
 
+    # Online and when, and not the error text. `last_error` is a connection
+    # failure written by the client, so it carries broker addresses and library
+    # wording, and this summary is about pumps, amps and contacts. What it is
+    # worth to a reader of the summary is that a device was not answering, and
+    # `online` says that. The full text is on the Diagnostics page, where it is
+    # for the person fixing it.
     devices = []
     try:
-        rows = await pool.fetch("SELECT device, online, last_seen, last_error FROM device_status")
+        rows = await pool.fetch("SELECT device, online, last_seen FROM device_status")
     except (asyncpg.PostgresError, OSError):
         rows = []
     for row in rows:
@@ -244,7 +250,6 @@ async def facts(app, window: series.Window = WINDOW) -> dict:
                 "device": row["device"],
                 "online": row["online"],
                 "last_seen": row["last_seen"].isoformat() if row["last_seen"] else None,
-                "last_error": row["last_error"],
             }
         )
 

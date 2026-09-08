@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest import mock
 
 from pitwatch import summary
 from pitwatch.schemas import (
@@ -131,3 +132,31 @@ async def test_the_page_the_model_gets_names_no_place(pool, store):
 
     for leaked in ("Example Street", "Brooklyn", "40.68", "-73.99", "latitude"):
         assert leaked not in body, leaked
+
+
+async def test_a_device_error_stays_on_the_diagnostics_page(pool, store):
+    """Online and when, and not the error text.
+
+    `last_error` is written by the broker client, so it carries addresses and
+    library wording, and this summary is about pumps, amps and contacts. What a
+    reader of it needs is that a device was not answering, which `online` says.
+    """
+    await _site(store)
+    # The row is already there: device_status is seeded, so this is an update.
+    await pool.execute("DELETE FROM device_status WHERE device <> 'health0'")
+    await pool.execute(
+        """
+        INSERT INTO device_status (device, online, last_seen, last_error)
+        VALUES ('health0', false, now(), $1)
+        ON CONFLICT (device) DO UPDATE SET online = false, last_seen = now(),
+                                           last_error = excluded.last_error
+        """,
+        "[Errno 111] Connect call failed ('10.136.1.36', 1884)",
+    )
+
+    numbers = await summary.facts(_app(pool, store))
+    body = summary.messages(store.summary, numbers)[1]["content"]
+
+    assert numbers["devices"] == [{"device": "health0", "online": False, "last_seen": mock.ANY}]
+    assert "10.136.1.36" not in body
+    assert "Errno" not in body

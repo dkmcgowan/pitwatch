@@ -65,7 +65,8 @@
           account names go with it.</p>
         <p>One a week. The same readings and the same description give the same
           answer, so the button waits for a new week unless you change what you
-          have told it.</p>
+          have told it. Every one is kept with the words it was written from,
+          and those words can be put back.</p>
       </div>
       <p class="note-close">Click anywhere to close</p>
     </dialog>
@@ -90,6 +91,38 @@
       <button type="submit" class="button secondary">Save</button>
     </form>
   </section>
+
+  {# Every summary is kept, with the words it was written from. That is the
+     whole of the history: nothing new is stored, this is a way to look at it.
+
+     Folded shut, because eight paragraphs stacked under the one somebody came
+     to read is a page nobody scrolls to the bottom of. #}
+  {% if earlier %}
+  <section class="card chart-card">
+    <h2 class="section-heading">Earlier</h2>
+    {% for one in earlier %}
+    <details class="earlier">
+      <summary>
+        <span class="earlier-when">{{ one.when_local }}</span>
+        <span class="earlier-who">{{ one.who }}</span>
+      </summary>
+      <p class="summary-body">{{ one.body }}</p>
+      <p class="hint earlier-told"><strong>Told:</strong>
+        {% if one.context %}{{ one.context }}{% else %}not kept, this one was
+        written before the description was recorded{% endif %}</p>
+      {% if one.restorable and not one.same %}
+      <form method="post" action="/summary/restore">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="id" value="{{ one.id }}">
+        <button type="submit" class="button secondary small">Use these words</button>
+      </form>
+      {% elif one.same %}
+      <p class="hint">These are the words in the box now.</p>
+      {% endif %}
+    </details>
+    {% endfor %}
+  </section>
+  {% endif %}
 </div>
 
 {% endblock %}

@@ -1993,6 +1993,7 @@ def test_the_summary_page_says_what_it_needs_before_it_offers_the_button():
         ready=False,
         context="",
         offer=Offer(False, "Add an OpenAI key and a model on the settings page first."),
+        earlier=[],
         error=None,
     )
 
@@ -2006,6 +2007,7 @@ def test_the_summary_page_says_what_it_needs_before_it_offers_the_button():
         ready=True,
         context="",
         offer=Offer(True),
+        earlier=[],
         error=None,
     )
     assert "New summary" in ready
@@ -2032,6 +2034,7 @@ def test_a_written_summary_is_rendered_as_text_with_its_age():
         ready=True,
         context="Two pumps in a pit.",
         offer=Offer(False, "This one has read the same week."),
+        earlier=[],
         error=None,
     )
 
@@ -2242,6 +2245,7 @@ def test_the_summary_page_says_what_it_is_and_offers_a_refresh():
         age="",
         context="",
         offer=Offer(True),
+        earlier=[],
         error=None,
     )
 
@@ -2256,3 +2260,79 @@ def test_the_summary_page_says_what_it_is_and_offers_a_refresh():
     # What is worth keeping from it: this costs money and only happens on a
     # press, and the building is not named to the model.
     assert "presses the button" in note and "no address" in note
+
+
+def test_an_earlier_summary_is_shown_with_the_words_it_was_written_from():
+    """The list is the history. Nothing new is stored for it: every summary has
+    been kept since the table was made, and since 018 each one carries the
+    description it was given, so this is a view onto rows that already exist."""
+    page = render_page(
+        "summary.html",
+        ready=True,
+        last=None,
+        age="",
+        context="Two pumps in a pit.",
+        offer=Offer(True),
+        earlier=[
+            {
+                "id": 12,
+                "when_local": "3 Sep 9:14 AM",
+                "who": "david",
+                "model": "gpt-4o-mini",
+                "body": "Both pumps look normal.",
+                "context": "Two pumps and a check valve replaced in the spring.",
+                "restorable": True,
+                "same": False,
+            },
+            {
+                "id": 4,
+                "when_local": "27 Aug 8:02 AM",
+                "who": "david",
+                "model": "gpt-4o-mini",
+                "body": "Nothing worth acting on.",
+                "context": "",
+                "restorable": False,
+                "same": False,
+            },
+        ],
+        error=None,
+    )
+
+    assert "3 Sep 9:14 AM" in page
+    assert "check valve replaced in the spring" in page
+    assert 'action="/summary/restore"' in page
+    assert 'value="12"' in page
+
+    # The one written before the words were kept offers no restore, because
+    # restoring nothing would wipe the description and call it a restore.
+    assert 'value="4"' not in page
+    assert "not kept" in page
+
+
+def test_the_words_already_in_the_box_are_not_offered_back():
+    """A button that puts back what is already there is a button that does
+    nothing, and pressing it would still count as a change."""
+    page = render_page(
+        "summary.html",
+        ready=True,
+        last=None,
+        age="",
+        context="Two pumps in a pit.",
+        offer=Offer(True),
+        earlier=[
+            {
+                "id": 12,
+                "when_local": "3 Sep 9:14 AM",
+                "who": "david",
+                "model": "gpt-4o-mini",
+                "body": "Both pumps look normal.",
+                "context": "Two pumps in a pit.",
+                "restorable": True,
+                "same": True,
+            }
+        ],
+        error=None,
+    )
+
+    assert 'action="/summary/restore"' not in page
+    assert "the words in the box now" in page

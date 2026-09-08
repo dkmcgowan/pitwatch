@@ -408,6 +408,40 @@ async def write(app, username: str) -> dict:
     return dict(row)
 
 
+# How many earlier ones the page lists. Every summary is kept, and a page that
+# printed all of them would be a wall of paragraphs by the second month. Enough
+# to find the description that read best, which is the reason the list exists.
+EARLIER = 8
+
+
+async def earlier(pool: asyncpg.Pool, limit: int = EARLIER) -> list[dict]:
+    """The ones before the latest, newest first.
+
+    Each carries the words it was written from, which is the point of the list.
+    A description is worth arguing with and the argument goes in circles without
+    a way back to the one that read best.
+    """
+    rows = await pool.fetch(
+        """
+        SELECT id, created_at, window_key, model, body, context, written_by
+        FROM summary
+        ORDER BY created_at DESC
+        OFFSET 1 LIMIT $1
+        """,
+        limit,
+    )
+    return [dict(row) for row in rows]
+
+
+async def told(pool: asyncpg.Pool, summary_id: int) -> str | None:
+    """What one summary was told about the building, or None if there is no
+    such row. Empty for one written before that was kept, which is not the same
+    as having been told nothing and is why this is separate from the empty
+    string."""
+    row = await pool.fetchrow("SELECT context FROM summary WHERE id = $1", summary_id)
+    return None if row is None else (row["context"] or "")
+
+
 async def latest(pool: asyncpg.Pool) -> dict | None:
     row = await pool.fetchrow(
         """
@@ -435,15 +469,18 @@ def age(created_at: datetime | None) -> str:
 
 
 __all__ = [
+    "EARLIER",
     "NO_KEY",
     "Offer",
     "SummaryError",
     "age",
     "ask",
+    "earlier",
     "facts",
     "latest",
     "messages",
     "offer",
     "rainfall",
+    "told",
     "write",
 ]

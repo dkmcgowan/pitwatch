@@ -234,3 +234,47 @@ async def test_a_summary_keeps_what_it_was_told_about_the_building(pool, store):
     last = await summary.latest(pool)
 
     assert last["context"] == "Two pumps in a pit."
+
+
+async def _write(pool, body: str, context: str, minutes_ago: int) -> int:
+    return await pool.fetchval(
+        """
+        INSERT INTO summary (created_at, window_key, model, body, facts, context, written_by)
+        VALUES (now() - make_interval(mins => $1), '7d', 'gpt-4o-mini', $2, '{}'::jsonb, $3, 'david')
+        RETURNING id
+        """,
+        minutes_ago,
+        body,
+        context,
+    )
+
+
+async def test_the_earlier_list_is_everything_but_the_one_on_the_page(pool):
+    """The latest is printed in full above it, so listing it again would be the
+    same paragraph twice."""
+    await _write(pool, "Oldest.", "First words.", 300)
+    await _write(pool, "Middle.", "Second words.", 200)
+    newest = await _write(pool, "Newest.", "Third words.", 10)
+
+    rows = await summary.earlier(pool)
+
+    assert [row["body"] for row in rows] == ["Middle.", "Oldest."]
+    assert newest not in [row["id"] for row in rows]
+    assert rows[0]["context"] == "Second words."
+
+
+async def test_the_words_a_summary_was_written_from_can_be_asked_for(pool):
+    which = await _write(pool, "Both pumps look normal.", "Two pumps in a pit.", 60)
+
+    assert await summary.told(pool, which) == "Two pumps in a pit."
+    # Not the same answer as a row that was never written.
+    assert await summary.told(pool, which + 1000) is None
+
+
+async def test_a_summary_from_before_the_words_were_kept_has_none_to_give_back(pool):
+    """Empty, and not None: the row exists and nothing is known about what it
+    was told. Restoring it would wipe the description and call it a restore,
+    which is why the page checks before it offers."""
+    which = await _write(pool, "Nothing worth acting on.", "", 60)
+
+    assert await summary.told(pool, which) == ""

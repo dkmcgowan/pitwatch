@@ -285,7 +285,9 @@ async def history_page(request: Request, user: auth.SignedIn):
 @router.get("/summary", include_in_schema=False)
 async def summary_page(request: Request, user: auth.SignedIn, error: str | None = None):
     store: SettingsStore = request.app.state.settings
-    last = await summaries.latest(request.app.state.pool)
+    pool = request.app.state.pool
+    zone = store.site.timezone
+    last = await summaries.latest(pool)
     return _templates(request).TemplateResponse(
         request,
         "summary.html",
@@ -296,6 +298,21 @@ async def summary_page(request: Request, user: auth.SignedIn, error: str | None 
             ready=store.summary.ready,
             context=store.summary.description,
             offer=summaries.offer(store.summary, last),
+            earlier=[
+                {
+                    "id": row["id"],
+                    "when_local": _local(row["created_at"], zone),
+                    "who": row["written_by"] or "somebody",
+                    "model": row["model"],
+                    "body": row["body"],
+                    "context": row["context"],
+                    # Written before the words were kept. Offering to restore
+                    # nothing would wipe the description and call it a restore.
+                    "restorable": bool((row["context"] or "").strip()),
+                    "same": (row["context"] or "") == store.summary.description.strip(),
+                }
+                for row in await summaries.earlier(pool)
+            ],
             error=error,
         ),
     )
@@ -317,6 +334,29 @@ async def summary_write(request: Request, user: auth.SignedIn):
         # somebody needs after a failed call is the reason, and OpenAI's own
         # message is nearly always the reason.
         return RedirectResponse(f"/summary?error={quote(str(error)[:300])}", status_code=303)
+    return RedirectResponse("/summary", status_code=303)
+
+
+@router.post("/summary/restore", include_in_schema=False)
+async def summary_restore(request: Request, user: auth.SignedIn):
+    """Put an earlier description back in the box.
+
+    An ordinary edit that happens to be typed by the machine. It saves the same
+    setting a hand edit saves and it re-opens the button the same way, which is
+    the honest reading: asking again from words the model has not been given
+    lately is a new question, however those words were found.
+    """
+    store: SettingsStore = request.app.state.settings
+    form = await request.form()
+    try:
+        which = int(str(form.get("id") or ""))
+    except ValueError:
+        return RedirectResponse("/summary", status_code=303)
+
+    written = await summaries.told(request.app.state.pool, which)
+    if not written:
+        return RedirectResponse("/summary", status_code=303)
+    await store.put(store.summary.model_copy(update={"description": written}))
     return RedirectResponse("/summary", status_code=303)
 
 

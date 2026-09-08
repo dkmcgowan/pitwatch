@@ -1092,6 +1092,56 @@ table.diagnostic .note {
 
 .hint + .summary-when { margin-top: 0.9rem; }
 
+/* One earlier summary, folded shut. Eight paragraphs stacked under the one
+   somebody came to read is a page nobody scrolls to the bottom of, and the
+   thing being looked for in this list is usually a description rather than a
+   paragraph: the date and who asked are enough to find it by. */
+.earlier {
+  border-top: 1px solid var(--border);
+  padding: 0.6rem 0;
+}
+
+.earlier:first-of-type { border-top: none; }
+
+.earlier > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  cursor: pointer;
+  list-style: none;
+  padding: 0.2rem 0;
+}
+
+.earlier > summary::-webkit-details-marker { display: none; }
+
+/* The same drawn arrow the settings sections use, so an accordion opens the
+   same way wherever somebody meets one. */
+.earlier > summary::before {
+  content: "";
+  flex: none;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.earlier[open] > summary::before { transform: rotate(45deg); }
+
+.earlier-when { font-weight: 550; }
+.earlier-who { color: var(--text-muted); font-size: 0.85rem; }
+
+.earlier > .summary-body { margin: 0.6rem 0 0; }
+
+/* What it was told, quoted rather than run in with the paragraph it produced,
+   because the two are read against each other. */
+.earlier-told {
+  margin: 0.7rem 0;
+  padding-left: 0.7rem;
+  border-left: 2px solid var(--border);
+}
+
 /* Paragraphs as they were written. Rendered as text and nothing else: this
    came from a model, and a model's output is not markup. */
 .summary-body {

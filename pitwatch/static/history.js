@@ -828,9 +828,21 @@
       return;
     }
     body.textContent = "";
-    const runs = (data.runs || []).slice(-(data.recent || 20)).reverse();
+    const all = data.runs || [];
+    const runs = all.slice(-(data.recent || 20)).reverse();
     if (empty) {
       empty.hidden = runs.length > 0;
+    }
+    // The heading says which runs these are. The charts above draw every run in
+    // the window and this table draws the last twenty of them, so on a busy day
+    // the two disagree by design, and a heading that said only "the last runs"
+    // left somebody to work that out by counting rows.
+    const title = document.querySelector("[data-runs-title]");
+    if (title) {
+      title.textContent =
+        runs.length < all.length
+          ? "The last " + runs.length + " runs of " + all.length
+          : "Every run " + data.within;
     }
     runs.forEach(function (run) {
       const row = document.createElement("tr");

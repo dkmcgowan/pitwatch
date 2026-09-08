@@ -912,16 +912,22 @@ table.diagnostic .note {
    drawing should do. The dashboard used to share this and does not any more:
    its four sections are read from a distance and their headings are the size
    of headings. */
+/* The heading over a chart, a table or a list of alerts.
+
+   Sentence case, like every other heading in the application. It was small
+   uppercase with letters spread out, which reads as a label rather than a
+   heading, and it meant the two pages built out of these shouted while the
+   dashboard and the settings page did not. Uppercase at 0.72rem also has to be
+   muted to be bearable, so the headings on the busiest page were the faintest
+   text on it. */
 .section-heading {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  margin: 0 0 0.5rem;
-  font-size: 0.72rem;
+  margin: 0 0 0.6rem;
+  font-size: 1.05rem;
   font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  color: var(--text-muted);
+  color: var(--text);
   min-width: 0;
 }
 

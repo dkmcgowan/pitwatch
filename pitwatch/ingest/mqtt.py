@@ -245,13 +245,13 @@ class MqttReader:
                 reading = payloads.value(text, clamp.answer_path)
                 if reading is not None:
                     samples.append(self._sample(clamp, reading))
-                    self._heard(clamp.role, clamp.role)
+                    await self._heard(clamp.role, clamp.role)
                     continue
             if topic_matches(clamp.topic, topic):
                 reading = payloads.value(text, clamp.path)
                 if reading is not None:
                     samples.append(self._sample(clamp, reading))
-                self._heard(clamp.role, clamp.role)
+                await self._heard(clamp.role, clamp.role)
 
         for one in self._settings.used_inputs:
             if not topic_matches(one.topic, topic):
@@ -268,7 +268,7 @@ class MqttReader:
                     log.warning("%s published %r, which is not on or off", one.title, text[:60])
                 continue
             states[one.channel] = said
-            self._heard(f"input{one.channel}", one.title)
+            await self._heard(f"input{one.channel}", one.title)
 
         for index, check in enumerate(self._settings.health):
             # Proof of life by arriving, not by what it says. A module's own
@@ -276,7 +276,7 @@ class MqttReader:
             # at all, and reading it for one would mark a healthy module dead
             # every sixty seconds.
             if check.configured and topic_matches(check.topic, topic):
-                self._heard(f"health{index}", check.title)
+                await self._heard(f"health{index}", check.title)
 
         if samples:
             await self._on_samples(samples)
@@ -297,11 +297,24 @@ class MqttReader:
             current=reading,
         )
 
-    def _heard(self, key: str, title: str) -> None:
+    async def _heard(self, key: str, title: str) -> None:
+        """A source said something, so the clock starts again.
+
+        A source coming back has to be written down and not only logged. It was
+        only logged, and the row it had been marked offline in stayed offline
+        until the broker connection was next remade, because that is the one
+        other thing that reports a source online. On the reference installation
+        the meter went quiet five times in two hours and every one of those
+        alerts cleared, which looked like the mechanism working and was actually
+        five coincidental reconnects: a device that had come back on a
+        connection that never dropped would have stayed red on the dashboard,
+        with its alert open, for as long as it kept talking.
+        """
         self._heard_at[key] = asyncio.get_running_loop().time()
         if key in self._silent:
             self._silent.discard(key)
             log.info("%s is talking again", title)
+            await self._report(key, True, None)
 
     # -- contacts ------------------------------------------------------------
 

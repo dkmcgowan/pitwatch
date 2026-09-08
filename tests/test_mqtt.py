@@ -403,6 +403,35 @@ async def test_a_heartbeat_counts_by_arriving_rather_than_by_what_it_says():
     assert "health0" in reader._heard_at
 
 
+async def test_a_device_that_comes_back_is_written_down_and_not_only_logged():
+    """The half that was missing.
+
+    Going quiet was reported and coming back was logged, so the row stayed
+    offline until the broker connection was next remade, which is the only
+    other thing that reports a source online. On the reference installation the
+    meter went quiet five times in two hours and every alert cleared, which
+    looked like the mechanism working and was five coincidental reconnects. A
+    device returning on a connection that never dropped would have stayed red
+    with its alert open for as long as it kept talking.
+    """
+    settings = _settings(health=[HealthSource(name="Panel module", topic="pit/hb", expect_s=1)])
+    reader, caught = _reader(settings)
+    stop = asyncio.Event()
+
+    reader._heard_at["health0"] = asyncio.get_running_loop().time()
+    watcher = asyncio.create_task(reader._watch_silence(stop))
+    await asyncio.sleep(3.2)
+    assert [row for row in caught.status if row[1] is False], "quiet, and reported"
+
+    # The heartbeat comes back, on the same connection.
+    await reader._handle(_Message("pit/hb", "1"))
+    stop.set()
+    watcher.cancel()
+
+    assert caught.status[-1] == ("health0", True, None)
+    assert "health0" not in reader._silent
+
+
 def test_the_contacts_get_no_row_of_their_own_in_device_status():
     """Eight inputs would be eight rows saying the same thing about one module,
     which is what a health check is for."""

@@ -5,15 +5,11 @@ there is no third. What a pump is drawing is a number. What a contact is doing
 is on or off. Everything above this deals in those; everything below is a topic
 and some JSON somebody else chose the shape of.
 
-**There were profiles here and they are gone.** First a `shelly_em1` one, which
-was never a shape: it tried three paths in turn because one meter publishes the
-same reading in three envelopes, and three paths is three settings. Then three
-shape named ones, which lasted until the obvious question got asked. If a clamp
-is always a number and a contact is always on or off, a dropdown asking which
-has exactly one right answer per kind, and a setting with one right answer is a
-setting that should not exist.
+There is no profile to pick, because a dropdown asking whether this topic
+carries a number or a state would have exactly one right answer per kind, and a
+setting with one right answer is a setting that should not exist.
 
-What survives is the path: dots step into nested objects, so `result.current`
+The path is what does the work: dots step into nested objects, so `result.current`
 reaches into an RPC reply and `params.em1:0.current` into a notification. An
 empty path takes the body itself, which is what a module publishing `1` or `on`
 sends.

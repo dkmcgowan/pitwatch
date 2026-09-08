@@ -42,15 +42,52 @@ async def test_the_sample_table_is_a_hypertable(pool):
     assert "io_event" in names
 
 
-async def test_the_rollups_exist_and_refresh(pool):
+async def test_there_is_one_place_readings_are_read_from(pool):
+    """The minute and hour rollups are gone, and nothing should bring them back
+    without a reader.
+
+    They existed so a chart covering a year would not read a year of one second
+    rows, and nothing ever asked them for anything: the history page buckets
+    em_sample directly and the longest window it offers is 30 days. A tier that
+    is refreshed on a schedule, retained on a policy and queried by nobody is
+    two more places for the same number to be wrong in.
+
+    What replaced them is keeping the raw rows longer. Half a day of a pit that
+    runs for twelve seconds at a time is four thousand rows, and the
+    compression policy takes an order of magnitude off anything over a week
+    old, so 400 days of samples answers the year over year question the hourly
+    rollup was for.
+    """
     views = {
         row["view_name"]
         for row in await pool.fetch(
             "SELECT view_name FROM timescaledb_information.continuous_aggregates"
         )
     }
+    assert views == set()
 
-    assert {"em_1m", "em_1h"} <= views
+    retention = await pool.fetchval(
+        """
+        SELECT config ->> 'drop_after' FROM timescaledb_information.jobs
+        WHERE proc_name = 'policy_retention' AND hypertable_name = 'em_sample'
+        """
+    )
+    assert retention == "400 days"
+
+
+async def test_a_reading_is_a_time_a_channel_and_an_amp(pool):
+    """Five columns went with the rollups: voltage, real and apparent power,
+    power factor and frequency, which were one meter's status frame and were
+    NULL on every row ever written. A clamp source reads one number at one
+    path, and the number a pump monitor wants is the current."""
+    columns = {
+        row["column_name"]
+        for row in await pool.fetch(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'em_sample'"
+        )
+    }
+
+    assert columns == {"ts", "channel", "current"}
 
 
 async def test_a_pump_cannot_have_two_open_runs(pool):

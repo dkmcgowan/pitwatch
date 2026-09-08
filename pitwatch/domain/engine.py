@@ -672,13 +672,11 @@ class AlertEngine:
     def _watched_devices(self) -> dict[str, str]:
         """The rows in device_status this rule is about, and what to call them.
 
-        Built from the settings rather than from a list of device names, which
-        is the whole point of the settings being about topics: this used to
-        hold {"shelly": "Shelly EM", "inputs": "X-408"} and go looking for rows
-        under those names. Nothing has written a row called "shelly" since
-        everything moved to MQTT, so the lookup matched nothing, and an alert
-        that can only ever find nothing is an alert that never fires. It reads
-        as working right up until the day it is needed.
+        Built from the settings rather than from a hardcoded list of device
+        names. It was a hardcoded list once, and when the device names changed
+        the lookup matched nothing, found nothing offline, and reported all
+        clear: an alert that can only ever find nothing reads as working right
+        up until the day it is needed.
 
         Weather is deliberately not in here. It is not a device on the panel
         and its own card says when it went stale.

@@ -134,10 +134,13 @@ def test_a_body_that_says_nothing_useful_is_neither():
 
 
 def test_nothing_here_is_named_after_a_device():
-    """There were profiles named shelly_em1 and x408_inputs, then three named
-    after shapes, and now none at all: if a clamp is always a number and a
-    contact is always on or off, a dropdown asking which has exactly one right
-    answer per kind."""
+    """A clamp is always a number and a contact is always on or off, so there
+    is no profile to pick and nothing here is named after a device.
+
+    This reads the source file, not anybody's settings: a topic like
+    shellyemg3/status/em1:0 is a value somebody typed into a form and is none
+    of this test's business. What it forbids is the parser learning a vendor,
+    which is how the profiles it replaced got started."""
     import ast
     from pathlib import Path
 

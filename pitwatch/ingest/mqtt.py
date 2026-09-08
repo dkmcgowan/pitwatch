@@ -15,15 +15,14 @@ Every device dialing out to one broker needs one reachable address, which is
 the arrangement that survives the application moving somewhere the panel cannot
 see.
 
-**Nothing in here knows what a Shelly or an X-408 is.** Three kinds of thing to
-listen to, because a pump panel asks three kinds of question: a clamp is a
+**Nothing in here knows what any particular device is.** Three kinds of thing
+to listen to, because a pump panel asks three kinds of question: a clamp is a
 number at a topic, a contact is on or off at a topic, and a health check is a
 topic that ought to say something now and then. Each is a row somebody fills
 in.
 
-One contact per topic rather than eight in one body. The combined body was what
-one module happened to publish, and reading it cost a parser that had to guess
-how somebody had spelled eight keys.
+One contact per topic rather than several in one body, which costs a parser
+that has to guess how somebody spelled eight keys.
 
 **Liveness is silence, not the broker's last will.** Measured on the real panel
 on 2026-09-07: the meter was unplugged for twenty four seconds and its `online`
@@ -289,10 +288,8 @@ class MqttReader:
     def _sample(self, clamp: ClampSource, reading: float) -> EmSample:
         """A reading, filed under the channel this clamp records against.
 
-        Derived from the pump number rather than configured. It was a setting
-        while there were stored readings filed under whatever numbers a meter
-        had given its own clamps; those were wiped, so the only correct answer
-        is the obvious one.
+        Derived from the pump number rather than configured, because there is
+        no other sensible answer.
         """
         return EmSample(
             ts=datetime.now(UTC),

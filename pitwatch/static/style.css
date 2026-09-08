@@ -765,10 +765,12 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   outline-offset: -2px;
 }
 
-/* The contents, indented to the same edge the heading sits on. */
+/* The contents, indented to the same edge the heading sits on, and standing
+   off it. The heading is a heading: the first label sat one line under it and
+   read as a caption to it rather than as the start of a form. */
 .settings-section > details > form,
 .settings-section > details > p {
-  padding: 0 1.5rem 1.25rem;
+  padding: 0.6rem 1.5rem 1.5rem;
 }
 
 /* A table that is a section: the same bordered box the other groups sit in, so
@@ -1094,6 +1096,16 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .hint + fieldset.field,
 p + .grid,
 p + .table-scroll { margin-top: 1rem; }
+
+/* A button that follows a paragraph. Everything else in a form carries its own
+   bottom margin, so the gap above the Save button came from whatever happened
+   to be last, and a section that ended in an explanation had the button
+   sitting on the final line of it. */
+.hint + .button,
+p + .button { margin-top: 1.25rem; }
+
+/* Two explanations in a row are two paragraphs, not one wrapped one. */
+.hint + .hint { margin-top: 0.7rem; }
 
 fieldset.field {
   border: 1px solid var(--border);

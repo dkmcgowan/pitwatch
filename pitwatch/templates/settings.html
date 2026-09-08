@@ -261,22 +261,33 @@
       the coordinates in "This site" above and save that first.</p>
     {% endif %}
 
-    <p class="hint">These are model numbers rather than a gauge on the roof. A
-      cell that sat over one block can be off by a lot, which is fine for the
-      question being asked of it: was it raining when the pit got busy.</p>
-
     <button type="submit" class="button">Save</button>
   </form>
   </details>
 </section>
 
 {# What the summary page needs. The description is the half a model cannot work
-   out from the readings, and the key is somebody's OpenAI account. #}
+   out from the readings, and the key is somebody's OpenAI account. Named for
+   what it is: this is the one section where something leaves the building and
+   a third party reads it, and a page of settings should say so on the tin. #}
 <section class="card settings-section">
   <details name="settings">
-    <summary><h2>Summary</h2></summary>
+    <summary><h2>AI Summary</h2></summary>
   <form method="post" action="/settings/summary" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <p class="hint"><strong>Sent:</strong> your description below, and a week
+      of numbers. Per pump per day, the runs, the mean and longest run, the
+      peak and running amps, and this week's typical load against four weeks
+      earlier. The week's calls for water, how many brought on both pumps or
+      reached the high float, and the typical gap between them. How often each
+      panel contact closed and when it last did. Whether each device is online
+      and its last error. Pump and contact names go too, so the reply can name
+      them.</p>
+
+    <p class="hint"><strong>Not sent:</strong> the address, the site name, the
+      coordinates, account names, phone numbers, email addresses, or any
+      individual reading.</p>
 
     <div class="field">
       <label for="summary_description">Your system</label>
@@ -284,7 +295,7 @@
                 maxlength="4000">{{ summary.description }}</textarea>
       <p class="hint">What the pit does, what the pumps are, how the panel is
         set up, what has been repaired and when. Everything the readings cannot
-        say. This is sent with the numbers every time a summary is written.</p>
+        say.</p>
     </div>
 
     <div class="grid">

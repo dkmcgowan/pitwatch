@@ -275,5 +275,64 @@
   </details>
 </section>
 
+{# Diagnostics. Nothing to save: what has arrived, per source, beside the
+   setting that was supposed to produce it.
+
+   Its own section because the dashboard is not the place for it. That page
+   answers one question, whether the pit is alright, and it now answers it in
+   one vocabulary: an overload that has not tripped and an overload nothing has
+   ever been heard from both read "never" and "0 this month", because to
+   somebody who came to the page because a phone went off they mean the same
+   thing. The difference is real and it is an installation question, so it is
+   here, where somebody chasing a topic that does not match will look. #}
+<section class="card settings-section">
+  <details name="settings">
+    <summary><h2>Diagnostics</h2></summary>
+  <div class="diagnostics">
+    {% if diagnostics.watchouts %}
+    <ul class="watchouts">
+      {% for line in diagnostics.watchouts %}
+      <li class="{{ 'watchout' if diagnostics.silent or 'Every configured' not in line else 'allgood' }}">{{ line }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% for group, rows in [('Panel inputs', diagnostics.inputs),
+                           ('Current clamps', diagnostics.clamps),
+                           ('Device health', diagnostics.health)] %}
+    {% if rows %}
+    <h3>{{ group }}</h3>
+    <div class="table-scroll">
+      <table class="diagnostic">
+        <thead>
+          <tr><th>Source</th><th>Carries</th><th>Topic</th><th>Heard</th><th>Last</th></tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+          <tr>
+            <td>{{ row.name }}</td>
+            <td>{{ row.carries }}</td>
+            <td><code>{{ row.topic }}</code></td>
+            <td>
+              <span class="heard {{ 'yes' if row.heard else 'no' }}">{{ row.detail }}</span>
+              {%- if row.note %}<span class="hint">{{ row.note }}</span>{% endif %}
+            </td>
+            <td>{{ row.last }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    {% if not diagnostics.rows %}
+    <p class="hint">Nothing is configured to listen to yet. Set the broker and
+      the topics in Devices above.</p>
+    {% endif %}
+  </div>
+  </details>
+</section>
+
 {% endblock %}
 

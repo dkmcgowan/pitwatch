@@ -402,11 +402,24 @@
       const window_ = (group && group.getAttribute("data-window")) || "today";
       const history = (lamp && lamp.history) || {};
 
-      // Zero is a real answer here, unlike a run count from a clamp that might
-      // not be fitted: an input somebody has assigned and PitWatch has read is
-      // an input whose quiet month means something.
+      // Never and zero, whether or not a message has ever arrived.
+      //
+      // This distinguished the two for a while: an input that had been read
+      // and had stayed open said "never", and one nothing had ever arrived for
+      // said n/a, on the grounds that a quiet contact and a wrong topic are
+      // not the same thing and the page should not claim they are.
+      //
+      // That is true and it is the wrong page for it. This one is read by
+      // somebody who wants to know whether the pit is alright, and to them
+      // there is no difference between an overload that has not tripped and an
+      // overload PitWatch has not heard from: both mean nothing has happened.
+      // A second vocabulary for a state that only exists in the hours after
+      // somebody wires the panel is a puzzle for every reader afterwards.
+      //
+      // The distinction is not lost, it moved to where it can be acted on:
+      // Diagnostics on the settings page, which says per input what has
+      // arrived, when, and on which topic.
       const times = history[window_];
-      const counted = times !== null && times !== undefined;
 
       if (history.last_on) {
         // How long it stayed closed, beside when it closed. A float that is
@@ -415,18 +428,13 @@
         const held = duration(history.last_held_s);
         setFact(last, held ? since(history.last_on) + " for " + held : since(history.last_on));
       } else {
-        // A contact that has been read all month and has not closed says
-        // never. One PitWatch has never had a message for says n/a, the same
-        // as every other empty field on the page: it cannot tell a quiet
-        // contact from a wrong topic or a cut wire, and on an overload a
-        // reassuring "never" would be the worst answer available.
-        setFact(last, counted ? "never" : null);
+        setFact(last, "never");
       }
       // Both lines, always, whether or not there is anything behind them. A
       // lamp with one line beside it is a row shorter than the one under it,
       // and with some inputs wired and some not the sections stop lining up
       // with each other.
-      setFact(count, counted ? times + " " + (COUNTED[window_] || window_) : null);
+      setFact(count, (times || 0) + " " + (COUNTED[window_] || window_));
 
       // An ordinary day beside today's count, on the sections counted by the
       // day. Not on the ones counted by the month: an alarm's average is a

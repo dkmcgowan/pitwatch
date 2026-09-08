@@ -32,13 +32,26 @@
 -- The policies before the views they run against. Dropping a continuous
 -- aggregate out from under its own refresh job is a race with Timescale's
 -- background scheduler, and it loses as "tuple concurrently deleted" from the
--- catalog. It is not theoretical: it took CI out on the first run of this file
--- and reproduces on any fresh database, where 003 registers these jobs and
--- this file drops them seconds later. Unregistering first leaves nothing to
--- run.
-SELECT remove_continuous_aggregate_policy('em_1h', if_exists => true);
-SELECT remove_continuous_aggregate_policy('em_1m', if_exists => true);
-SELECT remove_retention_policy('em_1m', if_exists => true);
+-- catalog. Unregistering first leaves nothing to run.
+--
+-- Driven off the catalog rather than named directly, for two reasons. A fresh
+-- database no longer has these at all, because 003 has been emptied, and
+-- `if_exists` on these functions means "the policy", not "the table": naming a
+-- view that is not there raises UndefinedTableError before it gets as far as
+-- looking for a policy. A select over the catalog calls the function once per
+-- aggregate that actually exists, and no times when none do.
+SELECT remove_continuous_aggregate_policy(
+           format('%I.%I', view_schema, view_name)::regclass, if_exists => true)
+FROM timescaledb_information.continuous_aggregates
+WHERE view_name IN ('em_1m', 'em_1h');
+
+-- Same shape, and for the same reason twice over: a bare 'em_1m' is folded to
+-- a regclass while the statement is planned, so it raises before the WHERE
+-- clause has had a chance to return no rows.
+SELECT remove_retention_policy(
+           format('%I.%I', view_schema, view_name)::regclass, if_exists => true)
+FROM timescaledb_information.continuous_aggregates
+WHERE view_name = 'em_1m';
 
 DROP MATERIALIZED VIEW IF EXISTS em_1h;
 DROP MATERIALIZED VIEW IF EXISTS em_1m;

@@ -1,65 +1,34 @@
--- pitwatch: no-transaction
+-- Two continuous aggregates that this file used to create, and 016 removes.
 --
--- Continuous aggregates cannot be created inside a transaction block, so the
--- migration runner applies this file statement by statement without one. That
--- means a failure here can leave the migration half done; every statement is
--- written to be safe to re-run.
+-- em_1m and em_1h, minute and hour rollups of em_sample, built so that a chart
+-- covering a year would not read a year of one second rows. Nothing ever
+-- queried them: the history page buckets em_sample directly and the longest
+-- window it offers is 30 days. 016 drops them and keeps the raw rows for 400
+-- days instead, which answers the same question from one table.
 --
--- Two levels, minute and hour, with the hour built from the minute rather than
--- from the raw samples. Timescale refreshes them in the background, so a chart
--- covering a year does not read a year of one second rows.
+-- This file is emptied rather than left to create them, which is the one place
+-- editing an applied migration is the right answer.
+--
+-- A database that has already run this file has "003_rollups.sql" in
+-- schema_migration and will never read it again; the runner tracks names, not
+-- checksums, so nothing installed anywhere is affected, and 016 removes what
+-- this file made when it does run. A database created from now on skips
+-- straight past it.
+--
+-- The reason it could not simply be left alone is that creating them and
+-- dropping them seconds later is a race the migration runner loses. 003
+-- registers a refresh policy, Timescale's scheduler picks the job up, and 016
+-- drops the view out from under it:
+--
+--     asyncpg.exceptions.InternalServerError: tuple concurrently deleted
+--
+-- Unregistering the policy first, which 016 does, narrows the window and does
+-- not close it: a job already running keeps running. It took CI out once and
+-- then came back as one error in a suite of 450, because the test fixture
+-- rebuilds the schema for every test and so runs this pair dozens of times. A
+-- flaky migration is worse than a slow one; it teaches everybody to re-run the
+-- suite rather than read it.
+--
+-- The name stays so the sequence is unbroken and the history is legible.
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS em_1m
-WITH (timescaledb.continuous) AS
-SELECT
-    time_bucket(interval '1 minute', ts) AS bucket,
-    channel,
-    avg(current)                         AS avg_current,
-    max(current)                         AS max_current,
-    min(current)                         AS min_current,
-    avg(act_power)                       AS avg_act_power,
-    max(act_power)                       AS max_act_power,
-    avg(voltage)                         AS avg_voltage,
-    avg(pf)                              AS avg_pf,
-    count(*)                             AS samples
-FROM em_sample
-GROUP BY bucket, channel
-WITH NO DATA;
-
-SELECT add_continuous_aggregate_policy(
-    'em_1m',
-    start_offset      => interval '3 hours',
-    end_offset        => interval '1 minute',
-    schedule_interval => interval '1 minute',
-    if_not_exists     => true
-);
-
-CREATE MATERIALIZED VIEW IF NOT EXISTS em_1h
-WITH (timescaledb.continuous) AS
-SELECT
-    time_bucket(interval '1 hour', bucket)        AS bucket,
-    channel,
-    -- Weighting by sample count matters: a minute the device was offline for
-    -- most of contributes fewer samples and should pull the hour less.
-    sum(avg_current * samples) / nullif(sum(samples), 0)   AS avg_current,
-    max(max_current)                                       AS max_current,
-    min(min_current)                                       AS min_current,
-    sum(avg_act_power * samples) / nullif(sum(samples), 0)  AS avg_act_power,
-    max(max_act_power)                                     AS max_act_power,
-    sum(samples)                                           AS samples
-FROM em_1m
-GROUP BY 1, 2
-WITH NO DATA;
-
-SELECT add_continuous_aggregate_policy(
-    'em_1h',
-    start_offset      => interval '3 days',
-    end_offset        => interval '1 hour',
-    schedule_interval => interval '1 hour',
-    if_not_exists     => true
-);
-
--- Minute detail for a year, hourly forever. Neither is expensive; the point of
--- keeping the hourly rollup is being able to say "this pump has been drawing
--- half an amp more than it did last spring", which needs years, not days.
-SELECT add_retention_policy('em_1m', interval '400 days', if_not_exists => true);
+SELECT 1;

@@ -23,6 +23,7 @@ from pitwatch import auth, clock
 from pitwatch import summary as summaries
 from pitwatch.api import forms
 from pitwatch.domain import alerts as alert_specs
+from pitwatch.domain import diagnostics
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
 from pitwatch.schemas import DASHBOARD_ROLES
@@ -122,6 +123,9 @@ async def settings_page(request: Request, admin: auth.IsAdmin, saved: str | None
             sms=store.sms,
             summary=store.summary,
             weather=store.weather,
+            diagnostics=await diagnostics.read(
+                request.app.state.pool, store.mqtt, store.pumps, store.site
+            ),
             saved=saved,
             error=None,
         ),
@@ -338,6 +342,9 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
                 sms=store.sms,
                 summary=store.summary,
                 weather=store.weather,
+                diagnostics=await diagnostics.read(
+                    request.app.state.pool, store.mqtt, store.pumps, store.site
+                ),
                 saved=None,
                 error=_readable(error),
             ),

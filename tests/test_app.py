@@ -284,6 +284,7 @@ def render_settings(**overrides) -> str:
     from jinja2 import Environment, FileSystemLoader
 
     from pitwatch.app import TIMEZONES
+    from pitwatch.domain.diagnostics import Report as Diagnostics
     from pitwatch.schemas import (
         DASHBOARD_ROLES,
         MqttSettings,
@@ -311,6 +312,9 @@ def render_settings(**overrides) -> str:
         "sms": SmsSettings(),
         "summary": SummarySettings(),
         "roles": DASHBOARD_ROLES,
+        # Nothing to say without a database, which is the state this renderer
+        # runs in. The section renders its "nothing configured" line.
+        "diagnostics": Diagnostics(),
         "user": None,
         "error": None,
         "saved": False,
@@ -1812,30 +1816,30 @@ def test_the_key_dot_scales_to_the_size_the_stylesheet_asks_for():
     assert "width: 0.65rem" in css.split(".key-dot {", 1)[1].split("}", 1)[0]
 
 
-def test_an_input_nothing_has_arrived_for_does_not_claim_a_count():
-    """Three different things, and only one of them is "never".
+def test_an_input_that_has_not_gone_reads_the_same_whatever_the_reason():
+    """Never and zero, whether or not a message has ever arrived.
 
-    A contact read all month that has not closed says never. One PitWatch has
-    never received a message for cannot say that: it cannot tell a quiet
-    contact from a wrong topic, a rule that was never saved, or a cut wire.
+    This drew the distinction for a while: an input read all month that had
+    stayed open said "never", and one nothing had ever arrived for said n/a,
+    because a quiet contact and a wrong topic are not the same thing.
 
-    This is not hypothetical and it is worst exactly where it matters. After
-    the readings were wiped on 2026-09-08, the system alert and both overload
-    inputs had published nothing, because nothing had changed them. "0 this
-    month" against an overload would have read as "no overload has tripped"
-    when what was true is "nothing has ever arrived".
+    True, and the wrong page for it. Somebody reading this one wants to know
+    whether the pit is alright, and to them an overload that has not tripped
+    and an overload PitWatch has not heard from mean the same thing: nothing
+    has happened. A second vocabulary for a state that exists only in the hours
+    after somebody wires a panel is a puzzle for every reader after that.
+
+    The distinction lives in Diagnostics on the settings page now, which is
+    where somebody can do something about it.
     """
     js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
     history = js.split("function renderHistory", 1)[1].split("function renderLinks", 1)[0]
 
-    assert '"never"' in history, "a contact that has been read and stayed open"
-    # And nothing for one that has never been heard from, which every empty
-    # field on this page renders as n/a. It said "nothing heard" for a while,
-    # which was accurate and was also a fifth way of saying the same thing on a
-    # page that already had one.
-    assert 'counted ? "never" : null' in history
-    # And the count line still says nothing rather than zero.
-    assert "counted ? times" in history
+    assert 'setFact(last, "never")' in history, "one answer, not two"
+    assert '(times || 0) + " "' in history, "a count of zero rather than nothing"
+    # The flag that chose between the two vocabularies is gone rather than
+    # merely unused, which is the difference between a decision and a leftover.
+    assert "counted" not in history.replace("counted by the", "")
 
 
 def test_a_lamp_with_nothing_behind_it_still_has_two_lines():

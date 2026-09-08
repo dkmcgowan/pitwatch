@@ -137,7 +137,7 @@ async def read(
                 heard=heard,
                 detail=detail,
                 last=clock.on_at(seen["updated_at"], site.timezone) if heard else "never",
-                note="" if heard else "Check the topic and that the module is publishing it.",
+                note="" if heard else "Check the topic.",
             )
         )
 
@@ -157,7 +157,7 @@ async def read(
         if heard and (seen["peak"] or 0) == 0:
             note = "Every reading is zero, which is what an unfitted clamp looks like."
         elif not heard:
-            note = "Check the topic, and the ask topic if the meter only publishes on change."
+            note = "Check the topic and the ask."
         report.clamps.append(
             Row(
                 name=pumps.by_number[clamp.pump].name or f"Pump {clamp.pump}",
@@ -196,7 +196,7 @@ async def read(
                 heard=heard,
                 detail=detail if heard else "nothing has arrived",
                 last=clock.on_at(seen["last_seen"], site.timezone) if heard else "never",
-                note="" if online else "Point this at a topic the device publishes on a schedule.",
+                note="" if online else "Use a topic the device sends on a schedule.",
             )
         )
 

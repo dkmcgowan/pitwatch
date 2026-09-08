@@ -781,8 +781,19 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .diagnostics { font-size: 0.9rem; }
 .diagnostics h3:first-of-type { margin-top: 0; }
 table.diagnostic { min-width: 34rem; }
-table.diagnostic code { font-size: 0.85em; word-break: break-all; }
-table.diagnostic .hint { margin-top: 0.2rem; }
+table.diagnostic code { font-size: 0.85em; }
+
+/* A topic and a timestamp are each one thing. Broken over two lines they read
+   as two, and the table is already inside a scroller for exactly this. */
+table.diagnostic .nowrap { white-space: nowrap; }
+
+/* Its own line under what was heard, rather than running on from it. */
+table.diagnostic .note {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
 
 /* Heard from, or not. Green and red rather than a lamp, because this is a
    column of sentences and a dot beside each one would be a second alphabet. */

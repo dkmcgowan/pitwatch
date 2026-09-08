@@ -1816,6 +1816,38 @@ def test_the_key_dot_scales_to_the_size_the_stylesheet_asks_for():
     assert "width: 0.65rem" in css.split(".key-dot {", 1)[1].split("}", 1)[0]
 
 
+def test_a_source_nothing_has_arrived_on_says_what_to_check_on_its_own_line():
+    """The note ran on from the sentence before it with no space, because it
+    was an inline span next to another one: "nothing has arrivedCheck the
+    topic." And only where it is the answer: a row that has been heard from
+    carries its warning in the list at the top, where there is room for a whole
+    sentence rather than a table cell somebody has to widen."""
+    from pitwatch.domain.diagnostics import Report, Row
+
+    quiet = Row(
+        name="Input 7",
+        carries="Pump 1 overload",
+        topic="pit/in/7",
+        heard=False,
+        detail="nothing has arrived",
+        note="Check the topic.",
+    )
+    heard = Row(
+        name="Pump 2",
+        carries="Current",
+        topic="meter/em1:1",
+        heard=True,
+        detail="5 readings in the last day, peak 0.00 A",
+        note="Every reading is zero, which is what an unfitted clamp looks like.",
+    )
+    page = render_settings(diagnostics=Report(inputs=[quiet], clamps=[heard]))
+
+    assert '<span class="note">Check the topic.</span>' in page
+    assert "unfitted clamp" not in page, "that one belongs in the list at the top"
+    # And a topic and a timestamp are each one thing, not two lines.
+    assert page.count('class="nowrap"') == 4
+
+
 def test_an_input_that_has_not_gone_reads_the_same_whatever_the_reason():
     """Never and zero, whether or not a message has ever arrived.
 

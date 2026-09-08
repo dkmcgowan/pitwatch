@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 import asyncpg
 import httpx2
@@ -37,6 +38,14 @@ log = logging.getLogger(__name__)
 TIMEOUT_S = 90.0
 
 WINDOW = series.WINDOWS["7d"]
+
+# Said in one place, because the page draws it and the post refuses with it.
+NO_KEY = "Add an OpenAI key and a model on the settings page first."
+
+# How long a summary stands before there is a week of readings it has not seen.
+# The same seven days the summary is written over, so "there is another week to
+# read" and "this one has read a whole week it did not" are the same moment.
+FRESH_FOR = timedelta(days=7)
 
 # Every daily figure here is cut on the site's own midnight, the meter's and
 # the panel's and the rain's alike. Days that do not start at the same moment
@@ -98,6 +107,47 @@ INSTRUCTIONS = (
     "Four short paragraphs at most, plain text, no headings and no bullet "
     "points."
 )
+
+
+@dataclass(frozen=True)
+class Offer:
+    """Whether there is anything new to ask, and what to say when there is not.
+
+    Every press is a paid call on somebody's OpenAI account, and the same week
+    of readings with the same description written about them gives the same
+    answer twice. So the button is live only when one of the two halves has
+    moved: a week has gone by, or somebody has changed what they said about the
+    building.
+
+    Editing the description is the deliberate way through, not a loophole. A
+    summary is worth arguing with, and the way to argue with this one is to tell
+    it the thing it did not know.
+    """
+
+    allowed: bool
+    # Under a button that cannot be pressed, saying which half is stale.
+    because: str = ""
+
+
+def offer(settings: SummarySettings, last: dict | None, now: datetime | None = None) -> Offer:
+    """Whether the button is live."""
+    if not settings.ready:
+        return Offer(False, NO_KEY)
+    if last is None:
+        return Offer(True)
+    if (last.get("context") or "") != settings.description.strip():
+        return Offer(True)
+    now = now or datetime.now(UTC)
+    old = now - last["created_at"]
+    if old >= FRESH_FOR:
+        return Offer(True)
+    days = max(1, round((FRESH_FOR - old).total_seconds() / 86400))
+    return Offer(
+        False,
+        f"This one has read the same week and the same description. "
+        f"There is a new week to read in {days} day{'s' if days != 1 else ''}, "
+        f"or change what you have written below and ask again.",
+    )
 
 
 async def rainfall(pool, store: SettingsStore, window: series.Window, zone: str) -> dict | None:
@@ -299,7 +349,7 @@ async def ask(settings: SummarySettings, payload: list[dict]) -> str:
     is a summary that fails for no reason.
     """
     if not settings.ready:
-        raise SummaryError("Add an OpenAI key and a model on the settings page first.")
+        raise SummaryError(NO_KEY)
 
     url = settings.base_url.rstrip("/") + "/chat/completions"
     try:
@@ -343,14 +393,15 @@ async def write(app, username: str) -> dict:
 
     row = await app.state.pool.fetchrow(
         """
-        INSERT INTO summary (window_key, model, body, facts, written_by)
-        VALUES ($1, $2, $3, $4::jsonb, $5)
-        RETURNING id, created_at, window_key, model, body, written_by
+        INSERT INTO summary (window_key, model, body, facts, context, written_by)
+        VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+        RETURNING id, created_at, window_key, model, body, context, written_by
         """,
         WINDOW.key,
         settings.model,
         body,
         json.dumps(numbers),
+        settings.description.strip(),
         username,
     )
     log.info("%s wrote a summary with %s", username, settings.model)
@@ -360,7 +411,7 @@ async def write(app, username: str) -> dict:
 async def latest(pool: asyncpg.Pool) -> dict | None:
     row = await pool.fetchrow(
         """
-        SELECT id, created_at, window_key, model, body, written_by
+        SELECT id, created_at, window_key, model, body, context, written_by
         FROM summary
         ORDER BY created_at DESC
         LIMIT 1
@@ -384,12 +435,15 @@ def age(created_at: datetime | None) -> str:
 
 
 __all__ = [
+    "NO_KEY",
+    "Offer",
     "SummaryError",
     "age",
     "ask",
     "facts",
     "latest",
     "messages",
+    "offer",
     "rainfall",
     "write",
 ]

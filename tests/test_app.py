@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from pitwatch import __version__
 from pitwatch.app import create_app
 from pitwatch.config import Config
+from pitwatch.summary import Offer
 
 
 def build() -> TestClient:
@@ -1986,17 +1987,33 @@ def test_the_charts_are_drawn_here_and_not_fetched_from_anywhere():
 def test_the_summary_page_says_what_it_needs_before_it_offers_the_button():
     """A button that spends money and fails is worse than no button."""
     nothing = render_page(
-        "summary.html", last=None, age="", ready=False, described=False, error=None
+        "summary.html",
+        last=None,
+        age="",
+        ready=False,
+        context="",
+        offer=Offer(False, "Add an OpenAI key and a model on the settings page first."),
+        error=None,
     )
 
     assert "New summary" not in nothing
     assert "settings" in nothing
 
-    ready = render_page("summary.html", last=None, age="", ready=True, described=False, error=None)
+    ready = render_page(
+        "summary.html",
+        last=None,
+        age="",
+        ready=True,
+        context="",
+        offer=Offer(True),
+        error=None,
+    )
     assert "New summary" in ready
-    # And it says the description is missing without refusing to work without
-    # one.
-    assert "No description of the system" in ready
+    # The empty box is how the page says nothing has been written about the
+    # building. A sentence saying so, printed above a box labelled with what to
+    # put in it, is the same thing said twice.
+    assert 'name="summary_description"' in ready
+    assert "What it knows about this building" in ready
 
 
 def test_a_written_summary_is_rendered_as_text_with_its_age():
@@ -2013,7 +2030,8 @@ def test_a_written_summary_is_rendered_as_text_with_its_age():
         },
         age="3 min ago",
         ready=True,
-        described=True,
+        context="Two pumps in a pit.",
+        offer=Offer(False, "This one has read the same week."),
         error=None,
     )
 
@@ -2217,7 +2235,15 @@ def test_the_summary_page_says_what_it_is_and_offers_a_refresh():
     """It is an AI summary and the page should say so, the way the settings
     section that configures it does. And the button is pressed again and again
     on a page that already has one, so it reads as another rather than a first."""
-    page = render_page("summary.html", ready=True, described=True, last=None, age="", error=None)
+    page = render_page(
+        "summary.html",
+        ready=True,
+        last=None,
+        age="",
+        context="",
+        offer=Offer(True),
+        error=None,
+    )
 
     assert "AI Summary" in page
     assert ">New summary<" in page

@@ -16,6 +16,7 @@ from pitwatch.schemas import (
     ClampSource,
     MqttSettings,
     SiteSettings,
+    SummarySettings,
     WeatherSettings,
 )
 
@@ -160,3 +161,76 @@ async def test_a_device_error_stays_on_the_diagnostics_page(pool, store):
     assert numbers["devices"] == [{"device": "health0", "online": False, "last_seen": mock.ANY}]
     assert "10.136.1.36" not in body
     assert "Errno" not in body
+
+
+def _last(created_at, context: str) -> dict:
+    return {"created_at": created_at, "context": context, "body": "Both pumps look normal."}
+
+
+def test_the_first_summary_is_always_allowed():
+    settings = SummarySettings(api_key="sk-test", description="Two pumps in a pit.")
+
+    assert summary.offer(settings, None).allowed
+
+
+def test_the_same_week_and_the_same_words_give_the_same_answer():
+    """Which is not worth a second call on somebody's account. The button goes
+    gray and says which half is stale rather than disappearing: a control that
+    vanishes and comes back is a control nobody learns."""
+    settings = SummarySettings(api_key="sk-test", description="Two pumps in a pit.")
+    yesterday = datetime.now(UTC) - timedelta(days=1)
+
+    decision = summary.offer(settings, _last(yesterday, "Two pumps in a pit."))
+
+    assert not decision.allowed
+    assert "6 days" in decision.because
+    assert "change what you have written" in decision.because
+
+
+def test_a_week_of_readings_it_has_not_seen_opens_the_button():
+    settings = SummarySettings(api_key="sk-test", description="Two pumps in a pit.")
+    last_week = datetime.now(UTC) - timedelta(days=7, minutes=1)
+
+    assert summary.offer(settings, _last(last_week, "Two pumps in a pit.")).allowed
+
+
+def test_telling_it_something_new_opens_the_button():
+    """The deliberate way through, and not a loophole. A summary is worth
+    arguing with, and the way to argue with this one is to tell it the thing it
+    did not know."""
+    settings = SummarySettings(
+        api_key="sk-test",
+        description="Two pumps in a pit. The check valve was replaced in the spring.",
+    )
+    an_hour_ago = datetime.now(UTC) - timedelta(hours=1)
+
+    assert summary.offer(settings, _last(an_hour_ago, "Two pumps in a pit.")).allowed
+
+
+def test_a_summary_written_before_the_context_was_kept_does_not_hold_the_button():
+    """Rows from before the column existed carry an empty context, and nothing
+    is known about what those were told."""
+    settings = SummarySettings(api_key="sk-test", description="Two pumps in a pit.")
+
+    assert summary.offer(settings, _last(datetime.now(UTC), "")).allowed
+
+
+def test_no_key_is_its_own_answer():
+    assert not summary.offer(SummarySettings(), None).allowed
+
+
+async def test_a_summary_keeps_what_it_was_told_about_the_building(pool, store):
+    """So a summary read a month later can be checked against the description it
+    was given as well as the readings it saw, and so the page can tell whether
+    anything has changed since."""
+    await pool.execute(
+        """
+        INSERT INTO summary (window_key, model, body, facts, context, written_by)
+        VALUES ('7d', 'gpt-4o-mini', 'Both pumps look normal.', '{}'::jsonb, $1, 'david')
+        """,
+        "Two pumps in a pit.",
+    )
+
+    last = await summary.latest(pool)
+
+    assert last["context"] == "Two pumps in a pit."

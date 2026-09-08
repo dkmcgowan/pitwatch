@@ -4,12 +4,12 @@
 
 {% block content %}
 
-{# One button and whatever it last wrote.
+{# What it last said, and the thing you tell it.
 
    Nothing here happens on its own. Every press is a paid call on somebody's
-   OpenAI account, so the page shows the last summary until somebody asks for
-   another, and says when it was written so nobody reads a week old reading as
-   this morning's. #}
+   OpenAI account, so the page shows the last summary until there is something
+   new to ask, and says when it was written so nobody reads a week old reading
+   as this morning's. #}
 <div class="charts">
 
   {% if error %}
@@ -24,23 +24,23 @@
       {% if ready %}
       <form method="post" action="/summary" data-summary-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="button" data-summary-button>New summary</button>
+        <button type="submit" class="button" data-summary-button
+                {% if not offer.allowed %}disabled{% endif %}>New summary</button>
       </form>
       {% endif %}
     </div>
 
     {% if not ready %}
     <p class="hint">
-      Nothing to ask with yet. The key and the model live on the
-      <a href="/settings">settings page</a>, under AI Summary.
+      Nothing to ask with yet. The key and the model live
+      {% if user and user.is_admin %}on the <a href="/settings">settings page</a>,
+      under AI Summary{% else %}in the settings, which an administrator can
+      fill in{% endif %}.
     </p>
-    {% elif not described %}
-    <p class="hint">
-      No description of the system has been written yet. It will still work, and
-      it will be a much better read with one: what the pit does, what the pumps
-      are, what has been repaired lately. That is on the
-      <a href="/settings">settings page</a>.
-    </p>
+    {% elif not offer.allowed %}
+    {# Under a dead button, saying which half is stale and how to move it. A
+       button that is off and says nothing reads as broken. #}
+    <p class="hint">{{ offer.because }}</p>
     {% endif %}
 
     {% if last %}
@@ -59,13 +59,36 @@
       <h3 class="note-title">AI Summary</h3>
       <div class="hint">
         <p>The last week of daily figures, plus what you wrote about the
-          building and the pumps on the settings page, sent to OpenAI and read
-          back as a few paragraphs on how the pumps are working. It happens when
-          somebody presses the button, never on a schedule, and no address and
-          no account names go with it.</p>
+          building and the pumps below, sent to OpenAI and read back as a few
+          paragraphs on how the pumps are working. It happens when somebody
+          presses the button, never on a schedule, and no address and no
+          account names go with it.</p>
+        <p>One a week. The same readings and the same description give the same
+          answer, so the button waits for a new week unless you change what you
+          have told it.</p>
       </div>
       <p class="note-close">Click anywhere to close</p>
     </dialog>
+  </section>
+
+  {# The half a model cannot work out from the numbers, edited where its effect
+     is read. Somebody who has just read a summary that missed the check valve
+     replaced in the spring wants to say so now. #}
+  <section class="card chart-card">
+    <h2 class="section-heading">What it knows about this building</h2>
+    <form method="post" action="/summary/context" autocomplete="off">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="field">
+        <textarea id="summary_description" name="summary_description" rows="7"
+                  aria-label="What it knows about this building"
+                  maxlength="4000">{{ context }}</textarea>
+        <p class="hint">What the pit does, what the pumps are, how the panel is
+          set up, what has been repaired and when. Everything the readings
+          cannot say for themselves. Changing this is also how you ask again
+          before the week is up.</p>
+      </div>
+      <button type="submit" class="button secondary">Save</button>
+    </form>
   </section>
 </div>
 

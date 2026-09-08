@@ -215,6 +215,18 @@ main {
 
 .button:hover { filter: brightness(1.08); }
 
+/* A button with nothing to do. Gray and unpressable rather than hidden: the
+   thing it does is worth knowing about even in the hour it cannot be done, and
+   a control that vanishes and comes back is a control nobody learns. Whatever
+   is standing in its way is said in a line underneath. */
+.button:disabled,
+.button[disabled] {
+  background: var(--border);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  filter: none;
+}
+
 .button.small {
   padding: 0.3rem 0.7rem;
   font-size: 0.82rem;
@@ -1069,11 +1081,16 @@ table.diagnostic .note {
 /* When the summary was written and who by. Above the summary rather than under
    it: a paragraph about a pump means something different if it is a week
    old. */
+/* When it was written, under whatever the page said about the button. Both
+   are small and gray, so without the gap they read as one paragraph and the
+   line about the button appears to be part of the provenance. */
 .summary-when {
   margin: 0 0 0.75rem;
   color: var(--text-muted);
   font-size: 0.8rem;
 }
+
+.hint + .summary-when { margin-top: 0.9rem; }
 
 /* Paragraphs as they were written. Rendered as text and nothing else: this
    came from a model, and a model's output is not markup. */

@@ -956,13 +956,15 @@ def become_a_watcher(client) -> None:
     )
 
 
-def test_history_is_for_everybody_and_the_summary_is_not(client):
-    """The history page is the dashboard over time and there is nothing on it
-    somebody who can read the dashboard should not see.
+def test_the_pages_about_the_pumps_are_for_everybody_signed_in(client):
+    """The history page and the summary are both readings of the same pumps,
+    and the people who look after them are not all administrators.
 
-    Writing a summary spends money on an OpenAI account and hands a description
-    of the building to somebody else's model. That is the owner's decision, not
-    a button for anybody signed in.
+    The summary was an administrator's page because every press spends money on
+    an OpenAI account. The gate is a better answer than a locked door: one can
+    only be written when there is a week of readings it has not seen or somebody
+    has changed what was written about the building. Settings and users stay
+    shut, because those are the owner's.
     """
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
@@ -970,8 +972,9 @@ def test_history_is_for_everybody_and_the_summary_is_not(client):
 
     assert client.get("/history").status_code == 200
     assert client.get("/api/history").status_code == 200
-    assert client.get("/summary", follow_redirects=False).status_code == 403
-    assert client.post("/summary", follow_redirects=False).status_code == 403
+    assert client.get("/summary").status_code == 200
+    assert client.get("/settings", follow_redirects=False).status_code == 403
+    assert client.get("/users", follow_redirects=False).status_code == 403
 
 
 def test_the_history_page_is_in_the_header_for_everybody(client):
@@ -981,8 +984,9 @@ def test_the_history_page_is_in_the_header_for_everybody(client):
 
     page = client.get("/history").text
     assert 'aria-label="History"' in page
-    assert 'aria-label="Summary"' not in page, "an administrator's page"
+    assert 'aria-label="AI Summary"' in page, "a reading of the same pumps"
     assert 'aria-label="Settings"' not in page
+    assert 'aria-label="Users"' not in page
 
 
 def test_the_history_reads_the_window_it_was_asked_for(client):

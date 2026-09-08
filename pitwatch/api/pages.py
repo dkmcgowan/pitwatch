@@ -277,8 +277,13 @@ async def history_page(request: Request, user: auth.SignedIn):
     return _templates(request).TemplateResponse(request, "history.html", _context(request))
 
 
+# Not an administrator's page any more. It was one because every press spends
+# money, and the gate below is a better answer to that than a locked door: a
+# summary can only be written when there is a week of readings it has not seen
+# or somebody has changed what was written about the building, so the people who
+# look after the pit can read one and the account cannot be run up by refreshing.
 @router.get("/summary", include_in_schema=False)
-async def summary_page(request: Request, admin: auth.IsAdmin, error: str | None = None):
+async def summary_page(request: Request, user: auth.SignedIn, error: str | None = None):
     store: SettingsStore = request.app.state.settings
     last = await summaries.latest(request.app.state.pool)
     return _templates(request).TemplateResponse(
@@ -289,21 +294,46 @@ async def summary_page(request: Request, admin: auth.IsAdmin, error: str | None 
             last=last,
             age=summaries.age(last["created_at"]) if last else "",
             ready=store.summary.ready,
-            described=bool(store.summary.description.strip()),
+            context=store.summary.description,
+            offer=summaries.offer(store.summary, last),
             error=error,
         ),
     )
 
 
 @router.post("/summary", include_in_schema=False)
-async def summary_write(request: Request, admin: auth.IsAdmin):
+async def summary_write(request: Request, user: auth.SignedIn):
+    store: SettingsStore = request.app.state.settings
+    last = await summaries.latest(request.app.state.pool)
+    # Checked here and not only drawn on the page. A disabled button is a
+    # courtesy; this is the part that holds when somebody posts the form anyway.
+    allowed = summaries.offer(store.summary, last)
+    if not allowed.allowed:
+        return RedirectResponse(f"/summary?error={quote(allowed.because[:300])}", status_code=303)
     try:
-        await summaries.write(request.app, admin.username)
+        await summaries.write(request.app, user.username)
     except summaries.SummaryError as error:
         # Straight back to the page with what went wrong on it. The one thing
         # somebody needs after a failed call is the reason, and OpenAI's own
         # message is nearly always the reason.
         return RedirectResponse(f"/summary?error={quote(str(error)[:300])}", status_code=303)
+    return RedirectResponse("/summary", status_code=303)
+
+
+@router.post("/summary/context", include_in_schema=False)
+async def summary_context(request: Request, user: auth.SignedIn):
+    """The description, edited where its effect is read.
+
+    The same setting the settings page holds, saved from the page where
+    somebody has just read what it produced. That is where the wish to change
+    it happens: a summary that missed the check valve replaced in the spring is
+    a summary somebody wants to correct now, not after finding the right
+    accordion section on another page.
+    """
+    store: SettingsStore = request.app.state.settings
+    form = await request.form()
+    written = str(form.get("summary_description") or "")[:4000]
+    await store.put(store.summary.model_copy(update={"description": written}))
     return RedirectResponse("/summary", status_code=303)
 
 

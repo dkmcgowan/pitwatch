@@ -28,15 +28,17 @@
        title="History" aria-label="History">
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-chart"/></svg>
     </a>
-    {% endif %}
-
-    {% if user and user.is_admin %}
-    {# The summary spends money on somebody's OpenAI account every time it is
-       written, so the page that writes it is an administrator's page. #}
+    {# Writing one spends money on somebody's OpenAI account, which is why this
+       used to be an administrator's page. The page holds a gate instead: a
+       summary can only be written when there is a week of readings it has not
+       seen, or somebody has changed what was written about the building. #}
     <a href="/summary" class="icon-link {% if active == 'summary' %}active{% endif %}"
        title="AI Summary" aria-label="AI Summary">
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-summary"/></svg>
     </a>
+    {% endif %}
+
+    {% if user and user.is_admin %}
     <a href="/users" class="icon-link {% if active == 'users' %}active{% endif %}"
        title="Users" aria-label="Users">
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-people"/></svg>

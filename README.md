@@ -4,51 +4,57 @@ Monitoring and real alerting for a duplex ejector pump panel.
 
 Most pump controllers have one alarm contact and one thing to say with it:
 something is wrong. Not which pump, not how wrong, not whether it has happened
-before. PitWatch watches the same panel with a pair of current clamps and an
+before. PitWatch reads the same panel with a pair of current clamps and an
 Ethernet I/O module, and turns that one contact into a page that says *pump 2
 has been drawing 14.2 A for four minutes, the high water float is wet, and both
 pumps are running*.
 
+| The pit now | A week of it | What was raised |
+| --- | --- | --- |
+| ![The dashboard on a phone](docs/screenshots/dashboard.png) | ![The history page](docs/screenshots/history.png) | ![Alert history](docs/screenshots/alerts.png) |
+
+Made up numbers on a demo install. The wet day on the middle chart is the point
+of the whole thing: rain hangs from the ceiling and the calls for water sit
+underneath it.
+
 ## What it does
 
-- Reads running current from both motors continuously, over a websocket the
-  Shelly pushes to, and keeps the history.
-- Reads the floats, the run contacts and the overload contacts from the panel's
-  own dry contacts.
-- A live dashboard: a section each for the two pumps, carrying the word the
-  controller has for them, then the panel's own lamps, at a size that reads on
-  a phone in a basement.
-- A history page: how often the pit calls for water, how long between calls,
-  how long each run lasts, what it drew, what time of day it happens and what
-  moved when, over a day, a week or a month.
-- Email and SMS, with a test button on each that sends a real message, so you
-  can prove the path works before you need it.
-- A written summary, for administrators, if you add an OpenAI key. It sends a
-  week of figures and the description of the system you wrote in settings, and
-  reads them back as a few paragraphs. Nothing is sent until somebody presses
-  the button.
-
-The alert engine fires the rules, records what it found and tells whoever asked
-to be told, by email or by text, once per condition rather than once per sweep.
+- **Reads both motors continuously** and keeps every reading, so a pump drawing
+  more than it did last month is something you can see rather than guess.
+- **Counts what the panel actually did** from its own run contacts. A run is a
+  contact closing, so the count is a tally and the duration is a measurement.
+- **A dashboard laid out like the panel**, at a size that reads on a phone in a
+  basement: two pumps, the floats, the alarm contact, and what is open now.
+- **A history page**: how often the pit calls for water, how long between calls,
+  how long a run lasts, what it drew, what time of day it happens, and the rain
+  over the top of it.
+- **Fifteen alert rules** over email and SMS, raised once per condition and
+  cleared when it goes away, with a test button that sends a real message.
+- **A written summary**, if you add an OpenAI key. It sends a week of figures and
+  the description you wrote, and reads them back as a few paragraphs.
 
 ## What you need
 
 1. **A duplex pump panel** with dry contacts for the floats, the run signals and
    the motor overloads. The reference installation is a Magnus controller.
-2. **A [Shelly EM Gen3](https://www.shelly.com/products/shelly-em-gen3)** with
-   two current transformer clamps, one on each motor.
-3. **A [ControlByWeb X-408](https://www.controlbyweb.com/x408/)** on the same
-   network. Eight optically isolated inputs, 4 to 26 V DC. Firmware 3.12 or
-   newer, for MQTT.
+2. **A current meter that publishes over MQTT.** The reference installation uses
+   a [Shelly EM Gen3](https://www.shelly.com/products/shelly-em-gen3) with a CT
+   clamp on each motor.
+3. **An I/O module that publishes over MQTT**, one topic per input. The reference
+   installation uses a [ControlByWeb X-408](https://www.controlbyweb.com/x408/):
+   eight optically isolated inputs, 4 to 26 V DC, firmware 3.12 or newer.
 4. **Somewhere to run Docker.** A NAS, a small server, a Raspberry Pi.
 
-Nothing is polled. The Shelly pushes over a websocket; the X-408 publishes to an
-MQTT broker when an input changes, and the broker comes up alongside PitWatch in
-the same compose file. So there is no poll interval to pick between a fast alarm
-and a busy network.
+**Nothing is reached into.** Every device dials out to one MQTT broker, which
+comes up alongside PitWatch in the same compose file, and publishes when
+something changes. So there is no poll interval to choose between a fast alarm
+and a busy network, no fixed addresses to keep track of, and no route from the
+application back into the panel, which is what lets PitWatch run somewhere other
+than the building later without a VPN into it.
 
-The Shelly needs a fixed address, static or a DHCP reservation. The X-408 does
-not, because it dials in.
+The one exception is a clamp, which can ask for a reading while its pump is
+running, because a meter that publishes on change says very little during a
+steady twelve second run. That still goes out through the same broker.
 
 ## Install
 
@@ -60,8 +66,8 @@ mv .env.example .env
 ```
 
 Put a database password and a broker password in `.env`. Those are the only two
-settings without a sensible default; everything else is in `docker-compose.yml`
-with a comment next to it.
+settings without a sensible default; the rest are in `docker-compose.yml` with a
+comment next to each.
 
 ```sh
 docker compose up -d
@@ -69,106 +75,102 @@ docker compose up -d
 
 Open `http://<your-host>:8080` and sign in as **`admin`** with the password
 **`pitwatch`**. It makes you change that before anything else opens, then walks
-you through setup. Follow the wizard.
+you through setup.
 
-If a device will not connect, check the host can reach it, then that the address
-is an IP rather than an mDNS name: `.local` names resolve on your machine and
-not inside a container.
+## What PitWatch listens to
 
-## Accounts
+Three kinds of thing, because a pump panel asks three kinds of question, and
+each gets its own section on the settings page.
 
-Everyone who should be told about a pump is an account on the **Users** page.
-Most of them never sign in; a password is optional, because the reason a
-superintendent is in this list is to get a text at two in the morning. Anyone
-who also wants the dashboard gets an invitation link. Only administrators can
-change settings or manage users.
+| Kind | The question | What you give it |
+| --- | --- | --- |
+| **Clamp** | What is the pump drawing? | A topic, and where in the body the number is |
+| **Contact** | Is this float wet, is this pump running? | One topic per input, and whether it is on when voltage is present or missing |
+| **Health** | Is the thing that would have told us still plugged in? | A topic the device publishes on a schedule, and how often to expect it |
 
-If this is reachable from the internet, set two things in `docker-compose.yml`:
+There are no device profiles and nothing in the code knows what a Shelly is. Any
+hardware that publishes a number, or an on and an off, to a topic will work.
 
-| Setting | Why |
+**Diagnostics**, at the bottom of the settings page, is where you find out
+whether it is working: every source you configured, its topic, whether anything
+has ever arrived on it and when the last one did.
+
+### The meter
+
+Point it at the broker in its own web page, then fill in the topics on the
+PitWatch settings page. The reference meter publishes under its own MQTT client
+name, `shellyemg3` below, so use whatever yours is set to:
+
+| Field | Value |
 | --- | --- |
-| `PITWATCH_SECURE_COOKIES=true` | Marks the session cookie Secure, so a browser will not send it over plain HTTP. Set it when a proxy in front terminates TLS. |
-| `PITWATCH_TRUSTED_PROXIES` | Which addresses may say, through `X-Forwarded-For`, who the client is. Defaults to loopback. Set it to your proxy if it is on another host, and never to a wildcard. |
+| Topic | `shellyemg3/status/em1:0` for the first clamp, `em1:1` for the second |
+| Reading at | `current` |
 
-## Setting up the X-408
+A meter that publishes on change says nothing while a motor runs steady, and a
+twelve second run can come through as two readings. So a clamp can also **ask**,
+once a second, while its pump is running:
 
-The module talks to PitWatch and PitWatch never talks to the module, so all of
-this is typed into the X-408's own web page, under **Setup**.
-
-**General Settings**, then the **MQTT** tab at the bottom. Add a broker:
-
-| Field | What to put |
+| Field | Value |
 | --- | --- |
-| Hostname | The IP address of the machine running PitWatch |
-| Port | `MQTT_PORT` from your `.env`, 1883 unless you moved it |
-| Client ID | `x408` |
-| Username, Password | `MQTT_USERNAME` and `MQTT_PASSWORD` from your `.env` |
-| Encrypted | Off |
-| Keep Alive | `30` |
-| Clean Session | On |
-| Birth Topic, Birth Message | `pitwatch/status`, `online` |
-| Last Will Topic, Last Will Message | `pitwatch/status`, `offline` |
+| Ask on | `shellyemg3/rpc` |
+| Ask with | `{"id":1,"src":"pitwatch-c1","method":"EM1.GetStatus","params":{"id":0}}` |
+| Answer arrives on | `pitwatch-c1/rpc`, matching `src` above |
+| Answer at | `result.current` |
 
-The module ships with a JSON body for these,
-`{"id":"${clientID}","status":"online"}`. Either form is read, so leaving the
-default alone is fine; the bare word is in the table because it is the shorter
-thing to type. What PitWatch reads is the `status` field, or the whole message
-when it is not JSON. Anything it cannot read counts as offline.
+Give each clamp its own `src` and its own answer topic. A reply carries no sign
+of what it was answering, so two clamps reading one topic would each match every
+answer and file one reading under both pumps.
 
-Turn **Retain** on for both, so PitWatch learns whether the module is there the
-moment it subscribes rather than at the next connection.
+For **health**, use the topic the meter publishes on a clock rather than the one
+it publishes on change, and set the interval to match. The reference meter sends
+`shellyemg3/status/em1data:0` every 60 seconds.
 
-The birth and last will pair is what makes the module going offline something
-PitWatch is told about rather than something it has to notice: the broker sends
-the `offline` message on the module's behalf when the connection drops.
+### The panel inputs
 
-**Turn the heartbeat on as well**, on the same page: topic `pitwatch/heartbeat`,
-the default payload and the default 60 second interval, and **Prepend Topic
-Root off**. The birth and will have one hole between them, and it is in the
-dangerous direction: a will reaches whoever is subscribed at the moment it
-fires and nobody else, so a module that dies while PitWatch is stopped is one
-PitWatch comes back to, finds a healthy broker, and marks online because
-nothing has contradicted it. The heartbeat closes that. Anything arriving on
-that topic counts as proof of life whatever it says, and about two and a half
-missed intervals of silence marks the module offline. PitWatch expects one
-every 60 seconds by default, so the two agree without changing either.
+All of this is typed into the module's own web page, under **Setup**, because it
+talks to PitWatch and PitWatch never talks to it.
 
-Then add **eight publications**, one per input. The **I/O** dropdown on a
-publication is what triggers it, not what it sends, so an input with no
-publication of its own is an input whose changes nobody hears about.
+**General Settings**, then the **MQTT** tab. Add a broker: the IP address of the
+machine running PitWatch, `MQTT_PORT` from your `.env`, the user name and
+password from there too, keep alive `30`, clean session on.
+
+**Turn the heartbeat on**, topic `pitwatch/heartbeat`, the default 60 second
+interval, **Prepend Topic Root off**, and put that topic in the health section of
+the settings page with 60 seconds beside it. Proof of life is that something
+arrived, not what it said, and about two and a half missed intervals of silence
+marks the device offline.
+
+Set a last will if you like, but PitWatch does not read one. A will only reaches
+whoever is subscribed at the moment it fires, never fires at all for an outage
+shorter than the keep alive, and, measured on the reference meter, published
+`offline` one tenth of a second before `online` when the device reconnected: a
+session takeover rather than a death notice. Silence is the more honest test.
+
+Then add **eight publications**, one per input:
 
 | Field | What to put |
 | --- | --- |
 | Publication Name | `inputs1` through `inputs8` |
-| Broker | the one you just added |
 | Publish on Change | **On** |
-| I/O | Digital Input 1, then 2, and so on: the only field that differs |
+| I/O | Digital Input 1, then 2, and so on |
 | Publish Interval | leave empty |
-| Topic | `pitwatch/inputs`, the same on all eight |
+| Topic | `pitwatch/inputs/1` through `pitwatch/inputs/8` |
+| Payload | `${digitalInput1}` through `${digitalInput8}` |
 | QoS, Retain | `1`, On |
-| Prepend Topic Root | **Off**, unless the topic above is written relative to a root |
+| Prepend Topic Root | **Off**, unless the topic is written relative to a root |
 
-and for **Payload**, the same line on all eight, carrying every input:
+One topic per input, because a contact is on or off and that is all a contact
+ever is. Retain matters: it is how PitWatch learns where every input is resting
+the moment it subscribes, rather than at the next time one moves.
 
-```
-{"1":"${digitalInput1}","2":"${digitalInput2}","3":"${digitalInput3}","4":"${digitalInput4}","5":"${digitalInput5}","6":"${digitalInput6}","7":"${digitalInput7}","8":"${digitalInput8}"}
-```
+`1`/`0`, `true`/`false`, `on`/`off`, `yes`/`no`, `closed`/`open`, `high`/`low`
+and `active`/`inactive` all read, in any case, and so does a bare number. A
+device that wraps its state in JSON is read too: put the dotted path to the
+value, like `state` or `value.on`, under **Key in body** beside the topic.
 
-Every message carries all eight on purpose. One message per changed input would
-leave PitWatch holding a picture assembled from fragments, and with Retain on
-the stored message would be whichever input moved last, so a reconnect would
-restore one input and know nothing about the other seven.
-
-The keys are yours; PitWatch reads `1` through `8`, and also spellings like
-`di1` or `digitalInput1`. Do not mix the two styles in one body: if any key is
-a bare number, only the bare numbers are read. The tokens on the right are the
-device's own, listed under **View MQTT Payload Tokens**. Quote them as above.
-An unresolved token then costs you one input instead of the whole message,
-which is invalid JSON and is dropped entire.
-
-The two topics also appear on the PitWatch settings page and have to match.
-Nothing warns you if they do not, because a topic nobody publishes to looks
-exactly like a module with nothing to say.
+The topics also go on the PitWatch settings page and have to match. Nothing warns
+you if they do not, because a topic nobody publishes to looks exactly like a
+module with nothing to say. That is what Diagnostics is for.
 
 ## Wiring the panel inputs
 
@@ -186,30 +188,28 @@ control common is fine; it is worth knowing before you plan the wiring.
 
 - **A signal the panel already energizes:** run the line to its input and the
   panel's control common to that input's negative terminal. Use the **panel's**
-  common, not the X-408's own `Gnd`, or the isolation stops isolating anything.
+  common, not the module's own `Gnd`, or the isolation stops isolating anything.
 - **A free dry contact:** put it in series between the control supply and its
   input, negative terminal on the control common.
 
-Power it over **PoE** rather than from the panel. A module fed by the panel goes
-quiet exactly when the panel loses power, which is one of the things you want to
-be told about.
+Power the module over **PoE** rather than from the panel. One fed by the panel
+goes quiet exactly when the panel loses power, which is one of the things you
+want to be told about.
 
-**Which way round is each input?** Use the live view on the settings page rather
-than reasoning about it. Lift a float by hand and watch which row changes. Alarm
-and overload contacts in particular are often held energized while healthy and
-drop on the fault, so that a cut wire reads as a fault; those are the ones to
-set to **on when voltage is missing**.
+**Which way round is each input?** Lift a float by hand and watch Diagnostics
+rather than reasoning about it. Alarm and overload contacts in particular are
+often held energized while healthy and drop on the fault, so that a cut wire
+reads as a fault; those are the ones to tick **on when voltage is missing**.
 
 ## Alerts
 
-Each rule has four things you can set: whether it runs, how loudly (info,
-warning or critical), whether it goes to administrators only, and what it says.
-Everybody whose own level on the Users page is at or below the rule's level
-hears it. The line you write is what a text says; an email sends the same line
-and then the readings behind it.
+Each rule has four things you can set: whether it runs, how loudly, whether it
+goes to administrators only, and what it says. Everybody whose own level on the
+Users page is at or below the rule's level hears it. The line you write is what a
+text says; an email sends the same line and the readings behind it.
 
-Each is raised once and stays open until the condition goes away, so a float
-that chatters twenty times sends one message and one all clear.
+Each is raised once and stays open until the condition goes away, so a float that
+chatters twenty times sends one message and one all clear.
 
 | Alert | Reads | Default |
 | --- | --- | --- |
@@ -217,16 +217,34 @@ that chatters twenty times sends one message and one all clear.
 | Panel alert, unexplained | contacts | critical. Waits a few seconds to see whether something with detail explains it |
 | Overload tripped | contacts | critical |
 | Switched on, drawing nothing | both | critical. Neither sensor can see this alone |
-| Drawing too much | clamps | off until you set the amps |
-| Ran too long | contacts | off until you set the duration |
-| Short cycling | clamps | warning. Usually a check valve letting the discharge run back |
-| Nothing has run | clamps | warning. Either a dry spell or a blind monitor |
-| Drawing more than it used to | clamps | info. The steady draw climbing week over week |
+| Both pumps running | contacts | warning. One could not keep up with the pit |
+| Ran too long | contacts | warning, over a minute |
+| Short cycling | contacts | warning. Usually a check valve letting the discharge run back |
+| Nothing has run | contacts | warning, after six hours |
+| A pump has stopped taking its turn | contacts | warning. One works and the other does not |
 | A device stopped answering | PitWatch | warning, administrators only |
+| Taking longer than it used to | contacts | info. The run getting slower week over week |
+| Drawing more than it used to | clamps | info. The steady draw climbing month over month |
+| Drawing too much | clamps | off until you set the amps |
 | Float activity | contacts | off. Every float, every time |
 | A pump started | contacts | off. Every run |
 
-Several cannot fire until the I/O module is wired, and the page says which.
+Several cannot fire until the inputs are wired, and the page says which.
+
+## Accounts
+
+Everyone who should be told about a pump is an account on the **Users** page.
+Most never sign in; a password is optional, because the reason a superintendent
+is in this list is to get a text at two in the morning. Anyone who also wants the
+dashboard gets an invitation link. Only administrators can change settings or
+manage users.
+
+If this is reachable from the internet, set two things in `docker-compose.yml`:
+
+| Setting | Why |
+| --- | --- |
+| `PITWATCH_SECURE_COOKIES=true` | Marks the session cookie Secure, so a browser will not send it over plain HTTP. Set it when a proxy in front terminates TLS. |
+| `PITWATCH_TRUSTED_PROXIES` | Which addresses may say, through `X-Forwarded-For`, who the client is. Defaults to loopback. Set it to your proxy if it is on another host, and never to a wildcard. |
 
 ## License
 

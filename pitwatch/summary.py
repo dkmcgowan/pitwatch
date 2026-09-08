@@ -9,7 +9,9 @@ What is sent: the description somebody wrote on the settings page, and a page
 of numbers. Not the site name, not the address, not a single account name.
 Nobody needs a street address to say whether a pump is drawing more than it
 did last week, and the one thing the owner of this pit has been clear about is
-that his address is not public.
+that his address is not public. The rain goes with it as a daily total and
+never as a coordinate, which is the same rule: the number is the finding and
+the place is not.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ import httpx2
 
 from pitwatch import domain
 from pitwatch.domain import series
+from pitwatch.domain import weather as weather_domain
 from pitwatch.domain.history import CurrentHistory
 from pitwatch.schemas import SummarySettings
 from pitwatch.settings import SettingsStore
@@ -35,8 +38,12 @@ TIMEOUT_S = 90.0
 
 WINDOW = series.WINDOWS["7d"]
 
+# Every daily figure here is cut on the site's own midnight, the meter's and
+# the panel's and the rain's alike. Days that do not start at the same moment
+# cannot be read down the page against each other, and reading them against
+# each other is the whole reason a week is sent as days rather than as a total.
 DAILY = """
-SELECT time_bucket('1 day', ts)                        AS day,
+SELECT time_bucket('1 day', ts, timezone => $4::text)  AS day,
        max(current)                                    AS peak,
        avg(current) FILTER (WHERE current >= $3)       AS running_mean,
        count(*)     FILTER (WHERE current >= $3)       AS running_samples
@@ -52,7 +59,7 @@ ORDER BY 1
 # as one. Handing a model an undercount and asking it whether anything has
 # changed is asking it to explain an artifact.
 DAILY_RUNS = """
-SELECT time_bucket('1 day', started_at)  AS day,
+SELECT time_bucket('1 day', started_at, timezone => $3::text) AS day,
        count(*)                          AS runs,
        round(avg(duration_s)::numeric, 1) AS mean_duration_s,
        round(max(duration_s)::numeric, 1) AS longest_s
@@ -86,9 +93,42 @@ INSTRUCTIONS = (
     "anything worth watching or acting on. Be specific and use the numbers. "
     "Where the data is too thin to support a conclusion, say so plainly "
     "rather than hedging. Never invent a reading that is not in the data. "
+    "Where rainfall is given, read the pit against it: a busy week in two "
+    "inches of rain and a busy week in a dry one are different findings. "
     "Four short paragraphs at most, plain text, no headings and no bullet "
     "points."
 )
+
+
+async def rainfall(pool, store: SettingsStore, window: series.Window, zone: str) -> dict | None:
+    """The week's rain, by day, in whatever unit the site reads.
+
+    The one thing in here from outside the building, and the reason a busy week
+    is worth anything: a pit that called forty times in a dry week and a pit
+    that called forty times in two inches of rain are two different pits. Asked
+    for over the same days as everything else and cut on the same midnight, so
+    a wet day and a busy day are the same twenty four hours.
+
+    None when there is no rain to send, which is a fresh install, an
+    installation with no coordinates, or one that turned this off. That is not
+    the same as a dry week and the model is told which it has.
+    """
+    if not store.weather.enabled or not store.site.has_coordinates:
+        return None
+    daily = await weather_domain.rain_series(pool, window.span, window.count_bucket, zone)
+    if not daily:
+        return None
+    units = store.weather.units
+    return {
+        "units": units,
+        # Said plainly, because a model handed a rainfall column will otherwise
+        # write about it as though somebody read a gauge.
+        "source": "hourly model output for this location, not a rain gauge",
+        "days": [
+            {"day": when.date().isoformat(), "rain": weather_domain.as_read(mm, units)}
+            for when, mm in daily
+        ],
+    }
 
 
 async def facts(app, window: series.Window = WINDOW) -> dict:
@@ -102,13 +142,14 @@ async def facts(app, window: series.Window = WINDOW) -> dict:
     pool: asyncpg.Pool = app.state.pool
     clamp = store.mqtt.clamp_for_pump
     history: CurrentHistory | None = getattr(app.state, "history", None)
+    zone = store.site.timezone
 
     pumps = []
     for number, pump in store.pumps.by_number.items():
         channel = clamp[number]
         try:
-            rows = await pool.fetch(DAILY, channel, window.span, domain.RUNNING_AMPS)
-            run_rows = await pool.fetch(DAILY_RUNS, number, window.span)
+            rows = await pool.fetch(DAILY, channel, window.span, domain.RUNNING_AMPS, zone)
+            run_rows = await pool.fetch(DAILY_RUNS, number, window.span, zone)
         except (asyncpg.PostgresError, OSError) as error:
             log.warning("Could not read the daily figures: %s", error)
             rows, run_rows = [], []
@@ -211,6 +252,7 @@ async def facts(app, window: series.Window = WINDOW) -> dict:
         "window": window.title,
         "generated_at": datetime.now(UTC).isoformat(),
         "running_threshold_amps": domain.RUNNING_AMPS,
+        "rain": await rainfall(pool, store, window, zone),
         "calls_for_water": calls,
         "pumps": pumps,
         "panel_contacts": contacts,
@@ -343,5 +385,6 @@ __all__ = [
     "facts",
     "latest",
     "messages",
+    "rainfall",
     "write",
 ]

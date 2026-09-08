@@ -99,10 +99,11 @@ services:
     image: ghcr.io/dkmcgowan/pitwatch:latest
     restart: unless-stopped
 
-    # On the host's network, so the Shelly is reachable at its own address with
-    # nothing in between. To run it on Docker's own network instead, drop this
-    # line, add `ports: ["8080:8080"]`, and change the two 127.0.0.1 addresses
-    # below, in the database URL and the broker seed, to db and mqtt.
+    # On the host's network, so this and the broker above are the same address
+    # and the devices have one place to dial in to. To run it on Docker's own
+    # network instead, drop this line, add `ports: ["8080:8080"]`, and change
+    # the two 127.0.0.1 addresses below, in the database URL and the broker
+    # seed, to db and mqtt.
     network_mode: host
 
     depends_on:
@@ -120,8 +121,8 @@ services:
       # Used for every timestamp shown. Storage is always UTC.
       PITWATCH_TIMEZONE: America/New_York
 
-      # INFO is right for normal running. DEBUG logs every reading the Shelly
-      # pushes, which is a line a second.
+      # INFO is right for normal running. DEBUG logs every message off the
+      # broker, which on a meter reporting each second is a line a second.
       PITWATCH_LOG_LEVEL: INFO
 
       # Turn on if a reverse proxy in front is terminating TLS. It marks the

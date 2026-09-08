@@ -59,7 +59,6 @@ SETUP_FORM = {
     "site_timezone": "America/New_York",
     "notify_delay_s": "5",
     "notify_cooldown_s": "900",
-    # One broker where there were two device sections, and a row per job.
     "mqtt_enabled": "on",
     "mqtt_host": "192.168.1.51",
     "mqtt_port": "1883",
@@ -67,35 +66,35 @@ SETUP_FORM = {
     "mqtt_password": "broker-secret",
     "mqtt_client_id": "pitwatch",
     "mqtt_debounce_ms": "500",
-    "source_contacts_name": "Panel inputs",
-    "source_contacts_topic": "pitwatch/inputs",
-    "source_contacts_profile": "contact_map",
-    "source_heartbeat_name": "Panel module",
-    "source_heartbeat_topic": "pitwatch/heartbeat",
-    "source_heartbeat_profile": "number",
-    "source_heartbeat_expect_s": "60",
-    "source_clamp1_name": "Pump 1 clamp",
-    "source_clamp1_topic": "meter/status/em1:1",
-    "source_clamp1_profile": "number",
-    "source_clamp1_path": "current",
-    "source_clamp1_channel": "1",
-    "source_clamp1_expect_s": "45",
-    "source_clamp2_name": "Pump 2 clamp",
-    "source_clamp2_topic": "meter/status/em1:0",
-    "source_clamp2_profile": "number",
-    "source_clamp2_path": "current",
-    "source_clamp2_channel": "0",
-    "source_clamp2_expect_s": "45",
-    "channel_1_role": "lead_float",
-    "channel_2_role": "lag_float",
-    "channel_3_role": "high_water",
-    "channel_4_role": "system_alert",
-    "channel_5_role": "pump1_run",
-    "channel_6_role": "pump2_run",
-    "channel_7_role": "pump1_fault",
-    "channel_7_on_when": "absent",
-    "channel_8_role": "pump2_fault",
-    "channel_8_on_when": "absent",
+    # A reading is a number, so there is nothing to pick.
+    "clamp1_topic": "meter/status/em1:1",
+    "clamp1_path": "current",
+    "clamp1_channel": "1",
+    "clamp2_topic": "meter/status/em1:0",
+    "clamp2_path": "current",
+    "clamp2_channel": "0",
+    # One topic per contact, which is what a contact is.
+    "input_1_role": "lead_float",
+    "input_1_topic": "pitwatch/inputs/1",
+    "input_2_role": "lag_float",
+    "input_2_topic": "pitwatch/inputs/2",
+    "input_3_role": "high_water",
+    "input_3_topic": "pitwatch/inputs/3",
+    "input_4_role": "system_alert",
+    "input_4_topic": "pitwatch/inputs/4",
+    "input_5_role": "pump1_run",
+    "input_5_topic": "pitwatch/inputs/5",
+    "input_6_role": "pump2_run",
+    "input_6_topic": "pitwatch/inputs/6",
+    "input_7_role": "pump1_fault",
+    "input_7_topic": "pitwatch/inputs/7",
+    "input_7_on_when": "absent",
+    "input_8_role": "pump2_fault",
+    "input_8_topic": "pitwatch/inputs/8",
+    "input_8_on_when": "absent",
+    "health_0_name": "Panel module",
+    "health_0_topic": "pitwatch/heartbeat",
+    "health_0_expect_s": "60",
 }
 
 
@@ -147,7 +146,7 @@ def test_two_inputs_may_carry_the_same_name(client):
     """
     sign_in_as_admin(client)
     response = client.post(
-        "/setup", data=SETUP_FORM | {"channel_2_role": "lead_float"}, follow_redirects=False
+        "/setup", data=SETUP_FORM | {"input_2_role": "lead_float"}, follow_redirects=False
     )
 
     # Both inputs claiming to be the lead float has nowhere to be written down
@@ -177,7 +176,7 @@ def test_swapping_the_clamps_takes_effect_both_ways(client):
 
     client.post(
         "/settings/mqtt",
-        data=SETUP_FORM | {"source_clamp1_channel": "0", "source_clamp2_channel": "1"},
+        data=SETUP_FORM | {"clamp1_channel": "0", "clamp2_channel": "1"},
     )
 
     state = client.get("/api/state").json()
@@ -196,7 +195,7 @@ def test_putting_both_pumps_on_one_clamp_is_refused(client):
 
     response = client.post(
         "/settings/mqtt",
-        data=SETUP_FORM | {"source_clamp1_channel": "1", "source_clamp2_channel": "1"},
+        data=SETUP_FORM | {"clamp1_channel": "1", "clamp2_channel": "1"},
     )
 
     assert response.status_code == 400
@@ -385,24 +384,6 @@ def test_the_broker_password_never_reaches_the_browser(client):
     assert "broker-secret" not in client.get("/settings").text
 
 
-def test_the_listen_button_reports_a_broker_it_cannot_reach(client):
-    """Unreachable is an answer, not an error.
-
-    192.0.2.1 is reserved for documentation and routes nowhere, so this
-    exercises the failure path without depending on what is on the network.
-    """
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-
-    response = client.post(
-        "/api/test/source",
-        data=SETUP_FORM | {"role": "contacts", "mqtt_host": "192.0.2.1"},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["ok"] is False
-
-
 def test_health_is_healthy_once_the_database_is_up(client):
     response = client.get("/healthz")
 
@@ -423,20 +404,12 @@ def test_the_state_endpoint_reports_every_source(client):
 
     state = client.get("/api/state").json()
 
-    assert {"clamp1", "clamp2", "contacts", "heartbeat"} <= set(state["devices"]), "the sources"
+    assert {"clamp1", "clamp2", "health0", "health1"} <= set(state["devices"]), "what reports"
     assert "weather" in state["devices"]
-    assert not {"shelly", "inputs"} & set(state["devices"]), "the old names went with the readers"
+    # The contacts get no row of their own. Eight inputs would be eight rows
+    # saying the same thing about one module, which is what a health check is.
+    assert not {"shelly", "inputs", "contacts", "heartbeat"} & set(state["devices"])
     assert state["site"]["name"] == "Basement pit"
-
-
-def test_the_listen_button_needs_a_sign_in_once_there_is_an_account(client):
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-    client.post("/logout")
-
-    response = client.post("/api/test/source", data={"role": "contacts"})
-
-    assert response.status_code == 401
 
 
 def test_the_dashboard_replaces_the_setup_prompt_once_configured(client):
@@ -490,9 +463,9 @@ def test_the_live_feed_reports_a_pump_with_no_readings_as_unknown(client):
 CLAMPS_ONLY_FORM = {
     key: value
     for key, value in SETUP_FORM.items()
-    # Everything except the contacts and what each input carries, which is how
-    # you set this up while the I/O module is still in the post.
-    if not key.startswith(("source_contacts_", "source_heartbeat_", "channel_"))
+    # Everything except the contacts and the module's health, which is how you
+    # set this up while the I/O module is still in the post.
+    if not key.startswith(("input_", "health_"))
 }
 
 
@@ -522,11 +495,11 @@ def test_an_unconfigured_device_is_not_reported_as_a_fault(client):
     sign_in_as_admin(client)
     client.post("/setup", data=CLAMPS_ONLY_FORM)
 
-    contacts = client.get("/api/state").json()["devices"]["contacts"]
+    module = client.get("/api/state").json()["devices"]["health0"]
 
-    assert contacts["configured"] is False
-    assert contacts["online"] is False
-    assert contacts["last_error"] is None
+    assert module["configured"] is False
+    assert module["online"] is False
+    assert module["last_error"] is None
 
 
 def test_every_contact_reads_as_unknown_without_the_io_module(client):
@@ -559,12 +532,12 @@ def test_adding_the_io_module_later_does_not_need_a_restart(client):
     """
     sign_in_as_admin(client)
     client.post("/setup", data=CLAMPS_ONLY_FORM)
-    assert client.get("/api/state").json()["devices"]["contacts"]["configured"] is False
+    assert client.get("/api/state").json()["devices"]["health0"]["configured"] is False
 
     client.post("/settings/mqtt", data=SETUP_FORM)
 
     state = client.get("/api/state").json()
-    assert state["devices"]["contacts"]["configured"] is True
+    assert state["devices"]["health0"]["configured"] is True
     assert client.app.state.settings.mqtt.host == "192.168.1.51"
 
 
@@ -797,9 +770,11 @@ def test_naming_an_input_is_all_it_takes_to_watch_it(client):
         data={
             "mqtt_enabled": "on",
             "mqtt_host": "192.168.1.51",
-            "channel_1_role": "lead_float",
-            "channel_2_role": "high_water",
-            "channel_2_on_when": "absent",
+            "input_1_role": "lead_float",
+            "input_1_topic": "pit/in/1",
+            "input_2_role": "high_water",
+            "input_2_topic": "pit/in/2",
+            "input_2_on_when": "absent",
         },
     )
 
@@ -822,7 +797,7 @@ def test_taking_a_lamp_off_an_input_leaves_the_input_working(client):
     client.post("/setup", data=SETUP_FORM)
     assert len(client.app.state.settings.mqtt.used_channels) == 8
 
-    client.post("/settings/mqtt", data=SETUP_FORM | {"channel_4_role": ""})
+    client.post("/settings/mqtt", data=SETUP_FORM | {"input_4_role": ""})
 
     used = client.app.state.settings.mqtt.used_channels
     assert [c.channel for c in used] == [1, 2, 3, 5, 6, 7, 8]
@@ -840,7 +815,7 @@ def test_moving_a_lamp_to_another_input_moves_what_the_dashboard_reads(client):
     # up the system alert first: one meaning, one input.
     client.post(
         "/settings/mqtt",
-        data=SETUP_FORM | {"channel_3_role": "", "channel_4_role": "high_water"},
+        data=SETUP_FORM | {"input_3_role": "", "input_4_role": "high_water"},
     )
 
     inputs = client.app.state.settings.mqtt
@@ -876,7 +851,7 @@ def test_a_lamp_nothing_was_given_stays_unassigned(client):
     sign_in_as_admin(client)
     client.post(
         "/setup",
-        data=SETUP_FORM | {"channel_4_role": "", "channel_3_role": "high_water"},
+        data=SETUP_FORM | {"input_4_role": "", "input_3_role": "high_water"},
     )
 
     panel = client.get("/api/state").json()["panel"]
@@ -898,8 +873,8 @@ def test_one_input_cannot_carry_two_lamps(client):
         data={
             "mqtt_enabled": "on",
             "mqtt_host": "192.168.1.51",
-            "channel_3_role": "high_water",
-            "channel_4_role": "high_water",
+            "input_3_role": "high_water",
+            "input_4_role": "high_water",
         },
         follow_redirects=False,
     )
@@ -1107,12 +1082,12 @@ def test_each_source_gets_its_own_indicator(client):
     client.post("/setup", data=CLAMPS_ONLY_FORM)
 
     page = client.get("/").text
-    assert 'data-link="contacts"' in page
+    assert 'data-link="health0"' in page
     assert 'data-link="clamp1"' in page
 
     devices = client.get("/api/state").json()["devices"]
     assert devices["clamp1"]["configured"] is True
-    assert devices["contacts"]["configured"] is False
+    assert devices["health0"]["configured"] is False
 
 
 def test_a_seeded_device_is_not_a_device_that_is_there(client):

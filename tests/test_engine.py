@@ -15,9 +15,9 @@ import pytest
 from pitwatch.domain.engine import AlertEngine
 from pitwatch.schemas import (
     AlertsSettings,
-    ChannelMap,
+    ClampSource,
+    ContactInput,
     MqttSettings,
-    MqttSource,
     PumpsSettings,
     Severity,
     SiteSettings,
@@ -42,15 +42,18 @@ ROLES = ("high_water", "system_alert", "pump1_run", "pump2_run", "pump1_fault", 
 
 def _store(alerts: AlertsSettings | None = None, **contact_states):
     """Settings shaped the way the reference panel is wired."""
-    channels = [ChannelMap(channel=number, role=role) for number, role in enumerate(ROLES, start=1)]
+    channels = [
+        ContactInput(channel=number, role=role, topic=f"pit/in/{number}")
+        for number, role in enumerate(ROLES, start=1)
+    ]
     return SimpleNamespace(
         alerts=alerts or AlertsSettings(),
         site=SiteSettings(name="A pit"),
         mqtt=MqttSettings(
-            channels=channels,
-            sources=[
-                MqttSource(role="clamp1", topic="a", profile="number", channel=0),
-                MqttSource(role="clamp2", topic="b", profile="number", channel=1),
+            inputs=channels,
+            clamps=[
+                ClampSource(pump=1, topic="a", channel=0),
+                ClampSource(pump=2, topic="b", channel=1),
             ],
         ),
         pumps=PumpsSettings(),
@@ -165,7 +168,7 @@ async def test_a_rule_with_nothing_to_read_says_nothing(pool, sent):
     one somebody learns to ignore."""
     await _a_person(pool)
     store = _store()
-    store.mqtt = MqttSettings(channels=[])  # nothing wired at all
+    store.mqtt = MqttSettings(inputs=[])  # nothing wired at all
 
     await _engine(pool, store, _Contacts()).sweep()
 

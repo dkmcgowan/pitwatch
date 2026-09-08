@@ -1,9 +1,9 @@
 """One broker connection, routing whatever arrives to whoever asked for it.
 
 No broker and no hardware. The connection itself is aiomqtt's problem; what is
-worth testing here is the part this file invented: which source a delivered
-message belongs to, what gets made of it, when something is asked rather than
-waited for, and when silence counts as a fault.
+worth testing is the part this file invented: which row a delivered message
+belongs to, what gets made of it, when something is asked rather than waited
+for, and when silence counts as a fault.
 """
 
 from __future__ import annotations
@@ -13,52 +13,36 @@ import asyncio
 import pytest
 
 from pitwatch.ingest.mqtt import MqttReader, topic_matches
-from pitwatch.schemas import ChannelMap, MqttSettings, MqttSource
+from pitwatch.schemas import ClampSource, ContactInput, HealthSource, MqttSettings
 
-# The two envelopes one meter publishes the same reading in, captured off the
-# real broker on 2026-09-07.
+# Captured off the real broker on 2026-09-07.
 STATUS_FRAME = '{"id":0,"voltage":117.6,"current":16.714,"act_power":-1899.8}'
-RPC_REPLY = '{"id":1,"src":"meter","dst":"pitwatch","result":{"id":0,"current":15.487}}'
-CONTACT_BODY = '{"1":"1","2":"0","3":"1","4":"0","5":"0","6":"0","7":"0","8":"0"}'
+RPC_REPLY = '{"id":1,"src":"meter","dst":"pitwatch-c1","result":{"id":0,"current":15.487}}'
 
 
 def _settings(**extra) -> MqttSettings:
     fields = {
         "enabled": True,
-        "sources": [
-            MqttSource(
-                name="Pump 1 clamp",
-                role="clamp1",
-                topic="pit/clamps/status/em1:0",
-                profile="number",
+        "clamps": [
+            ClampSource(
+                pump=1,
+                topic="meter/status/em1:0",
                 path="current",
                 channel=0,
-                expect_s=45,
-                ask_topic="pit/clamps/rpc",
-                ask_payload='{"id":1,"src":"pitwatch","method":"EM1.GetStatus"}',
-                reply_topic="pitwatch/rpc",
+                ask_topic="meter/rpc",
+                ask_payload='{"id":1,"src":"pitwatch-c1","method":"EM1.GetStatus"}',
+                reply_topic="pitwatch-c1/rpc",
                 reply_path="result.current",
                 ask_while_running=True,
             ),
-            MqttSource(
-                name="Panel inputs",
-                role="contacts",
-                topic="pit/inputs",
-                profile="contact_map",
-            ),
-            MqttSource(
-                name="Panel module",
-                role="heartbeat",
-                topic="pit/heartbeat",
-                profile="number",
-                expect_s=60,
-            ),
+            ClampSource(pump=2, topic="meter/status/em1:1", path="current", channel=1),
         ],
-        "channels": [
-            ChannelMap(channel=1, role="pump1_run"),
-            ChannelMap(channel=2, role="pump2_run"),
-            ChannelMap(channel=3, role="system_alert", invert=True),
+        "inputs": [
+            ContactInput(channel=1, role="pump1_run", topic="pit/in/1"),
+            ContactInput(channel=2, role="pump2_run", topic="pit/in/2"),
+            ContactInput(channel=3, role="system_alert", topic="pit/in/3", invert=True),
         ],
+        "health": [HealthSource(name="Panel module", topic="pit/heartbeat", expect_s=60)],
     }
     fields.update(extra)
     return MqttSettings(**fields)
@@ -86,12 +70,12 @@ class _Caught:
     async def on_samples(self, samples) -> None:
         self.samples.extend(samples)
 
-    async def on_status(self, role, online, error) -> None:
-        self.status.append((role, online, error))
+    async def on_status(self, key, online, error) -> None:
+        self.status.append((key, online, error))
 
 
-def _reader(settings=None, caught=None) -> tuple[MqttReader, _Caught]:
-    caught = caught or _Caught()
+def _reader(settings=None) -> tuple[MqttReader, _Caught]:
+    caught = _Caught()
     reader = MqttReader(
         settings or _settings(),
         on_events=caught.on_events,
@@ -101,7 +85,7 @@ def _reader(settings=None, caught=None) -> tuple[MqttReader, _Caught]:
     return reader, caught
 
 
-# -- which source a message belongs to ---------------------------------------
+# -- which row a message belongs to ------------------------------------------
 
 
 def test_the_wildcards_are_the_brokers_own():
@@ -118,16 +102,15 @@ def test_the_wildcards_are_the_brokers_own():
     assert not topic_matches("a/b", "a")
 
 
-# -- readings ----------------------------------------------------------------
+# -- clamps ------------------------------------------------------------------
 
 
-async def test_a_status_frame_becomes_a_sample_under_its_own_channel():
-    """The channel is a setting rather than the role's number, because the
-    readings already stored are filed under whatever the meter called its
-    clamps."""
+async def test_a_reading_is_filed_under_the_channel_its_clamp_names():
+    """The channel is a setting rather than the pump number, because readings
+    already stored are filed under whatever the meter called its clamps."""
     reader, caught = _reader()
 
-    await reader._handle(_Message("pit/clamps/status/em1:0", STATUS_FRAME))
+    await reader._handle(_Message("meter/status/em1:0", STATUS_FRAME))
 
     assert len(caught.samples) == 1
     assert caught.samples[0].current == pytest.approx(16.714)
@@ -135,23 +118,22 @@ async def test_a_status_frame_becomes_a_sample_under_its_own_channel():
 
 
 async def test_a_reply_is_read_at_its_own_path():
-    """The answer to a forced reading arrives on a different topic, in a
-    different envelope, and both are settings. This is the piece that let the
-    last device specific code go."""
+    """The answer to a forced reading arrives on a different topic in a
+    different envelope, and both are settings."""
     reader, caught = _reader()
 
-    await reader._handle(_Message("pitwatch/rpc", RPC_REPLY))
+    await reader._handle(_Message("pitwatch-c1/rpc", RPC_REPLY))
 
     assert len(caught.samples) == 1
     assert caught.samples[0].current == pytest.approx(15.487)
+    assert caught.samples[0].channel == 0, "the pump that asked"
 
 
 async def test_a_frame_with_nothing_at_the_path_produces_nothing():
-    """A meter publishes voltage-only and system frames on the same wire, and
-    a frame with no reading in it is the device working."""
+    """A meter publishes voltage-only and system frames on the same wire."""
     reader, caught = _reader()
 
-    await reader._handle(_Message("pit/clamps/status/em1:0", '{"id":0,"voltage":118.1}'))
+    await reader._handle(_Message("meter/status/em1:0", '{"id":0,"voltage":118.1}'))
 
     assert caught.samples == []
 
@@ -162,70 +144,62 @@ async def test_a_body_that_is_not_json_costs_its_own_message_and_nothing_else():
     flood."""
     reader, caught = _reader()
 
-    await reader._handle(_Message("pit/clamps/status/em1:0", "<html>no</html>"))
-    await reader._handle(_Message("pit/clamps/status/em1:0", STATUS_FRAME))
+    await reader._handle(_Message("meter/status/em1:0", "<html>no</html>"))
+    await reader._handle(_Message("meter/status/em1:0", STATUS_FRAME))
 
     assert len(caught.samples) == 1, "the good one still landed"
 
 
-async def test_contacts_become_events_with_the_inversion_applied():
+# -- contacts ----------------------------------------------------------------
+
+
+async def test_a_contact_on_its_own_topic_becomes_an_event():
+    reader, caught = _reader()
+
+    await reader._handle(_Message("pit/in/1", "1"))
+
+    assert [(event.channel, event.state) for event in caught.events] == [(1, True)]
+    assert caught.events[0].label == "Pump 1 running"
+
+
+async def test_the_inversion_is_applied_per_input():
     """Channel 3 is a fail safe signal: it holds voltage while all is well and
     drops it on the event, so the raw reading means the opposite."""
     reader, caught = _reader()
 
-    await reader._handle(_Message("pit/inputs", CONTACT_BODY))
+    await reader._handle(_Message("pit/in/3", "on"))
 
-    states = {event.channel: event.state for event in caught.events}
-    assert states[1] is True, "pump 1 running"
-    assert states[3] is False, "system alert reads healthy, inverted from raw 1"
-
-
-async def test_every_input_is_recorded_whether_or_not_it_has_a_meaning():
-    """Recording an input and drawing it are different questions. An input
-    nobody has said anything about is still read, debounced and written down;
-    it simply has nowhere on a dashboard to be shown. Dropping it here would
-    mean the day somebody wires the eighth contact, its history starts empty.
-    """
-    reader, caught = _reader()
-
-    await reader._handle(_Message("pit/inputs", CONTACT_BODY))
-
-    assert {event.channel for event in caught.events} == {1, 2, 3, 4, 5, 6, 7, 8}
-    # And the ones with a meaning carry it, so the log line reads.
-    titled = {event.channel: event.label for event in caught.events}
-    assert titled[1] == "Pump 1 running"
-    assert titled[8] == "DI8", "an input with no role still gets a name to be logged under"
-
-
-async def test_one_contact_on_its_own_topic_is_renumbered_to_its_input():
-    """For hardware that publishes one input per topic. The parser cannot know
-    which input a topic is; the setting does."""
-    settings = _settings(
-        sources=[
-            MqttSource(
-                name="High water",
-                role="contacts",
-                topic="pit/float/high",
-                profile="contact",
-                input_number=2,
-            )
-        ]
-    )
-    reader, caught = _reader(settings)
-
-    await reader._handle(_Message("pit/float/high", "on"))
-
-    assert [(event.channel, event.state) for event in caught.events] == [(2, True)]
+    assert [(event.channel, event.state) for event in caught.events] == [(3, False)]
 
 
 async def test_the_same_state_twice_is_not_two_events():
     reader, caught = _reader()
 
-    await reader._handle(_Message("pit/inputs", CONTACT_BODY))
-    first = len(caught.events)
-    await reader._handle(_Message("pit/inputs", CONTACT_BODY))
+    await reader._handle(_Message("pit/in/1", "on"))
+    await reader._handle(_Message("pit/in/1", "on"))
 
-    assert len(caught.events) == first
+    assert len(caught.events) == 1
+
+
+async def test_a_contact_that_publishes_nonsense_is_logged_and_dropped():
+    """None is not False. Recording a lamp as off because a body could not be
+    read is an alarm that will never fire and will look like it is working."""
+    reader, caught = _reader()
+
+    await reader._handle(_Message("pit/in/1", "maybe"))
+
+    assert caught.events == []
+
+
+async def test_an_input_with_no_topic_hears_nothing():
+    """Under the combined body a role was enough, because every input arrived
+    whatever it was called. With a topic each, an input nobody has given one is
+    an input nothing will ever arrive for."""
+    settings = _settings(inputs=[ContactInput(channel=1, role="pump1_run", topic="")])
+
+    assert settings.used_inputs == []
+    reader, _ = _reader(settings)
+    assert "pit/in/1" not in reader._subscriptions()
 
 
 # -- asking ------------------------------------------------------------------
@@ -239,37 +213,31 @@ class _Publisher:
         self.published.append((topic, payload))
 
 
-async def test_nothing_is_asked_of_a_source_with_nothing_to_ask():
-    """A contact module publishes when a contact moves and there is no
-    question to put to it in between. This was the whole of the old design for
-    the panel inputs and it stays that way."""
+def test_nothing_is_asked_of_a_clamp_with_nothing_to_ask():
+    """A contact module publishes when a contact moves and there is no question
+    to put to it in between. The second clamp here has no ask either."""
     settings = _settings()
 
-    contacts = settings.source_for("contacts")
-    heartbeat = settings.source_for("heartbeat")
-
-    assert contacts.asks is False
-    assert heartbeat.asks is False
-    assert settings.source_for("clamp1").asks is True
+    assert settings.clamp_of(1).asks is True
+    assert settings.clamp_of(2).asks is False
 
 
-async def test_a_source_is_asked_only_while_a_pump_is_turning():
-    """A meter publishes on change, so a motor running steady produces
-    nothing. The panel's own run contact says when that is, so a pit sitting
-    still is a pit nothing is polling."""
+async def test_a_clamp_is_asked_only_while_a_pump_is_turning():
+    """A meter publishes on change, so a motor running steady produces nothing.
+    The panel's own run contact says when that is, so a pit sitting still is a
+    pit nothing is polling."""
     reader, _ = _reader()
     publisher = _Publisher()
     reader._client = publisher
-
-    source = _settings().source_for("clamp1")
+    clamp = _settings().clamp_of(1)
 
     reader.watch_run(False)
     assert reader._running.is_set() is False
 
     reader.watch_run(True)
-    await reader._ask(source)
+    await reader._ask(clamp)
 
-    assert publisher.published == [(source.ask_topic, source.ask_payload)]
+    assert publisher.published == [(clamp.ask_topic, clamp.ask_payload)]
 
 
 async def test_asking_a_broker_that_has_gone_costs_the_ask_and_not_the_reader():
@@ -280,50 +248,129 @@ async def test_asking_a_broker_that_has_gone_costs_the_ask_and_not_the_reader():
     reader, _ = _reader()
     reader._client = _Broken()
 
-    await reader._ask(_settings().source_for("clamp1"))  # does not raise
+    await reader._ask(_settings().clamp_of(1))  # does not raise
 
 
-# -- liveness ----------------------------------------------------------------
+def test_two_clamps_cannot_read_their_answers_off_one_topic_and_path():
+    """An MQTT message carries no sender and no sign of what it is answering,
+    so two clamps reading the reply at the same path both match every answer.
+
+    This shipped. One reading would have been filed under both pumps, and it
+    would have convinced the history page that the second pump had a clamp
+    fitted and drawn a line for a CT that is not installed.
+    """
+    with pytest.raises(ValueError, match="read their answer from"):
+        MqttSettings(
+            clamps=[
+                ClampSource(
+                    pump=1,
+                    topic="a",
+                    path="current",
+                    channel=0,
+                    ask_topic="meter/rpc",
+                    ask_payload="{}",
+                    reply_topic="pitwatch/rpc",
+                    reply_path="result.current",
+                ),
+                ClampSource(
+                    pump=2,
+                    topic="b",
+                    path="current",
+                    channel=1,
+                    ask_topic="meter/rpc",
+                    ask_payload="{}",
+                    reply_topic="pitwatch/rpc",
+                    reply_path="result.current",
+                ),
+            ]
+        )
 
 
-async def test_silence_is_what_says_a_source_is_offline():
+def test_one_reply_topic_is_fine_where_the_paths_differ():
+    """It is the pair that has to be distinct. Where the paths differ, only one
+    clamp finds anything in a given body."""
+    settings = MqttSettings(
+        clamps=[
+            ClampSource(
+                pump=1,
+                topic="a",
+                channel=0,
+                ask_topic="m/rpc",
+                ask_payload="{}",
+                reply_topic="pitwatch/rpc",
+                reply_path="params.em1:0.current",
+            ),
+            ClampSource(
+                pump=2,
+                topic="b",
+                channel=1,
+                ask_topic="m/rpc",
+                ask_payload="{}",
+                reply_topic="pitwatch/rpc",
+                reply_path="params.em1:1.current",
+            ),
+        ]
+    )
+
+    assert len(settings.used_clamps) == 2
+
+
+def test_a_shared_reply_topic_is_subscribed_once():
+    """Subscribing twice would deliver every answer twice."""
+    settings = MqttSettings(
+        clamps=[
+            ClampSource(
+                pump=1,
+                topic="m/em1:0",
+                channel=0,
+                ask_topic="m/rpc",
+                ask_payload="{}",
+                reply_topic="pitwatch/rpc",
+                reply_path="params.em1:0.current",
+            ),
+            ClampSource(
+                pump=2,
+                topic="m/em1:1",
+                channel=1,
+                ask_topic="m/rpc",
+                ask_payload="{}",
+                reply_topic="pitwatch/rpc",
+                reply_path="params.em1:1.current",
+            ),
+        ]
+    )
+    reader, _ = _reader(settings)
+
+    assert reader._subscriptions().count("pitwatch/rpc") == 1
+
+
+# -- is it still there --------------------------------------------------------
+
+
+async def test_silence_is_what_says_a_device_is_offline():
     """Not the broker's last will. Measured on the real panel: an unplugged
     meter kept its `online` topic true for the whole outage and published false
     a tenth of a second before it published true again."""
-    settings = _settings(
-        sources=[
-            MqttSource(
-                name="Panel module",
-                role="heartbeat",
-                topic="pit/heartbeat",
-                profile="number",
-                expect_s=1,
-            )
-        ]
-    )
+    settings = _settings(health=[HealthSource(name="Panel module", topic="pit/hb", expect_s=1)])
     reader, caught = _reader(settings)
     stop = asyncio.Event()
 
-    reader._heard_at["heartbeat"] = asyncio.get_running_loop().time()
+    reader._heard_at["health0"] = asyncio.get_running_loop().time()
     watcher = asyncio.create_task(reader._watch_silence(stop))
     await asyncio.sleep(3.2)
     stop.set()
     watcher.cancel()
 
     offline = [row for row in caught.status if row[1] is False]
-    assert offline, "a source that stopped speaking is reported offline"
-    assert offline[0][0] == "heartbeat"
+    assert offline, "a device that stopped speaking is reported offline"
+    assert offline[0][0] == "health0"
     assert "expected every 1 s" in offline[0][2]
 
 
-async def test_a_source_that_never_had_an_interval_is_never_held_to_one():
+async def test_a_device_with_no_interval_is_never_held_to_one():
     """Holding silence against a device that was never asked to speak on a
     schedule would paint a permanent red and teach somebody to ignore it."""
-    settings = _settings(
-        sources=[
-            MqttSource(name="Quiet", role="contacts", topic="pit/inputs", profile="contact_map")
-        ]
-    )
+    settings = _settings(health=[HealthSource(name="Quiet", topic="pit/hb", expect_s=0)])
     reader, caught = _reader(settings)
     stop = asyncio.Event()
 
@@ -335,24 +382,14 @@ async def test_a_source_that_never_had_an_interval_is_never_held_to_one():
     assert caught.status == []
 
 
-async def test_a_source_that_comes_back_is_only_reported_once_each_way():
-    """The flag is what stops a silent source being reported offline once per
-    check for the rest of the night."""
-    settings = _settings(
-        sources=[
-            MqttSource(
-                name="Panel module",
-                role="heartbeat",
-                topic="pit/heartbeat",
-                profile="number",
-                expect_s=1,
-            )
-        ]
-    )
+async def test_a_device_is_only_reported_offline_once():
+    """The flag is what stops a silent device being reported once per check for
+    the rest of the night."""
+    settings = _settings(health=[HealthSource(name="Panel module", topic="pit/hb", expect_s=1)])
     reader, caught = _reader(settings)
     stop = asyncio.Event()
 
-    reader._heard_at["heartbeat"] = asyncio.get_running_loop().time()
+    reader._heard_at["health0"] = asyncio.get_running_loop().time()
     watcher = asyncio.create_task(reader._watch_silence(stop))
     await asyncio.sleep(4.2)
     stop.set()
@@ -361,164 +398,23 @@ async def test_a_source_that_comes_back_is_only_reported_once_each_way():
     assert len([row for row in caught.status if row[1] is False]) == 1
 
 
-# -- subscriptions -----------------------------------------------------------
-
-
-def test_a_shared_reply_topic_is_subscribed_once():
-    """Several sources asking one device may share an answer topic, as long as
-    they read different paths out of it. Subscribing to it twice would deliver
-    every answer twice."""
-    settings = _settings(
-        sources=[
-            MqttSource(
-                role="clamp1",
-                topic="pit/clamps/status/em1:0",
-                profile="number",
-                path="current",
-                ask_topic="pit/clamps/rpc",
-                ask_payload="{}",
-                reply_topic="pitwatch/rpc",
-                reply_path="params.em1:0.current",
-            ),
-            MqttSource(
-                role="clamp2",
-                topic="pit/clamps/status/em1:1",
-                profile="number",
-                path="current",
-                ask_topic="pit/clamps/rpc",
-                ask_payload="{}",
-                reply_topic="pitwatch/rpc",
-                reply_path="params.em1:1.current",
-            ),
-        ]
-    )
+async def test_a_heartbeat_counts_by_arriving_rather_than_by_what_it_says():
+    """A module's own heartbeat body is an id and an uptime with no status
+    field in it at all, and reading it for one would mark a healthy module dead
+    every sixty seconds."""
+    settings = _settings(health=[HealthSource(name="Panel module", topic="pit/hb", expect_s=60)])
     reader, _ = _reader(settings)
 
-    wanted = reader._subscriptions()
+    await reader._handle(_Message("pit/hb", '{"id":"x408","upTime":"178845"}'))
 
-    assert wanted.count("pitwatch/rpc") == 1
-    assert set(wanted) == {"pit/clamps/status/em1:0", "pit/clamps/status/em1:1", "pitwatch/rpc"}
-
-
-def test_a_source_that_is_half_configured_is_not_subscribed_to():
-    """The migration writes the clamp sources with everything filled in except
-    a topic, because there never was one to carry over. An empty topic has to
-    read as "not configured yet" rather than as a subscription to nothing."""
-    settings = _settings(
-        sources=[MqttSource(role="clamp1", topic="", profile="number", path="current")]
-    )
-    reader, _ = _reader(settings)
-
-    assert settings.used_sources == []
-    assert reader._subscriptions() == []
+    assert "health0" in reader._heard_at
 
 
-# -- telling two answers apart -----------------------------------------------
+def test_the_contacts_get_no_row_of_their_own_in_device_status():
+    """Eight inputs would be eight rows saying the same thing about one module,
+    which is what a health check is for."""
+    reader, _ = _reader()
 
+    reported = reader._reported()
 
-def test_two_sources_cannot_read_their_answers_off_one_topic_and_path():
-    """An MQTT message carries no sender and no sign of what it is answering.
-    The topic is the whole of its address, so two sources asking different
-    questions and reading the reply at the same path both match every answer.
-
-    This shipped. The migration gave both clamps `pitwatch/rpc` at
-    `result.current`, and pump 1's reading would have been recorded as pump 2's
-    as well, which would also have convinced the history page that pump 2 had a
-    clamp fitted and drawn a line for a CT that is not installed.
-    """
-    with pytest.raises(ValueError, match="both read their answer from"):
-        MqttSettings(
-            sources=[
-                MqttSource(
-                    role="clamp1",
-                    topic="a",
-                    profile="number",
-                    path="current",
-                    ask_topic="meter/rpc",
-                    ask_payload='{"src":"pitwatch"}',
-                    reply_topic="pitwatch/rpc",
-                    reply_path="result.current",
-                ),
-                MqttSource(
-                    role="clamp2",
-                    topic="b",
-                    profile="number",
-                    path="current",
-                    ask_topic="meter/rpc",
-                    ask_payload='{"src":"pitwatch"}',
-                    reply_topic="pitwatch/rpc",
-                    reply_path="result.current",
-                ),
-            ]
-        )
-
-
-def test_one_reply_topic_is_fine_where_the_paths_differ():
-    """It is the pair that has to be distinct. Where the paths differ, only one
-    source finds anything in a given body, so sharing a topic costs nothing."""
-    settings = MqttSettings(
-        sources=[
-            MqttSource(
-                role="clamp1",
-                topic="a",
-                profile="number",
-                path="current",
-                ask_topic="meter/rpc",
-                ask_payload="{}",
-                reply_topic="pitwatch/rpc",
-                reply_path="params.em1:0.current",
-            ),
-            MqttSource(
-                role="clamp2",
-                topic="b",
-                profile="number",
-                path="current",
-                ask_topic="meter/rpc",
-                ask_payload="{}",
-                reply_topic="pitwatch/rpc",
-                reply_path="params.em1:1.current",
-            ),
-        ]
-    )
-
-    assert len(settings.used_sources) == 2
-
-
-async def test_a_reply_reaches_only_the_source_that_asked_for_it():
-    """The behavior the validator protects, checked at the router rather than
-    in the model, because this is where the misfiling would have happened."""
-    settings = MqttSettings(
-        enabled=True,
-        sources=[
-            MqttSource(
-                name="Pump 1 clamp",
-                role="clamp1",
-                topic="meter/status/em1:0",
-                profile="number",
-                path="current",
-                channel=0,
-                ask_topic="meter/rpc",
-                ask_payload='{"src":"pitwatch-c1"}',
-                reply_topic="pitwatch-c1/rpc",
-                reply_path="result.current",
-            ),
-            MqttSource(
-                name="Pump 2 clamp",
-                role="clamp2",
-                topic="meter/status/em1:1",
-                profile="number",
-                path="current",
-                channel=1,
-                ask_topic="meter/rpc",
-                ask_payload='{"src":"pitwatch-c2"}',
-                reply_topic="pitwatch-c2/rpc",
-                reply_path="result.current",
-            ),
-        ],
-    )
-    reader, caught = _reader(settings)
-
-    await reader._handle(_Message("pitwatch-c1/rpc", RPC_REPLY))
-
-    assert len(caught.samples) == 1, "one answer, one reading"
-    assert caught.samples[0].channel == 0, "and it belongs to the pump that asked"
+    assert reported == ["clamp1", "clamp2", "health0"]

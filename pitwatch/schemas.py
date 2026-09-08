@@ -31,61 +31,6 @@ DASHBOARD_ROLES: tuple[tuple[str, str], ...] = (
 )
 
 
-class ChannelMap(BaseModel):
-    """One digital input on the panel module, and what the panel put on it.
-
-    The input number is the identity. The other two fields are the only things
-    worth saying about it, and they answer different questions:
-
-    * ``role`` is what this input means, chosen from the eight the dashboard
-      can draw. It replaced a name somebody typed, which was two things badly:
-      a caption, and a way of saying an input was in use. It was neither. Every
-      input is read and recorded whatever it is called, so a blank name never
-      turned anything off, and the caption had to be matched by hand against a
-      second list on another page to make a lamp light. Picking the meaning
-      here does both jobs at once and there is no second list to disagree with.
-
-    * ``invert`` is which way round the wire works, and it is the setting that
-      is easiest to get wrong and worst to get wrong. It covers two
-      arrangements that look different on the wire and mean the same thing
-      here: a dry contact wired normally closed, and a live signal wired fail
-      safe that holds voltage while all is well and drops it on the event.
-      Panel alarm and motor overload contacts are often built the second way on
-      purpose, so a cut wire reads the same as a fault. Either way the raw
-      reading means the opposite of the signal, and without this such an alarm
-      reads as on permanently and goes quiet at the moment it fires.
-    """
-
-    channel: int = Field(ge=1, le=8)
-    role: str = Field(default="", max_length=40)
-    invert: bool = False
-
-    @field_validator("role")
-    @classmethod
-    def known_role(cls, value: str) -> str:
-        value = value.strip()
-        if value and value not in {role for role, _ in DASHBOARD_ROLES}:
-            raise ValueError(f"{value} is not one of the roles the dashboard draws")
-        return value
-
-    @property
-    def used(self) -> bool:
-        """Whether this input has been told what it means.
-
-        Not whether it is read. Every input is read and recorded either way;
-        this only decides whether it lights a lamp.
-        """
-        return bool(self.role)
-
-    @property
-    def title(self) -> str:
-        """What to call this input in prose. Never empty."""
-        for role, label in DASHBOARD_ROLES:
-            if role == self.role:
-                return label
-        return f"DI{self.channel}"
-
-
 class PumpSettings(BaseModel):
     """What one motor is.
 
@@ -232,150 +177,155 @@ class SmsSettings(BaseModel):
     twilio_from: str = ""
 
 
-class MqttSource(BaseModel):
-    """One thing PitWatch listens to, and what to make of what it hears.
+class ClampSource(BaseModel):
+    """One current clamp: where its readings arrive, and how to ask for one.
 
-    A row on the settings page rather than a section in the code. This is what
-    replaced the Shelly block and the X-408 block: those named the hardware, and
-    naming the hardware is what forced a code change every time somebody wanted
-    to use a different one. A source names the *job* instead, and the hardware
-    is a topic and a profile.
-
-    Four jobs, and they are the four things a duplex pump panel can tell you:
-    what pump 1 is drawing, what pump 2 is drawing, which contacts are closed,
-    and that something is still alive.
+    No profile. A clamp reading is a number, which is the whole of what this is
+    for, so the only question is where in the body to find it.
     """
 
-    # What to call it on the dashboard and in a log line. Not derived from the
-    # topic: "10.136.1.52 stopped talking" is worse to read at two in the
-    # morning than "the clamps stopped talking".
-    name: str = Field(default="", max_length=60)
-    role: str = Field(default="", pattern="^(clamp1|clamp2|contacts|heartbeat|)$")
-
-    # What to subscribe to. Wildcards are the broker's, so `+` and `#` work
-    # here for a device that spreads one job over several topics.
+    pump: int = Field(ge=1, le=2)
     topic: str = Field(default="", max_length=300)
-
-    # How to read the body, and where in it to look. See ingest/payloads.py:
-    # named profiles rather than a template language, because a template
-    # language is a second thing to get wrong, in a text box, with no way to
-    # test it except by waiting for a message.
-    profile: str = Field(default="", max_length=40)
+    # Where in the body the number is. Dots step into nested objects. Empty
+    # takes the body itself, for a device that publishes a bare number.
     path: str = Field(default="", max_length=200)
-
-    # Two different "which numbered thing", kept apart on purpose. They were
-    # one field for about an hour and the migration caught it: an input is
-    # numbered from one and a meter channel from zero, so one range cannot
-    # honestly cover both, and a field whose meaning depends on the role beside
-    # it is a field somebody will read wrong.
-    #
-    # Which of the eight inputs this topic carries, for a device that publishes
-    # one contact per topic rather than all of them together. Ignored by a
-    # profile that carries its own numbering.
-    input_number: int | None = Field(default=None, ge=1, le=8)
-    # Which channel a reading is recorded under. Not derived from the role,
+    # Which channel these readings are filed under. Not the pump number,
     # because the readings already stored are filed under whatever the meter
-    # called its clamps, and renumbering them would leave last month's amps
+    # called its clamps, and renumbering would leave last month's amps
     # describing the other pump.
-    channel: int | None = Field(default=None, ge=0, le=63)
+    channel: int = Field(default=0, ge=0, le=63)
 
-    # Silence longer than this and the source is reported offline.
-    #
-    # This is the liveness signal, and it is deliberately not the broker's last
-    # will. Measured on the real panel on 2026-09-07: the meter was unplugged
-    # for twenty four seconds and `online` stayed true the whole time, then
-    # published false one hundred milliseconds before it published true again.
-    # That is a session takeover at reconnect, not a death notice. A will only
-    # fires once the keepalive expires, which on that device is ninety seconds,
-    # and never at all for an outage shorter than that.
-    #
-    # Silence is the honest test, and it needs a number per source because the
-    # sources differ: the meter publishes every fourteen seconds when nothing
-    # is happening and the panel module heartbeats every sixty, both to the
-    # second. Zero means never hold silence against it.
-    expect_s: int = Field(default=0, ge=0, le=86_400)
-
-    # Asking for a reading rather than waiting for one.
-    #
-    # Entirely optional, and off unless a topic is set. Plenty of hardware has
-    # nothing to ask: a contact module publishes when a contact moves and there
-    # is no question to put to it in between. Only a device that goes quiet
-    # while something is still happening needs this.
-    #
-    # A meter is exactly that device. It publishes on change, so a motor
-    # running steady produces nothing, which on the real pit meant two readings
-    # in the first three seconds of a twelve second run and silence after.
-    # Measured over MQTT on 2026-09-07: the round trip is about twenty four
-    # milliseconds against a one second poll, so asking costs under three
-    # percent of the interval.
+    # Asking, for a meter that goes quiet while a motor runs steady. Optional:
+    # a source asks only when it has a topic and a payload.
     ask_topic: str = Field(default="", max_length=300)
     ask_payload: str = Field(default="", max_length=1000)
-    # Where the answer comes back, which is usually not the topic it is
-    # subscribed to. This is what let the last device specific code go: a meter
-    # publishes the same reading in three envelopes on three topics, and once
-    # the reply has its own topic and its own path, a dotted path reaches all
-    # of them and there is nothing left to special case.
-    #
-    # Empty means the answer arrives on the ordinary topic, which is how a
-    # device that simply republishes on request behaves.
+    # Where the answer lands, which is usually not the topic above. On a Shelly
+    # it is decided by the src inside the payload, which is why two clamps
+    # asking one meter need two of them: a reply carries no sign of what it is
+    # answering, so two sources reading one topic at one path would each match
+    # every answer.
     reply_topic: str = Field(default="", max_length=300)
     reply_path: str = Field(default="", max_length=200)
-
-    # Only while a pump is turning. The panel's own run contact says when that
-    # is, so nothing polls a pit that is sitting still: a day of runs is about
-    # four minutes of asking in twenty four hours.
-    ask_while_running: bool = False
+    ask_while_running: bool = True
     ask_every_s: float = Field(default=1.0, gt=0, le=3600)
 
     @property
+    def role(self) -> str:
+        return f"clamp{self.pump}"
+
+    @property
     def configured(self) -> bool:
-        return bool(self.role and self.topic and self.profile)
+        return bool(self.topic)
 
     @property
     def asks(self) -> bool:
-        """Whether this source is ever spoken to, rather than only listened to."""
         return bool(self.ask_topic and self.ask_payload)
 
     @property
     def answers_on(self) -> str:
-        """The topic a reply arrives on, which defaults to the ordinary one."""
         return self.reply_topic or self.topic
 
     @property
     def answer_path(self) -> str:
         return self.reply_path or self.path
 
+
+class ContactInput(BaseModel):
+    """One contact on the panel, and the topic that carries it.
+
+    One topic per contact rather than eight in one body. The combined body was
+    what one module happened to publish and it cost a parser that had to guess
+    how somebody had spelled eight keys. A contact on its own topic is on or
+    off, which is all a contact ever is.
+    """
+
+    channel: int = Field(ge=1, le=8)
+    role: str = Field(default="", max_length=40)
+    topic: str = Field(default="", max_length=300)
+    # Only for a device that wraps it: `state`, or `value.on`. Empty reads the
+    # body itself, which is what a module publishing `1` or `on` sends.
+    path: str = Field(default="", max_length=200)
+    # Which way round the wire works. A dry contact wired normally closed, or a
+    # live signal that holds voltage while all is well and drops it on the
+    # event, both mean the opposite of what they read. Panel alarm and overload
+    # contacts are often built the second way on purpose, so a cut wire reads
+    # the same as a fault.
+    invert: bool = False
+
+    @field_validator("role")
+    @classmethod
+    def known_role(cls, value: str) -> str:
+        value = value.strip()
+        if value and value not in {role for role, _ in DASHBOARD_ROLES}:
+            raise ValueError(f"{value} is not one of the roles the dashboard draws")
+        return value
+
+    @property
+    def used(self) -> bool:
+        """Whether this input has been told what it means and where to listen.
+
+        Both, now. Under the combined body an input was read whatever it was
+        called, so a role was enough; with a topic each, an input nobody has
+        given a topic is one nothing will ever arrive for.
+        """
+        return bool(self.role and self.topic)
+
     @property
     def title(self) -> str:
-        return self.name or self.topic or self.role or "source"
+        for role, label in DASHBOARD_ROLES:
+            if role == self.role:
+                return label
+        return f"DI{self.channel}"
 
 
-# The four jobs a source can do, in the order they are shown. Roles rather than
-# device names: what pump 1 draws, what pump 2 draws, which contacts are closed,
-# and that something is still alive.
-SOURCE_ROLES: tuple[str, ...] = ("clamp1", "clamp2", "contacts", "heartbeat")
+class HealthSource(BaseModel):
+    """A device saying it is still there.
 
-SOURCE_NAMES: dict[str, str] = {
-    "clamp1": "Pump 1 clamp",
-    "clamp2": "Pump 2 clamp",
-    "contacts": "Panel inputs",
-    "heartbeat": "Panel module",
-}
+    Its own section because it is its own question. A clamp topic answers what
+    the pump drew; this answers whether the thing that would have told us is
+    still plugged in, and the two fail separately.
+
+    Silence is the test, not the broker's last will. Measured on the real panel
+    on 2026-09-07: an unplugged meter kept its `online` topic true for the whole
+    outage, then published false a tenth of a second before it published true
+    again. That is a session takeover at reconnect, not a death notice.
+    """
+
+    name: str = Field(default="", max_length=60)
+    topic: str = Field(default="", max_length=300)
+    # Silence for about two and a half of these and it is reported offline.
+    # Zero never holds silence against it, which is right for a device that was
+    # never asked to speak on a schedule.
+    expect_s: int = Field(default=0, ge=0, le=86_400)
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.topic)
+
+    @property
+    def title(self) -> str:
+        return self.name or self.topic or "device"
 
 
 class MqttSettings(BaseModel):
     """The broker, and everything PitWatch listens to on it.
 
     One connection and one place to configure it. There were two device
-    sections before this, each with its own address, its own credentials and
-    its own idea of what being online meant, and only one of them was MQTT: the
-    meter was read over a websocket that PitWatch opened *to the device*.
+    sections before this, each with its own address and its own idea of what
+    being online meant, and only one of them was MQTT: the meter was read over
+    a websocket PitWatch opened *to the device*.
 
-    That direction is the thing this changes. A pull design needs a route from
-    the application to every device, which works on a LAN and stops working the
-    moment the application moves anywhere else. Every device dialing out to one
-    broker needs one reachable address, which is the arrangement that survives
-    the application being somewhere the panel cannot see.
+    That direction is the thing this changed. A pull design needs a route from
+    the application to every device, which works on a LAN and stops the moment
+    the application is anywhere else. Every device dialing out to one broker
+    needs one reachable address.
+
+    Three kinds of thing to listen to, because a pump panel asks three kinds of
+    question. What a pump is drawing is a number. What a contact is doing is on
+    or off. Whether a device is still there is neither, and is answered by it
+    having said anything lately. Each kind gets its own section rather than one
+    list of sources with a profile to pick, because the profile was a question
+    with only ever one right answer per kind.
     """
 
     KEY: ClassVar[str] = "mqtt"
@@ -397,186 +347,141 @@ class MqttSettings(BaseModel):
     client_id: str = Field(default="pitwatch", min_length=1, max_length=64)
 
     # How long a contact state has to hold before it counts as a change.
-    #
-    # Applies to every contact source. Kept at this level rather than per
-    # source because it is a statement about the panel rather than about a
-    # topic, and because a run contact and the float above it debounced
-    # differently would record a call for water that started before the pump.
+    # Applies to every contact, because a run contact and the float above it
+    # debounced differently would record a call that started before the pump.
     debounce_ms: int = Field(default=0, ge=0, le=30_000)
 
-    sources: list[MqttSource] = Field(default_factory=list)
-
-    # What each of the eight inputs carries. Unchanged: which input is the
-    # high float is a fact about the wiring, not about the transport.
-    channels: list[ChannelMap] = Field(default_factory=list)
+    clamps: list[ClampSource] = Field(default_factory=list)
+    inputs: list[ContactInput] = Field(default_factory=list)
+    health: list[HealthSource] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def fill_in_every_source(self) -> MqttSettings:
-        """Always four, in order, whatever was saved.
+    def fill_in_the_rows(self) -> MqttSettings:
+        """Two clamps, eight inputs, two health checks, whatever was saved.
 
-        The same reasoning as the eight inputs below. A page showing only the
-        sources somebody had already configured would have no row to configure
-        the next one in, and a fresh install would show an empty box where the
-        whole of ingest is meant to be.
-
-        A row with no topic is not a source. `used_sources` is what the reader
-        subscribes to, and an empty topic keeps a row out of it.
-
-        The duplicate check is here rather than in a validator of its own,
-        because filling in by role would quietly drop the second of two rows
-        claiming the same job and there would be nothing left to complain
-        about.
+        A page showing only what somebody had already configured would have no
+        row to configure the next one in, and a fresh install would show an
+        empty box where the whole of ingest is meant to be.
         """
-        seen: set[str] = set()
-        for source in self.sources:
-            if not source.role:
-                continue
-            if source.role in seen:
-                raise ValueError(
-                    f"Two sources both say they are {source.role}. Readings from both "
-                    f"would be filed under one pump."
-                )
-            seen.add(source.role)
-
-        by_role = {source.role: source for source in self.sources if source.role}
-        self.sources = [
-            by_role.get(role, MqttSource(role=role, name=SOURCE_NAMES[role]))
-            for role in SOURCE_ROLES
+        by_pump = {clamp.pump: clamp for clamp in self.clamps}
+        self.clamps = [
+            by_pump.get(pump, ClampSource(pump=pump, channel=pump - 1)) for pump in (1, 2)
         ]
-        return self
 
-    @model_validator(mode="after")
-    def fill_in_every_channel(self) -> MqttSettings:
-        """Always eight, in order, whatever was saved.
-
-        A module brings out eight inputs whether or not anything is wired to
-        them, and a settings page showing only the configured ones would have
-        no row to configure the next one in.
-        """
-        by_channel = {channel.channel: channel for channel in self.channels}
-        self.channels = [
-            by_channel.get(number, ChannelMap(channel=number)) for number in range(1, 9)
+        by_channel = {one.channel: one for one in self.inputs}
+        self.inputs = [
+            by_channel.get(number, ContactInput(channel=number)) for number in range(1, 9)
         ]
+
+        self.health = list(self.health[:4])
+        while len(self.health) < 2:
+            self.health.append(HealthSource())
         return self
 
     @model_validator(mode="after")
     def one_input_per_role(self) -> MqttSettings:
-        """Two inputs claiming to be the high float is a panel nobody can read.
-
-        Caught here rather than on the page, because the page is not the only
-        way a setting gets written.
-        """
+        """Two inputs claiming to be the high float is a panel nobody can read."""
         seen: dict[str, int] = {}
-        for mapped in self.channels:
-            if not mapped.role:
+        for one in self.inputs:
+            if not one.role:
                 continue
-            if mapped.role in seen:
+            if one.role in seen:
                 raise ValueError(
-                    f"Inputs {seen[mapped.role]} and {mapped.channel} both say they carry "
-                    f"{mapped.title}. Each one lives on a single input."
+                    f"Inputs {seen[one.role]} and {one.channel} both say they carry "
+                    f"{one.title}. Each one lives on a single input."
                 )
-            seen[mapped.role] = mapped.channel
-        return self
-
-    @model_validator(mode="after")
-    def answers_are_told_apart(self) -> MqttSettings:
-        """Two sources cannot read their answers off one topic and one path.
-
-        An MQTT message carries no sender and no sign of what it is answering.
-        The topic is the whole of its address, so two sources asking different
-        questions and reading the reply at the same path both match every
-        answer, and one reading is filed under both pumps.
-
-        Not hypothetical: the migration wrote exactly that, both clamps
-        answering on pitwatch/rpc at result.current, and the reply for pump 1
-        would have been recorded as pump 2's as well. It would also have
-        convinced the history page that pump 2 had a clamp fitted, and drawn a
-        line for a reading that never happened.
-
-        Sharing a topic is fine where the paths differ, because then only one
-        source finds anything in a given body. It is the pair that has to be
-        distinct. A device answers on whatever it was told to answer on, so the
-        fix is a different src per source.
-        """
-        seen: dict[tuple[str, str], str] = {}
-        for source in self.sources:
-            if not source.asks:
-                continue
-            where = (source.answers_on, source.answer_path)
-            if where in seen:
-                raise ValueError(
-                    f"{seen[where]} and {source.role} both read their answer from "
-                    f"{where[0]!r} at {where[1]!r}. One reply would be recorded as both. "
-                    f"Give them different reply topics, by asking with a different src."
-                )
-            seen[where] = source.role
+            seen[one.role] = one.channel
         return self
 
     @model_validator(mode="after")
     def clamps_record_apart(self) -> MqttSettings:
-        """Both pumps filed under one channel is two motors in one bucket.
-
-        Nothing downstream could tell them apart afterwards, and the readings
-        would look like one pump running twice as often.
-        """
-        used: dict[int, str] = {}
-        for source in self.sources:
-            if source.role not in ("clamp1", "clamp2") or source.channel is None:
-                continue
-            if source.channel in used:
-                raise ValueError(
-                    f"{used[source.channel]} and {source.role} would both record under "
-                    f"channel {source.channel}. The two pumps cannot read the same clamp."
-                )
-            used[source.channel] = source.role
+        """Both pumps filed under one channel is two motors in one bucket."""
+        if self.clamps[0].channel == self.clamps[1].channel:
+            raise ValueError(
+                f"Both pumps would record under channel {self.clamps[0].channel}. "
+                f"The two pumps cannot read the same clamp."
+            )
         return self
 
-    @property
-    def used_sources(self) -> list[MqttSource]:
-        return [source for source in self.sources if source.configured]
+    @model_validator(mode="after")
+    def answers_are_told_apart(self) -> MqttSettings:
+        """Two clamps cannot read their answers off one topic and one path.
 
-    def source_for(self, role: str) -> MqttSource | None:
-        for source in self.used_sources:
-            if source.role == role:
-                return source
-        return None
+        An MQTT message carries no sender and no sign of what it is answering.
+        The topic is the whole of its address, so two clamps reading the reply
+        at the same path both match every answer, and one reading is filed
+        under both pumps. That shipped once: it would also have convinced the
+        history page that the second pump had a clamp fitted and drawn a line
+        for a CT that is not installed.
+
+        Sharing a topic is fine where the paths differ, because then only one
+        finds anything in a given body.
+        """
+        asking = [clamp for clamp in self.clamps if clamp.asks]
+        if len(asking) == 2 and (asking[0].answers_on, asking[0].answer_path) == (
+            asking[1].answers_on,
+            asking[1].answer_path,
+        ):
+            raise ValueError(
+                f"Both clamps read their answer from {asking[0].answers_on!r} at "
+                f"{asking[0].answer_path!r}. One reply would be recorded as both. "
+                f"Ask with a different src so each gets its own reply topic."
+            )
+        return self
+
+    # -- what the rest of the application asks --------------------------------
 
     @property
-    def used_channels(self) -> list[ChannelMap]:
-        return [channel for channel in self.channels if channel.used]
+    def used_clamps(self) -> list[ClampSource]:
+        return [clamp for clamp in self.clamps if clamp.configured]
+
+    @property
+    def used_inputs(self) -> list[ContactInput]:
+        return [one for one in self.inputs if one.used]
+
+    @property
+    def used_health(self) -> list[HealthSource]:
+        return [one for one in self.health if one.configured]
+
+    @property
+    def used_channels(self) -> list[ContactInput]:
+        """What the dashboard draws a lamp for."""
+        return self.used_inputs
+
+    @property
+    def channels(self) -> list[ContactInput]:
+        """Every input, configured or not. The settings page draws all eight."""
+        return self.inputs
 
     def channel_for(self, role: str) -> int | None:
-        for channel in self.channels:
-            if channel.role == role:
-                return channel.channel
+        for one in self.inputs:
+            if one.role == role and one.topic:
+                return one.channel
         return None
 
     def label_for(self, channel: int) -> str:
-        """What to call an input, falling back to its terminal marking.
-
-        Never empty. A reading from an input whose role has since been cleared
-        still has to be describable, and DI4 is what is printed on the module.
-        """
-        for mapped in self.channels:
-            if mapped.channel == channel:
-                return mapped.title
+        """What to call an input, falling back to its terminal marking."""
+        for one in self.inputs:
+            if one.channel == channel:
+                return one.title
         return f"DI{channel}"
+
+    def input_at(self, channel: int) -> ContactInput | None:
+        for one in self.inputs:
+            if one.channel == channel:
+                return one
+        return None
 
     @property
     def clamp_for_pump(self) -> dict[int, int]:
-        """Which recorded channel holds each pump's readings.
+        """Which recorded channel holds each pump's readings."""
+        return {clamp.pump: clamp.channel for clamp in self.clamps}
 
-        Read off the sources rather than from a pair of fields, because a
-        source is where that fact now lives. The fallback matters on a fresh
-        install with nothing configured: pump 1 under 0 and pump 2 under 1 is
-        the arrangement every two channel meter ships with, and a dashboard
-        asking for readings has to have an answer either way.
-        """
-        found = {}
-        for pump in (1, 2):
-            source = self.source_for(f"clamp{pump}")
-            found[pump] = source.channel if source and source.channel is not None else pump - 1
-        return found
+    def clamp_of(self, pump: int) -> ClampSource | None:
+        for clamp in self.clamps:
+            if clamp.pump == pump:
+                return clamp
+        return None
 
 
 class Severity(StrEnum):

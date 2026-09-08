@@ -17,7 +17,7 @@ from pitwatch.auth import DEFAULT_PASSWORD, DEFAULT_USERNAME, authenticate, ensu
 from pitwatch.db import migrate, migration_files
 from pitwatch.ingest.readings import EmSample
 from pitwatch.ingest.sink import LiveState, SampleSink, record_device_status
-from pitwatch.schemas import ChannelMap, MqttSettings
+from pitwatch.schemas import ContactInput, MqttSettings
 
 
 async def test_migrations_apply_to_an_empty_database(pool):
@@ -118,7 +118,7 @@ async def test_settings_round_trip(store):
     saved = MqttSettings(
         enabled=True,
         host="192.168.1.51",
-        channels=[ChannelMap(channel=3, role="high_water", invert=True)],
+        inputs=[ContactInput(channel=3, role="high_water", topic="pit/in/3", invert=True)],
     )
 
     await store.put(saved)
@@ -130,16 +130,16 @@ async def test_settings_round_trip(store):
 
 
 async def test_settings_survive_a_reload(pool, store):
-    from pitwatch.schemas import MqttSource
+    from pitwatch.schemas import ClampSource
     from pitwatch.settings import SettingsStore
 
     await store.put(
         MqttSettings(
             enabled=True,
             host="10.0.0.9",
-            sources=[
-                MqttSource(role="clamp1", topic="a", profile="number", channel=1),
-                MqttSource(role="clamp2", topic="b", profile="number", channel=0),
+            clamps=[
+                ClampSource(pump=1, topic="a", channel=1),
+                ClampSource(pump=2, topic="b", channel=0),
             ],
         )
     )
@@ -801,18 +801,18 @@ def _store(pump1_run=1, pump2_run=2, high_water=3, clamp1=1, clamp2=0):
     clamp belongs to which pump."""
     from types import SimpleNamespace
 
-    from pitwatch.schemas import ChannelMap, MqttSettings, MqttSource
+    from pitwatch.schemas import ClampSource, ContactInput, MqttSettings
 
     return SimpleNamespace(
         mqtt=MqttSettings(
-            channels=[
-                ChannelMap(channel=pump1_run, role="pump1_run"),
-                ChannelMap(channel=pump2_run, role="pump2_run"),
-                ChannelMap(channel=high_water, role="high_water"),
+            inputs=[
+                ContactInput(channel=pump1_run, role="pump1_run", topic=f"pit/in/{pump1_run}"),
+                ContactInput(channel=pump2_run, role="pump2_run", topic=f"pit/in/{pump2_run}"),
+                ContactInput(channel=high_water, role="high_water", topic=f"pit/in/{high_water}"),
             ],
-            sources=[
-                MqttSource(role="clamp1", topic="a", profile="number", channel=clamp1),
-                MqttSource(role="clamp2", topic="b", profile="number", channel=clamp2),
+            clamps=[
+                ClampSource(pump=1, topic="meter/1", channel=clamp1),
+                ClampSource(pump=2, topic="meter/2", channel=clamp2),
             ],
         ),
     )

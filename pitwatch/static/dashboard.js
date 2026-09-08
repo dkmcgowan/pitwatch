@@ -456,10 +456,10 @@
   // contacts is connected" is what naming them after the role rather than the
   // thing gets you, and the sentence is what somebody actually reads.
   const DEVICE_NAMES = {
-    contacts: "The panel module",
+    health0: "The panel module",
+    health1: "The second device",
     clamp1: "The meter",
     clamp2: "The second meter",
-    heartbeat: "The module heartbeat",
   };
 
   function renderLinks(devices) {

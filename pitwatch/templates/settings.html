@@ -24,7 +24,7 @@
   <h2>Devices</h2>
   <form method="post" action="/settings/mqtt" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    {{ fields.mqtt_fields(mqtt, roles, profiles) }}
+    {{ fields.mqtt_fields(mqtt, roles) }}
     <button type="submit" class="button">Save</button>
   </form>
 </section>

@@ -18,9 +18,9 @@ from pitwatch.schemas import (
     ALERT_ORDER,
     SETTING_MODELS,
     AlertsSettings,
-    ChannelMap,
+    ClampSource,
+    ContactInput,
     MqttSettings,
-    MqttSource,
     PumpSettings,
     PumpsSettings,
     Severity,
@@ -30,7 +30,7 @@ from pitwatch.schemas import (
 
 def test_channel_numbers_outside_the_module_are_rejected():
     with pytest.raises(ValidationError):
-        ChannelMap(channel=9)
+        ContactInput(channel=9)
 
 
 def test_a_clamp_records_under_the_channel_its_source_names():
@@ -38,9 +38,9 @@ def test_a_clamp_records_under_the_channel_its_source_names():
     clamp somebody put around which wire. Read off the source, because that is
     where it lives now."""
     settings = MqttSettings(
-        sources=[
-            MqttSource(role="clamp1", topic="a", profile="number", channel=1),
-            MqttSource(role="clamp2", topic="b", profile="number", channel=0),
+        clamps=[
+            ClampSource(pump=1, topic="a", channel=1),
+            ClampSource(pump=2, topic="b", channel=0),
         ]
     )
 
@@ -53,14 +53,14 @@ def test_a_pit_with_no_clamps_configured_still_answers():
     assert MqttSettings().clamp_for_pump == {1: 0, 2: 1}
 
 
-def test_two_sources_cannot_claim_the_same_job():
-    """Readings from both would be filed under one pump, and there would be
-    nothing to notice it by."""
-    with pytest.raises(ValidationError, match="both say they are clamp1"):
+def test_both_pumps_cannot_record_under_one_channel():
+    """Two motors in one bucket. Nothing downstream could tell them apart, and
+    the readings would look like one pump running twice as often."""
+    with pytest.raises(ValidationError, match="cannot read the same clamp"):
         MqttSettings(
-            sources=[
-                MqttSource(role="clamp1", topic="a", profile="number"),
-                MqttSource(role="clamp1", topic="b", profile="number"),
+            clamps=[
+                ClampSource(pump=1, topic="a", channel=0),
+                ClampSource(pump=2, topic="b", channel=0),
             ]
         )
 
@@ -71,9 +71,9 @@ def test_two_inputs_cannot_carry_the_same_thing():
     only way a setting gets written."""
     with pytest.raises(ValidationError, match="both say they carry"):
         MqttSettings(
-            channels=[
-                ChannelMap(channel=1, role="high_water"),
-                ChannelMap(channel=2, role="high_water"),
+            inputs=[
+                ContactInput(channel=1, role="high_water", topic="a"),
+                ContactInput(channel=2, role="high_water", topic="b"),
             ]
         )
 
@@ -94,7 +94,7 @@ def test_the_old_channel_field_name_is_no_longer_accepted():
     because silently un-inverting an alarm is the worst failure in this
     application.
     """
-    channel = ChannelMap.model_validate(
+    channel = ContactInput.model_validate(
         {"channel": 7, "label": "Pump 1 overload", "normally_closed": True}
     )
 
@@ -356,7 +356,7 @@ def test_the_page_and_the_model_agree_about_which_rules_exist():
 def test_every_input_is_present_whether_or_not_it_carries_anything():
     """The module has eight inputs regardless, and the settings page needs a row
     to configure the next one in."""
-    settings = MqttSettings(channels=[ChannelMap(channel=3, role="high_water")])
+    settings = MqttSettings(inputs=[ContactInput(channel=3, role="high_water", topic="pit/in/3")])
 
     assert [channel.channel for channel in settings.channels] == [1, 2, 3, 4, 5, 6, 7, 8]
     assert settings.channels[2].role == "high_water"
@@ -368,7 +368,7 @@ def test_an_input_with_no_role_still_reads_it_just_does_not_light_a_lamp():
     caption and on switch, and it was never the on switch: every input is read
     and recorded whatever it is called. The role only decides whether it
     appears on the dashboard."""
-    settings = MqttSettings(channels=[ChannelMap(channel=3, role="high_water")])
+    settings = MqttSettings(inputs=[ContactInput(channel=3, role="high_water", topic="pit/in/3")])
 
     assert settings.channels[2].used is True
     assert settings.channels[0].used is False
@@ -378,7 +378,7 @@ def test_an_input_with_no_role_still_reads_it_just_does_not_light_a_lamp():
 def test_a_role_has_to_be_one_the_dashboard_can_draw():
     """A free text name could say anything and mean nothing. This cannot."""
     with pytest.raises(ValidationError):
-        ChannelMap(channel=1, role="whatever I feel like")
+        ContactInput(channel=1, role="whatever I feel like")
 
 
 def test_a_role_belongs_to_one_input():
@@ -388,18 +388,18 @@ def test_a_role_belongs_to_one_input():
     """
     with pytest.raises(ValidationError):
         MqttSettings(
-            channels=[
-                ChannelMap(channel=1, role="high_water"),
-                ChannelMap(channel=2, role="high_water"),
+            inputs=[
+                ContactInput(channel=1, role="high_water", topic="pit/in/1"),
+                ContactInput(channel=2, role="high_water", topic="pit/in/2"),
             ]
         )
 
 
 def test_the_dashboard_can_find_the_input_carrying_a_role():
     settings = MqttSettings(
-        channels=[
-            ChannelMap(channel=3, role="high_water"),
-            ChannelMap(channel=5, role="pump1_run"),
+        inputs=[
+            ContactInput(channel=3, role="high_water", topic="pit/in/3"),
+            ContactInput(channel=5, role="pump1_run", topic="pit/in/5"),
         ]
     )
 
@@ -411,7 +411,7 @@ def test_the_dashboard_can_find_the_input_carrying_a_role():
 def test_an_input_always_has_something_to_call_it():
     """Including one carrying nothing, because a reading from it still has to
     be describable. DI4 is what is printed on the module."""
-    settings = MqttSettings(channels=[ChannelMap(channel=3, role="high_water")])
+    settings = MqttSettings(inputs=[ContactInput(channel=3, role="high_water", topic="pit/in/3")])
 
     assert settings.label_for(3) == "High water"
     assert settings.label_for(4) == "DI4"

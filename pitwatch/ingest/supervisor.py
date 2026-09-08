@@ -119,11 +119,9 @@ class Supervisor:
 
         if not settings.enabled or not settings.host:
             log.info("Ingest is off: no broker configured")
-            for source in settings.used_sources:
-                await record_device_status(self._pool, source.role, False, "Not configured")
             return
-        if not settings.used_sources:
-            log.info("Ingest has nothing to listen to: no sources configured")
+        if not (settings.used_clamps or settings.used_inputs or settings.used_health):
+            log.info("Ingest has nothing to listen to: nothing is configured")
             return
 
         known = await self.io_sink.prime()
@@ -156,10 +154,12 @@ class Supervisor:
         self._reader = reader
         self._spawn("mqtt", reader.run)
         log.info(
-            "Listening to the broker at %s:%d for %d source(s)",
+            "Listening to the broker at %s:%d for %d clamp(s), %d contact(s) and %d check(s)",
             settings.host,
             settings.port,
-            len(settings.used_sources),
+            len(settings.used_clamps),
+            len(settings.used_inputs),
+            len(settings.used_health),
         )
 
     async def _start_weather(self) -> None:

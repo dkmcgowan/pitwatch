@@ -417,7 +417,7 @@ def test_a_signed_in_non_admin_cannot_reach_the_dashboard_lamps(client):
     assert page.status_code in (303, 403), page.status_code
 
     save = client.post(
-        "/settings/mqtt", data={"channel_3_role": "high_water"}, follow_redirects=False
+        "/settings/mqtt", data={"input_3_role": "high_water"}, follow_redirects=False
     )
     assert save.status_code in (303, 403)
 

@@ -256,12 +256,12 @@ def test_only_inputs_carrying_something_are_shown():
     """Eight rows of "nothing" is not a dashboard, it is a settings page nobody
     asked to see. An input with no role is still read and still recorded; it
     just has no lamp to appear in."""
-    from pitwatch.schemas import ChannelMap, MqttSettings
+    from pitwatch.schemas import ContactInput, MqttSettings
 
     settings = MqttSettings(
-        channels=[
-            ChannelMap(channel=2, role="lead_float"),
-            ChannelMap(channel=5, role="pump1_run"),
+        inputs=[
+            ContactInput(channel=2, role="lead_float", topic="pit/in/2"),
+            ContactInput(channel=5, role="pump1_run", topic="pit/in/5"),
         ]
     )
 
@@ -283,7 +283,6 @@ def test_only_inputs_carrying_something_are_shown():
 def render_settings(**overrides) -> str:
     from jinja2 import Environment, FileSystemLoader
 
-    from pitwatch.ingest import payloads
     from pitwatch.schemas import (
         DASHBOARD_ROLES,
         MqttSettings,
@@ -302,7 +301,6 @@ def render_settings(**overrides) -> str:
         "site": SiteSettings(),
         "weather": WeatherSettings(),
         "mqtt": MqttSettings(),
-        "profiles": payloads.PROFILES,
         "shelly": MqttSettings(),
         "inputs": MqttSettings(),
         "pumps": PumpsSettings(),
@@ -361,9 +359,10 @@ def test_saving_the_settings_page_unchanged_changes_nothing():
 
     from pitwatch.api import forms
     from pitwatch.schemas import (
-        ChannelMap,
+        ClampSource,
+        ContactInput,
+        HealthSource,
         MqttSettings,
-        MqttSource,
         SiteSettings,
     )
 
@@ -387,43 +386,28 @@ def test_saving_the_settings_page_unchanged_changes_nothing():
         encrypted=True,
         client_id="pitwatch-123",
         debounce_ms=750,
-        sources=[
-            MqttSource(
-                name="Pump 1 clamp",
-                role="clamp1",
+        clamps=[
+            ClampSource(
+                pump=1,
                 topic="meter/status/em1:0",
-                profile="number",
                 path="current",
                 channel=0,
-                expect_s=45,
                 ask_topic="meter/rpc",
-                ask_payload='{"method":"EM1.GetStatus"}',
-                reply_topic="pitwatch/rpc",
+                ask_payload='{"method":"EM1.GetStatus","src":"pitwatch-c1"}',
+                reply_topic="pitwatch-c1/rpc",
                 reply_path="result.current",
                 ask_while_running=True,
+                ask_every_s=1.0,
             ),
-            MqttSource(
-                name="Pump 2 clamp",
-                role="clamp2",
-                topic="meter/status/em1:1",
-                profile="number",
-                path="current",
-                channel=1,
-            ),
-            MqttSource(
-                name="Panel inputs", role="contacts", topic="site/inputs", profile="contact_map"
-            ),
-            MqttSource(
-                name="Panel module",
-                role="heartbeat",
-                topic="site/heartbeat",
-                profile="number",
-                expect_s=90,
-            ),
+            ClampSource(pump=2, topic="meter/status/em1:1", path="current", channel=1),
         ],
-        channels=[
-            ChannelMap(channel=1, role="lead_float"),
-            ChannelMap(channel=7, role="pump1_fault", invert=True),
+        health=[
+            HealthSource(name="Panel module", topic="site/heartbeat", expect_s=90),
+            HealthSource(name="Meter", topic="site/meter", expect_s=45),
+        ],
+        inputs=[
+            ContactInput(channel=1, role="lead_float", topic="pit/in/1"),
+            ContactInput(channel=7, role="pump1_fault", topic="pit/in/7", invert=True),
         ],
     )
     form = FormData(submitted(render_settings(site=site, mqtt=mqtt)))
@@ -472,14 +456,14 @@ P1, P2, F1, F2 = 5, 6, 7, 8
 
 
 def wired():
-    from pitwatch.schemas import ChannelMap, MqttSettings
+    from pitwatch.schemas import ContactInput, MqttSettings
 
     return MqttSettings(
-        channels=[
-            ChannelMap(channel=P1, role="pump1_run"),
-            ChannelMap(channel=P2, role="pump2_run"),
-            ChannelMap(channel=F1, role="pump1_fault"),
-            ChannelMap(channel=F2, role="pump2_fault"),
+        inputs=[
+            ContactInput(channel=P1, role="pump1_run", topic="pit/in/x"),
+            ContactInput(channel=P2, role="pump2_run", topic="pit/in/x"),
+            ContactInput(channel=F1, role="pump1_fault", topic="pit/in/x"),
+            ContactInput(channel=F2, role="pump2_fault", topic="pit/in/x"),
         ]
     )
 
@@ -567,12 +551,12 @@ def test_a_lamp_with_no_input_is_not_a_lamp_that_is_off():
     """Three states, and the middle one is the whole point. A lamp reading off
     when it means nobody wired it is a lamp that gets believed."""
     from pitwatch.api.live import panel_state
-    from pitwatch.schemas import ChannelMap, MqttSettings
+    from pitwatch.schemas import ContactInput, MqttSettings
 
     inputs = MqttSettings(
-        channels=[
-            ChannelMap(channel=3, role="high_water"),
-            ChannelMap(channel=4, role="system_alert"),
+        inputs=[
+            ContactInput(channel=3, role="high_water", topic="pit/in/3"),
+            ContactInput(channel=4, role="system_alert", topic="pit/in/4"),
         ]
     )
     panel = panel_state(inputs, io((3, True)))
@@ -594,20 +578,20 @@ def test_the_lamp_mapping_makes_the_round_trip_with_the_inputs():
     from starlette.datastructures import FormData
 
     from pitwatch.api import forms
-    from pitwatch.schemas import ChannelMap, MqttSettings
+    from pitwatch.schemas import ContactInput, MqttSettings
 
     mqtt = MqttSettings(
         enabled=True,
         host="10.0.0.6",
-        channels=[
-            ChannelMap(channel=1, role="lead_float"),
-            ChannelMap(channel=2, role="lag_float"),
-            ChannelMap(channel=3, role="high_water"),
-            ChannelMap(channel=4, role="system_alert", invert=True),
-            ChannelMap(channel=5, role="pump1_run"),
-            ChannelMap(channel=6, role="pump2_run"),
-            ChannelMap(channel=7, role="pump1_fault", invert=True),
-            ChannelMap(channel=8, role="pump2_fault", invert=True),
+        inputs=[
+            ContactInput(channel=1, role="lead_float", topic="pit/in/1"),
+            ContactInput(channel=2, role="lag_float", topic="pit/in/2"),
+            ContactInput(channel=3, role="high_water", topic="pit/in/3"),
+            ContactInput(channel=4, role="system_alert", topic="pit/in/4", invert=True),
+            ContactInput(channel=5, role="pump1_run", topic="pit/in/5"),
+            ContactInput(channel=6, role="pump2_run", topic="pit/in/6"),
+            ContactInput(channel=7, role="pump1_fault", topic="pit/in/7", invert=True),
+            ContactInput(channel=8, role="pump2_fault", topic="pit/in/8", invert=True),
         ],
     )
     page = render_settings(mqtt=mqtt)
@@ -1642,7 +1626,7 @@ def test_the_settings_page_asks_for_a_broker_and_not_for_a_poll_interval():
 
     for name in ("mqtt_host", "mqtt_port", "mqtt_username", "mqtt_password"):
         assert f'name="{name}"' in page, name
-    for name in ("source_contacts_topic", "source_contacts_profile", "mqtt_client_id"):
+    for name in ("input_1_topic", "input_1_role", "mqtt_client_id"):
         assert f'name="{name}"' in page, name
 
     for gone in ("inputs_poll_ms", "inputs_unit_id", "inputs_timeout_s"):
@@ -1654,8 +1638,15 @@ def test_the_settings_page_asks_for_a_broker_and_not_for_a_poll_interval():
     # before announcing it was back. Silence is the test now, and every source
     # carries its own interval.
     assert "status_topic" not in page
-    for role in ("contacts", "heartbeat", "clamp1", "clamp2"):
-        assert f'name="source_{role}_expect_s"' in page, role
+    for pump in (1, 2):
+        assert f'name="clamp{pump}_topic"' in page, pump
+        assert f'name="clamp{pump}_path"' in page, pump
+    for index in (0, 1):
+        assert f'name="health_{index}_topic"' in page, index
+        assert f'name="health_{index}_expect_s"' in page, index
+    # And a topic per contact rather than one body carrying eight.
+    for channel in range(1, 9):
+        assert f'name="input_{channel}_topic"' in page, channel
 
     # The one piece of processing that survived the change of protocol, because
     # contacts bounce whatever is carrying the news of it.
@@ -1678,7 +1669,7 @@ def test_the_lamps_are_chosen_on_the_input_that_carries_them():
     Two lists to keep in step was the thing worth deleting."""
     page = render_settings()
 
-    assert "channel_3_role" in page, "the choice is on the input row"
+    assert "input_3_role" in page, "the choice is on the input row"
     for role, _ in [("high_water", 0), ("pump1_run", 0), ("system_alert", 0)]:
         assert f'value="{role}"' in page, role
 
@@ -1692,7 +1683,6 @@ def test_the_lamps_are_chosen_on_the_input_that_carries_them():
 def render_page(name: str, **context) -> str:
     from jinja2 import Environment, FileSystemLoader
 
-    from pitwatch.ingest import payloads
     from pitwatch.schemas import MqttSettings, SiteSettings, WeatherSettings
 
     env = Environment(loader=FileSystemLoader("pitwatch/templates"), autoescape=True)
@@ -1701,7 +1691,6 @@ def render_page(name: str, **context) -> str:
     context.setdefault("site", SiteSettings(name="A pit"))
     context.setdefault("weather", WeatherSettings())
     context.setdefault("mqtt", MqttSettings())
-    context.setdefault("profiles", payloads.PROFILES)
     context.setdefault("user", None)
     return env.get_template(name).render(**context)
 

@@ -118,13 +118,15 @@ def test_the_token_is_accepted_in_a_header(client):
     token = token_from(client, "/settings")
 
     response = client.post(
-        "/api/test/source",
-        data={"shelly_host": ""},
+        "/api/geocode",
+        data={"site_address": ""},
         headers={"x-csrf-token": token},
     )
 
-    # Refused for having no address, which means it got past the token check.
-    assert response.status_code == 400
+    # Refused for having nothing to look up, which means it got past the token
+    # check. A rejected token is a 403 before the handler ever runs.
+    assert response.status_code == 200
+    assert response.json()["ok"] is False
     assert "address" in response.json()["error"]
 
 

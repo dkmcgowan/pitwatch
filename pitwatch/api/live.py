@@ -24,7 +24,6 @@ from pitwatch.domain.history import (
     SignalHistory,
     Typical,
 )
-from pitwatch.ingest import mqtt as mqtt_ingest
 from pitwatch.ingest import weather as weather_ingest
 from pitwatch.ingest.sink import LiveIo, LiveState
 from pitwatch.notify import email as email_sender
@@ -208,7 +207,9 @@ async def build_state(app) -> dict:
     # nobody has configured yet, and painting a red fault for it would teach
     # whoever reads this page that red means nothing.
     listening = bool(mqtt.enabled and mqtt.host)
-    configured = {source.role: listening and source.configured for source in mqtt.sources}
+    configured = {clamp.role: listening and clamp.configured for clamp in mqtt.clamps}
+    for index, check in enumerate(mqtt.health):
+        configured[f"health{index}"] = listening and check.configured
     devices = {
         row["device"]: {
             "configured": configured.get(row["device"], False),
@@ -375,41 +376,6 @@ async def geocode(request: Request, user: auth.SignedIn) -> JSONResponse:
             ),
         }
     )
-
-
-@router.post("/test/source", include_in_schema=False)
-async def test_source(request: Request, user: auth.SignedIn) -> JSONResponse:
-    """Listen on one source's topic and report what arrives.
-
-    One button for every kind of source, where there were two, one per device.
-    The settings page calls it while somebody is standing at the panel, so they
-    can lift a float by hand and watch a row change: by far the fastest way to
-    get the channel map right, and reading the wire labels is how it ends up
-    wrong.
-
-    Takes the form as it stands rather than what is saved, because the moment a
-    test button is most useful is before anything has been committed. Behind a
-    sign in, because it makes the server open a connection on request.
-    """
-    form = await request.form()
-    store: SettingsStore = request.app.state.settings
-    if not forms.text(form, "mqtt_host"):
-        return JSONResponse({"ok": False, "error": "Enter a broker address first"}, status_code=400)
-
-    role = forms.text(form, "role")
-    if role not in forms.SOURCE_ROLES:
-        return JSONResponse({"ok": False, "error": f"No such source {role!r}"}, status_code=400)
-
-    try:
-        settings = forms.mqtt_from(form, store.mqtt)
-    except (ValueError, ValidationError) as error:
-        return JSONResponse({"ok": False, "error": str(error)}, status_code=400)
-
-    source = next((one for one in settings.sources if one.role == role), None)
-    if source is None:
-        return JSONResponse({"ok": False, "error": f"No such source {role!r}"}, status_code=400)
-
-    return JSONResponse(await mqtt_ingest.probe(settings, source))
 
 
 @router.post("/test/email", include_in_schema=False)

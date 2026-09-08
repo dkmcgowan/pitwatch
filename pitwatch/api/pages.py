@@ -24,7 +24,6 @@ from pitwatch import auth
 from pitwatch import summary as summaries
 from pitwatch.api import forms
 from pitwatch.domain import alerts as alert_specs
-from pitwatch.ingest import payloads
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
 from pitwatch.schemas import DASHBOARD_ROLES
@@ -45,10 +44,6 @@ def _context(request: Request, **extra) -> dict:
         # page that renders those rows needs it and forgetting it renders eight
         # empty dropdowns rather than an error.
         "roles": DASHBOARD_ROLES,
-        # The shapes a published body can be read as. Beside the roles for the
-        # same reason: every page rendering a source row needs it, and
-        # forgetting it renders an empty dropdown rather than an error.
-        "profiles": payloads.PROFILES,
         **extra,
     }
 

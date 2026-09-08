@@ -15,9 +15,15 @@ Every device dialing out to one broker needs one reachable address, which is
 the arrangement that survives the application moving somewhere the panel cannot
 see.
 
-**Nothing in here knows what a Shelly or an X-408 is.** A source is a topic, a
-profile, a path and a role, and all four are settings. See `payloads.py` for
-what a profile is and why it is a shape rather than a vendor.
+**Nothing in here knows what a Shelly or an X-408 is.** Three kinds of thing to
+listen to, because a pump panel asks three kinds of question: a clamp is a
+number at a topic, a contact is on or off at a topic, and a health check is a
+topic that ought to say something now and then. Each is a row somebody fills
+in.
+
+One contact per topic rather than eight in one body. The combined body was what
+one module happened to publish, and reading it cost a parser that had to guess
+how somebody had spelled eight keys.
 
 **Liveness is silence, not the broker's last will.** Measured on the real panel
 on 2026-09-07: the meter was unplugged for twenty four seconds and its `online`
@@ -50,7 +56,7 @@ import aiomqtt
 from pitwatch.ingest import payloads
 from pitwatch.ingest.contacts import Debouncer, IoEvent
 from pitwatch.ingest.readings import EmSample
-from pitwatch.schemas import MqttSettings, MqttSource
+from pitwatch.schemas import ClampSource, ContactInput, MqttSettings
 
 log = logging.getLogger(__name__)
 
@@ -179,8 +185,8 @@ class MqttReader:
             # perfectly healthy is given a full window to say so before
             # anything is held against it.
             began = asyncio.get_running_loop().time()
-            for source in settings.used_sources:
-                self._heard_at[source.role] = began
+            for key in self._reported():
+                self._heard_at[key] = began
             self._silent.clear()
             await self._report_all(True, None)
 
@@ -205,15 +211,21 @@ class MqttReader:
     def _subscriptions(self) -> list[str]:
         """Every distinct topic worth listening to, subscribed once each.
 
-        A reply topic is included, and it is often shared: several sources
-        asking one device get their answers on the same topic, and subscribing
-        to it twice would deliver every answer twice.
+        A reply topic can be shared: two clamps asking one meter may get their
+        answers on one topic as long as they read different paths out of it,
+        and subscribing to it twice would deliver every answer twice.
         """
         wanted: list[str] = []
-        for source in self._settings.used_sources:
-            for topic in (source.topic, source.answers_on if source.asks else ""):
+        for clamp in self._settings.used_clamps:
+            for topic in (clamp.topic, clamp.answers_on if clamp.asks else ""):
                 if topic and topic not in wanted:
                     wanted.append(topic)
+        for one in self._settings.used_inputs:
+            if one.topic not in wanted:
+                wanted.append(one.topic)
+        for check in self._settings.used_health:
+            if check.topic not in wanted:
+                wanted.append(check.topic)
         return wanted
 
     # -- routing -------------------------------------------------------------
@@ -223,78 +235,61 @@ class MqttReader:
         text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
         topic = str(message.topic)
 
-        events: list[IoEvent] = []
         samples: list[EmSample] = []
+        states: dict[int, bool] = {}
 
-        for source in self._settings.used_sources:
+        for clamp in self._settings.used_clamps:
             # A reply is tried at its own path first, because the same body on
-            # the same topic can mean different things to two sources asking
-            # different questions of one device.
-            if (
-                source.asks
-                and topic_matches(source.answers_on, topic)
-                and self._collect(source, text, source.answer_path, samples, events)
-            ):
-                self._heard(source)
+            # the same topic can mean different things to two clamps asking
+            # different questions of one meter.
+            if clamp.asks and topic_matches(clamp.answers_on, topic):
+                reading = payloads.value(text, clamp.answer_path)
+                if reading is not None:
+                    samples.append(self._sample(clamp, reading))
+                    self._heard(clamp.role, clamp.role)
+                    continue
+            if topic_matches(clamp.topic, topic):
+                reading = payloads.value(text, clamp.path)
+                if reading is not None:
+                    samples.append(self._sample(clamp, reading))
+                self._heard(clamp.role, clamp.role)
+
+        for one in self._settings.used_inputs:
+            if not topic_matches(one.topic, topic):
                 continue
-            if topic_matches(source.topic, topic):
-                self._collect(source, text, source.path, samples, events)
-                self._heard(source)
+            said = payloads.state(text, one.path)
+            if said is None:
+                log.warning("%s published %r, which is not on or off", one.title, text[:60])
+                continue
+            states[one.channel] = said
+            self._heard(f"input{one.channel}", one.title)
+
+        for index, check in enumerate(self._settings.health):
+            # Proof of life by arriving, not by what it says. A module's own
+            # heartbeat body is an id and an uptime with no status field in it
+            # at all, and reading it for one would mark a healthy module dead
+            # every sixty seconds.
+            if check.configured and topic_matches(check.topic, topic):
+                self._heard(f"health{index}", check.title)
 
         if samples:
             await self._on_samples(samples)
-        if events:
-            await self._on_events(events)
+        if states:
+            events = self._apply(states)
+            if events:
+                await self._on_events(events)
 
-    def _collect(
-        self,
-        source: MqttSource,
-        text: str,
-        path: str,
-        samples: list[EmSample],
-        events: list[IoEvent],
-    ) -> bool:
-        """Read one body for one source. True when it carried anything."""
-        try:
-            if source.role in ("clamp1", "clamp2"):
-                reading = payloads.value(source.profile, text, path)
-                if reading is None:
-                    return False
-                samples.append(self._sample(source, reading))
-                return True
-            if source.role == "contacts":
-                states = payloads.contact_states(source.profile, text, path)
-                if source.input_number and source.profile == "contact":
-                    # One contact on its own topic, renumbered to the input it
-                    # is wired to. The parser cannot know that; the setting
-                    # does. There is exactly one state in there, because that
-                    # is what the profile means.
-                    only = next(iter(states.values()), None)
-                    states = {} if only is None else {source.input_number: only}
-                events.extend(self._apply(states))
-                return bool(states)
-            if source.role == "heartbeat":
-                # Proof of life by arriving, not by what it says. A module's
-                # own heartbeat body is an id and an uptime with no status
-                # field in it at all, and reading it for one would mark a
-                # healthy module dead every sixty seconds.
-                return True
-        except payloads.PayloadError as error:
-            log.warning("%s: %s", source.title, error)
-        return False
+    def _sample(self, clamp: ClampSource, reading: float) -> EmSample:
+        """A reading, filed under the channel this clamp records against.
 
-    def _sample(self, source: MqttSource, reading: float) -> EmSample:
-        """A reading, filed under the channel this source records against.
-
-        The channel is a setting rather than the role's number, because the
+        The channel is a setting rather than the pump number, because the
         readings already stored are filed under whatever the meter called its
-        clamps. Changing that would leave last month's amps describing the
+        clamps. Renumbering them would leave last month's amps describing the
         other pump.
         """
-        channel = source.channel if source.channel is not None else 0
         return EmSample(
             ts=datetime.now(UTC),
-            channel=channel,
+            channel=clamp.channel,
             current=reading,
             voltage=None,
             act_power=None,
@@ -303,11 +298,11 @@ class MqttReader:
             freq=None,
         )
 
-    def _heard(self, source: MqttSource) -> None:
-        self._heard_at[source.role] = asyncio.get_running_loop().time()
-        if source.role in self._silent:
-            self._silent.discard(source.role)
-            log.info("%s is talking again", source.title)
+    def _heard(self, key: str, title: str) -> None:
+        self._heard_at[key] = asyncio.get_running_loop().time()
+        if key in self._silent:
+            self._silent.discard(key)
+            log.info("%s is talking again", title)
 
     # -- contacts ------------------------------------------------------------
 
@@ -368,11 +363,8 @@ class MqttReader:
             )
         return events
 
-    def _channel(self, number: int):
-        for mapped in self._settings.channels:
-            if mapped.channel == number:
-                return mapped
-        return None
+    def _channel(self, number: int) -> ContactInput | None:
+        return self._settings.input_at(number)
 
     async def _settle(self, stop: asyncio.Event) -> None:
         """Confirm changes that the clock has settled.
@@ -402,38 +394,43 @@ class MqttReader:
     # -- liveness ------------------------------------------------------------
 
     async def _watch_silence(self, stop: asyncio.Event) -> None:
-        """Hold every source to its own interval.
+        """Hold every health check to its own interval.
 
-        Opt in per source. At zero this does nothing for that source, which is
-        right for one whose device was never asked to speak on a schedule:
+        Opt in per check. At zero this does nothing for that one, which is
+        right for a device that was never asked to speak on a schedule:
         holding silence against it would paint a permanent red and teach
         somebody to ignore the indicator.
         """
-        expecting = [s for s in self._settings.used_sources if s.expect_s]
+        expecting = [
+            (index, check)
+            for index, check in enumerate(self._settings.health)
+            if check.configured and check.expect_s
+        ]
         if not expecting:
             return
 
         loop = asyncio.get_running_loop()
-        tick = max(1.0, min(source.expect_s for source in expecting) / 2)
+        tick = max(1.0, min(check.expect_s for _, check in expecting) / 2)
         while not stop.is_set():
             # Checked several times per window rather than once, so the news is
             # at most a fraction of an interval late.
             await asyncio.sleep(tick)
-            for source in expecting:
-                if source.role in self._silent:
+            for index, check in expecting:
+                key = f"health{index}"
+                if key in self._silent:
                     continue
-                last = self._heard_at.get(source.role)
+                last = self._heard_at.get(key)
                 if last is None:
                     continue
                 silent = loop.time() - last
-                if silent < source.expect_s * SILENT_MISSES:
+                if silent < check.expect_s * SILENT_MISSES:
                     continue
-                self._silent.add(source.role)
-                log.warning("Nothing from %s for %.0f s", source.title, silent)
+                self._silent.add(key)
+                log.warning("Nothing from %s for %.0f s", check.title, silent)
                 await self._report(
-                    source,
+                    key,
                     False,
-                    f"Nothing heard for {silent:.0f} s, expected every {source.expect_s} s",
+                    f"Nothing heard for {silent:.0f} s, expected every {check.expect_s} s",
                 )
 
     # -- asking --------------------------------------------------------------
@@ -445,12 +442,12 @@ class MqttReader:
         run contact is what decides that, so a pit sitting still is a pit
         nothing is polling.
         """
-        asking = [source for source in self._settings.used_sources if source.asks]
+        asking = [clamp for clamp in self._settings.used_clamps if clamp.asks]
         if not asking:
             return
 
         while not stop.is_set():
-            waiting = [source for source in asking if source.ask_while_running]
+            waiting = [clamp for clamp in asking if clamp.ask_while_running]
             if waiting and not self._running.is_set():
                 # Nothing to do until the panel says a pump started. The tail
                 # is for the decay: a motor coasting down draws less than it
@@ -467,142 +464,47 @@ class MqttReader:
                 if stop.is_set():
                     return
 
-            for source in asking:
-                if source.ask_while_running and not self._running.is_set():
+            for clamp in asking:
+                if clamp.ask_while_running and not self._running.is_set():
                     continue
-                await self._ask(source)
+                await self._ask(clamp)
 
-            delay = min(source.ask_every_s for source in asking)
+            delay = min(clamp.ask_every_s for clamp in asking)
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(stop.wait(), timeout=delay)
 
-    async def _ask(self, source: MqttSource) -> None:
+    async def _ask(self, clamp: ClampSource) -> None:
         client = self._client
         if client is None:
             return
         try:
-            await client.publish(source.ask_topic, source.ask_payload)
+            await client.publish(clamp.ask_topic, clamp.ask_payload)
         except (aiomqtt.MqttError, OSError) as error:
-            log.warning("Could not ask %s: %s", source.title, error)
+            log.warning("Could not ask the pump %d clamp: %s", clamp.pump, error)
 
     # -- saying how it went --------------------------------------------------
 
-    async def _report(self, source: MqttSource, online: bool, error: str | None) -> None:
+    async def _report(self, key: str, online: bool, error: str | None) -> None:
         if self._on_status is not None:
-            await self._on_status(source.role, online, error)
+            await self._on_status(key, online, error)
+
+    def _reported(self) -> list[str]:
+        """What appears in device_status: the clamps and the health checks.
+
+        Not the contacts. Eight inputs would be eight rows saying the same
+        thing about one module, which is what a health check is for.
+        """
+        keys = [clamp.role for clamp in self._settings.used_clamps]
+        keys += [
+            f"health{index}"
+            for index, check in enumerate(self._settings.health)
+            if check.configured
+        ]
+        return keys
 
     async def _report_all(self, online: bool, error: str | None) -> None:
-        for source in self._settings.used_sources:
-            await self._report(source, online, error)
+        for key in self._reported():
+            await self._report(key, online, error)
 
 
-async def probe(settings: MqttSettings, source: MqttSource, wait_s: float = 5.0) -> dict:
-    """Listen on one topic for one body and report what it said.
-
-    The settings page calls this while somebody is standing at the panel, so
-    they can lift a float by hand and watch a row change. That is by far the
-    fastest way to get the channel map right, and reading the wire labels is
-    how it ends up wrong.
-
-    It waits rather than asks, because for most sources there is nothing to
-    ask: a device publishing on change that has nothing to report has nothing
-    to say, and the honest answer is to say so. Where a source does have
-    something to ask, it is asked once first, so a meter sitting on an idle pit
-    still answers.
-
-    One probe for every kind of source, which is the point. There were two, one
-    per device, and each knew what its device published.
-    """
-    if not source.topic:
-        return {"ok": False, "error": "Give the source a topic to listen on first"}
-
-    heard: dict = {}
-    try:
-        async with asyncio.timeout(wait_s):
-            async with aiomqtt.Client(
-                hostname=settings.host,
-                port=settings.port,
-                username=settings.username or None,
-                password=settings.password or None,
-                identifier=f"{settings.client_id}-probe",
-                tls_params=aiomqtt.TLSParameters() if settings.encrypted else None,
-            ) as client:
-                await client.subscribe(source.topic)
-                if source.asks:
-                    if source.answers_on != source.topic:
-                        await client.subscribe(source.answers_on)
-                    await client.publish(source.ask_topic, source.ask_payload)
-
-                async for message in client.messages:
-                    topic = str(message.topic)
-                    raw = message.payload
-                    text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
-                    reply = source.asks and topic_matches(source.answers_on, topic)
-                    path = source.answer_path if reply else source.path
-                    heard = _read_for_probe(settings, source, text, path)
-                    if heard.get("ok"):
-                        heard["topic"] = topic
-                        return heard
-    except TimeoutError:
-        return {
-            "ok": False,
-            # Not a failure. The connection was fine and nothing moved, which
-            # is the ordinary answer from a device that speaks on change. The
-            # page uses this to keep listening rather than to give up.
-            "waiting": True,
-            "error": (
-                f"Connected to {settings.host}:{settings.port} and heard nothing useful on "
-                f"{source.topic} in {wait_s:.0f} seconds. A device that publishes on change "
-                "says nothing when nothing has changed, so this is the ordinary answer on a "
-                "quiet pit. Lift a float or start a pump and try again."
-            ),
-        }
-    except (aiomqtt.MqttError, OSError) as error:
-        return {"ok": False, "error": f"Could not reach {settings.host}: {error}"}
-    return heard or {"ok": False, "error": "Nothing arrived"}
-
-
-def _read_for_probe(settings: MqttSettings, source: MqttSource, text: str, path: str) -> dict:
-    """What one body meant, in a shape the settings page can draw."""
-    try:
-        if source.profile in payloads.CONTACT_PROFILES:
-            states = payloads.contact_states(source.profile, text, path)
-            if source.input_number and source.profile == "contact":
-                only = next(iter(states.values()), None)
-                states = {} if only is None else {source.input_number: only}
-            if not states:
-                return {"ok": False}
-            return {
-                "ok": True,
-                "kind": "contacts",
-                "body": text[:400],
-                "channels": [
-                    {
-                        "channel": mapped.channel,
-                        "label": mapped.title,
-                        "raw": states.get(mapped.channel),
-                        "state": (
-                            None
-                            if states.get(mapped.channel) is None
-                            else (
-                                not states[mapped.channel]
-                                if mapped.invert
-                                else states[mapped.channel]
-                            )
-                        ),
-                    }
-                    for mapped in settings.channels
-                ],
-            }
-        reading = payloads.value(source.profile, text, path)
-        if reading is None:
-            # A frame that does not carry what was asked for. Keep listening:
-            # a meter publishes several shapes on one topic and only some of
-            # them are the one wanted.
-            return {"ok": False}
-        return {"ok": True, "kind": "value", "value": reading, "body": text[:400]}
-    except payloads.PayloadError as error:
-        return {"ok": False, "error": str(error), "body": text[:400]}
-
-
-__all__ = ["MqttError", "MqttReader", "probe", "topic_matches"]
+__all__ = ["MqttError", "MqttReader", "topic_matches"]

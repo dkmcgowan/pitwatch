@@ -16,11 +16,11 @@ from starlette.datastructures import FormData
 from pitwatch.ingest import weather
 from pitwatch.schemas import (
     ALERT_ORDER,
-    SOURCE_ROLES,
     AlertsSettings,
-    ChannelMap,
+    ClampSource,
+    ContactInput,
+    HealthSource,
     MqttSettings,
-    MqttSource,
     PumpSettings,
     PumpsSettings,
     SiteSettings,
@@ -122,32 +122,50 @@ def weather_from(form: FormData) -> WeatherSettings:
     )
 
 
-def source_from(form: FormData, role: str) -> MqttSource:
-    """One row of the sources table."""
-    return MqttSource(
-        name=text(form, f"source_{role}_name"),
-        role=role,
-        topic=text(form, f"source_{role}_topic"),
-        profile=text(form, f"source_{role}_profile"),
-        path=text(form, f"source_{role}_path"),
-        input_number=optional_integer(form, f"source_{role}_input_number"),
-        channel=optional_integer(form, f"source_{role}_channel"),
-        expect_s=integer(form, f"source_{role}_expect_s", 0),
-        ask_topic=text(form, f"source_{role}_ask_topic"),
-        ask_payload=text(form, f"source_{role}_ask_payload"),
-        reply_topic=text(form, f"source_{role}_reply_topic"),
-        reply_path=text(form, f"source_{role}_reply_path"),
-        ask_while_running=checkbox(form, f"source_{role}_ask_while_running"),
-        ask_every_s=number(form, f"source_{role}_ask_every_s", 1.0),
+def clamp_from(form: FormData, pump: int) -> ClampSource:
+    """One clamp's row. A reading is a number, so there is nothing to pick."""
+    return ClampSource(
+        pump=pump,
+        topic=text(form, f"clamp{pump}_topic"),
+        path=text(form, f"clamp{pump}_path"),
+        channel=integer(form, f"clamp{pump}_channel", pump - 1),
+        ask_topic=text(form, f"clamp{pump}_ask_topic"),
+        ask_payload=text(form, f"clamp{pump}_ask_payload"),
+        reply_topic=text(form, f"clamp{pump}_reply_topic"),
+        reply_path=text(form, f"clamp{pump}_reply_path"),
+        ask_while_running=checkbox(form, f"clamp{pump}_ask_while_running"),
+        ask_every_s=number(form, f"clamp{pump}_ask_every_s", 1.0),
+    )
+
+
+def contact_from(form: FormData, channel: int) -> ContactInput:
+    """One input's row: what it carries, where it arrives, and which way round."""
+    return ContactInput(
+        channel=channel,
+        # What the panel put on this input, chosen from what the dashboard can
+        # draw. Blank means nothing has said.
+        role=text(form, f"input_{channel}_role"),
+        topic=text(form, f"input_{channel}_topic"),
+        path=text(form, f"input_{channel}_path"),
+        # A select rather than a checkbox, because "invert" asks you to think
+        # backwards and this asks you what the panel does.
+        invert=text(form, f"input_{channel}_on_when") == "absent",
+    )
+
+
+def health_from(form: FormData, index: int) -> HealthSource:
+    return HealthSource(
+        name=text(form, f"health_{index}_name"),
+        topic=text(form, f"health_{index}_topic"),
+        expect_s=integer(form, f"health_{index}_expect_s", 0),
     )
 
 
 def mqtt_from(form: FormData, existing: MqttSettings | None = None) -> MqttSettings:
-    """The broker, what each input carries, and what to listen to.
+    """The broker, the clamps, the inputs and the health checks.
 
-    One form where there were two, because there is one connection now. The
-    sections were named after the hardware, which is what forced a code change
-    every time somebody wanted to use different hardware.
+    One form where there were two device sections, because there is one
+    connection now and the sections were named after the hardware.
     """
     # Same rule as the SMTP password: the stored one is never sent to the
     # browser, so an empty box means unchanged rather than cleared.
@@ -155,19 +173,6 @@ def mqtt_from(form: FormData, existing: MqttSettings | None = None) -> MqttSetti
     if password is None and existing is not None and not checkbox(form, "mqtt_clear_password"):
         password = existing.password
 
-    channels = [
-        ChannelMap(
-            channel=number_,
-            # What the panel put on this input, chosen from what the dashboard
-            # can draw. Blank means nothing has said, which is not the same as
-            # nothing being wired: the input is read and recorded either way.
-            role=text(form, f"channel_{number_}_role"),
-            # A select rather than a checkbox, because "invert" asks you to
-            # think backwards and this asks you what the panel does.
-            invert=text(form, f"channel_{number_}_on_when") == "absent",
-        )
-        for number_ in range(1, 9)
-    ]
     return MqttSettings(
         enabled=checkbox(form, "mqtt_enabled"),
         host=text(form, "mqtt_host"),
@@ -177,8 +182,9 @@ def mqtt_from(form: FormData, existing: MqttSettings | None = None) -> MqttSetti
         encrypted=checkbox(form, "mqtt_encrypted"),
         client_id=text(form, "mqtt_client_id", "pitwatch") or "pitwatch",
         debounce_ms=integer(form, "mqtt_debounce_ms", 0),
-        sources=[source_from(form, role) for role in SOURCE_ROLES],
-        channels=channels,
+        clamps=[clamp_from(form, pump) for pump in (1, 2)],
+        inputs=[contact_from(form, channel) for channel in range(1, 9)],
+        health=[health_from(form, index) for index in (0, 1)],
     )
 
 

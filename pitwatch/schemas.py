@@ -189,12 +189,6 @@ class ClampSource(BaseModel):
     # Where in the body the number is. Dots step into nested objects. Empty
     # takes the body itself, for a device that publishes a bare number.
     path: str = Field(default="", max_length=200)
-    # Which channel these readings are filed under. Not the pump number,
-    # because the readings already stored are filed under whatever the meter
-    # called its clamps, and renumbering would leave last month's amps
-    # describing the other pump.
-    channel: int = Field(default=0, ge=0, le=63)
-
     # Asking, for a meter that goes quiet while a motor runs steady. Optional:
     # a source asks only when it has a topic and a payload.
     ask_topic: str = Field(default="", max_length=300)
@@ -212,6 +206,19 @@ class ClampSource(BaseModel):
     @property
     def role(self) -> str:
         return f"clamp{self.pump}"
+
+    @property
+    def channel(self) -> int:
+        """Which channel these readings are stored under.
+
+        Derived rather than configured. It was a setting for exactly one
+        reason: readings already in the database were filed under whatever
+        numbers the meter gave its clamps, and renumbering them would have left
+        last month's amps describing the other pump. The readings were wiped on
+        2026-09-08, so there is nothing left to stay compatible with, and a box
+        whose only correct value is the obvious one is a box that can go.
+        """
+        return self.pump - 1
 
     @property
     def configured(self) -> bool:
@@ -364,9 +371,7 @@ class MqttSettings(BaseModel):
         empty box where the whole of ingest is meant to be.
         """
         by_pump = {clamp.pump: clamp for clamp in self.clamps}
-        self.clamps = [
-            by_pump.get(pump, ClampSource(pump=pump, channel=pump - 1)) for pump in (1, 2)
-        ]
+        self.clamps = [by_pump.get(pump, ClampSource(pump=pump)) for pump in (1, 2)]
 
         by_channel = {one.channel: one for one in self.inputs}
         self.inputs = [
@@ -374,8 +379,11 @@ class MqttSettings(BaseModel):
         ]
 
         self.health = list(self.health[:4])
-        while len(self.health) < 2:
-            self.health.append(HealthSource())
+        # Named for the job, and the same words the dashboard uses. "Panel
+        # module" and "Inputs" for the same thing on two pages is two things to
+        # somebody reading them.
+        for name in ("Inputs", "Meter")[len(self.health) :]:
+            self.health.append(HealthSource(name=name))
         return self
 
     @model_validator(mode="after")
@@ -391,16 +399,6 @@ class MqttSettings(BaseModel):
                     f"{one.title}. Each one lives on a single input."
                 )
             seen[one.role] = one.channel
-        return self
-
-    @model_validator(mode="after")
-    def clamps_record_apart(self) -> MqttSettings:
-        """Both pumps filed under one channel is two motors in one bucket."""
-        if self.clamps[0].channel == self.clamps[1].channel:
-            raise ValueError(
-                f"Both pumps would record under channel {self.clamps[0].channel}. "
-                f"The two pumps cannot read the same clamp."
-            )
         return self
 
     @model_validator(mode="after")

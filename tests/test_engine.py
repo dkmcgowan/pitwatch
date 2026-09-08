@@ -52,8 +52,8 @@ def _store(alerts: AlertsSettings | None = None, **contact_states):
         mqtt=MqttSettings(
             inputs=channels,
             clamps=[
-                ClampSource(pump=1, topic="a", channel=0),
-                ClampSource(pump=2, topic="b", channel=1),
+                ClampSource(pump=1, topic="a"),
+                ClampSource(pump=2, topic="b"),
             ],
         ),
         pumps=PumpsSettings(),

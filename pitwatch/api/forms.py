@@ -128,7 +128,6 @@ def clamp_from(form: FormData, pump: int) -> ClampSource:
         pump=pump,
         topic=text(form, f"clamp{pump}_topic"),
         path=text(form, f"clamp{pump}_path"),
-        channel=integer(form, f"clamp{pump}_channel", pump - 1),
         ask_topic=text(form, f"clamp{pump}_ask_topic"),
         ask_payload=text(form, f"clamp{pump}_ask_payload"),
         reply_topic=text(form, f"clamp{pump}_reply_topic"),

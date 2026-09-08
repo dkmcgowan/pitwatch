@@ -39,30 +39,18 @@ def test_a_clamp_records_under_the_channel_its_source_names():
     where it lives now."""
     settings = MqttSettings(
         clamps=[
-            ClampSource(pump=1, topic="a", channel=1),
-            ClampSource(pump=2, topic="b", channel=0),
+            ClampSource(pump=1, topic="a"),
+            ClampSource(pump=2, topic="b"),
         ]
     )
 
-    assert settings.clamp_for_pump == {1: 1, 2: 0}
+    assert settings.clamp_for_pump == {1: 0, 2: 1}
 
 
 def test_a_pit_with_no_clamps_configured_still_answers():
     """A fresh install has no sources and a dashboard still has to ask. Pump 1
     under 0 and pump 2 under 1 is what every two channel meter ships with."""
     assert MqttSettings().clamp_for_pump == {1: 0, 2: 1}
-
-
-def test_both_pumps_cannot_record_under_one_channel():
-    """Two motors in one bucket. Nothing downstream could tell them apart, and
-    the readings would look like one pump running twice as often."""
-    with pytest.raises(ValidationError, match="cannot read the same clamp"):
-        MqttSettings(
-            clamps=[
-                ClampSource(pump=1, topic="a", channel=0),
-                ClampSource(pump=2, topic="b", channel=0),
-            ]
-        )
 
 
 def test_two_inputs_cannot_carry_the_same_thing():

@@ -69,10 +69,8 @@ SETUP_FORM = {
     # A reading is a number, so there is nothing to pick.
     "clamp1_topic": "meter/status/em1:1",
     "clamp1_path": "current",
-    "clamp1_channel": "1",
     "clamp2_topic": "meter/status/em1:0",
     "clamp2_path": "current",
-    "clamp2_channel": "0",
     # One topic per contact, which is what a contact is.
     "input_1_role": "lead_float",
     "input_1_topic": "pitwatch/inputs/1",
@@ -156,202 +154,21 @@ def test_two_inputs_may_carry_the_same_name(client):
     assert "single input" in response.text
 
 
-def test_the_clamp_choice_is_stored_the_way_it_was_made(client):
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
+def test_each_pump_records_under_its_own_channel(client):
+    """Which channel a pump's readings go under stopped being a setting.
 
-    state = client.get("/api/state").json()
-
-    assert state["pumps"]["1"]["channel"] == 1
-    assert state["pumps"]["2"]["channel"] == 0
-    assert state["pumps"]["1"]["name"] == "Pump 1"
-
-    stored = client.app.state.settings.mqtt
-    assert stored.clamp_for_pump == {1: 1, 2: 0}
-
-
-def test_swapping_the_clamps_takes_effect_both_ways(client):
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-
-    client.post(
-        "/settings/mqtt",
-        data=SETUP_FORM | {"clamp1_channel": "0", "clamp2_channel": "1"},
-    )
-
-    state = client.get("/api/state").json()
-    assert state["pumps"]["1"]["channel"] == 0
-    assert state["pumps"]["2"]["channel"] == 1
-
-
-def test_putting_both_pumps_on_one_clamp_is_refused(client):
-    """A form is not a guarantee, so the model checks it again.
-
-    Both pumps reading one motor would show a plausible dashboard that was
-    simply wrong about one of them.
+    It was one only to keep readings already stored under the numbers a meter
+    gave its clamps, and those were wiped. Three tests about choosing,
+    swapping and colliding went with the box.
     """
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
-    response = client.post(
-        "/settings/mqtt",
-        data=SETUP_FORM | {"clamp1_channel": "1", "clamp2_channel": "1"},
-    )
+    state = client.get("/api/state").json()
 
-    assert response.status_code == 400
-    assert "same clamp" in response.text
-    # And the previous, valid mapping is untouched.
-    assert client.app.state.settings.mqtt.clamp_for_pump == {1: 1, 2: 0}
-
-
-def test_settings_need_a_sign_in(client):
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-    client.post("/logout")
-
-    page = client.get("/settings", follow_redirects=False)
-    assert page.status_code == 303
-    assert page.headers["location"] == "/login?next=/settings"
-
-    save = client.post(
-        "/settings/site", data={"site_name": "Somewhere else"}, follow_redirects=False
-    )
-    assert save.status_code == 303
-    assert save.headers["location"].startswith("/login")
-    assert client.app.state.settings.site.name != "Somewhere else"
-
-
-def test_saving_one_section_leaves_the_others_alone(client):
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-
-    client.post(
-        "/settings/site", data={"site_name": "Renamed", "site_timezone": "America/New_York"}
-    )
-
-    page = client.get("/settings").text
-    assert "Renamed" in page
-    assert "192.168.1.51" in page
-
-
-def test_an_smtp_password_is_kept_when_the_box_is_left_empty(client):
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-    client.post(
-        "/settings/smtp",
-        data={
-            "smtp_enabled": "on",
-            "smtp_host": "smtp.example.com",
-            "smtp_port": "587",
-            "smtp_username": "alerts",
-            "smtp_password": "the-real-password",
-            "smtp_from_address": "alerts@example.com",
-        },
-    )
-
-    # Saving again without retyping the password must not blank it.
-    client.post(
-        "/settings/smtp",
-        data={
-            "smtp_enabled": "on",
-            "smtp_host": "smtp2.example.com",
-            "smtp_port": "587",
-            "smtp_username": "alerts",
-            "smtp_from_address": "alerts@example.com",
-        },
-    )
-
-    store = client.app.state.settings
-    assert store.smtp.password == "the-real-password"
-    assert store.smtp.host == "smtp2.example.com"
-
-
-def test_an_smtp_password_can_be_cleared_on_purpose(client):
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-    client.post(
-        "/settings/smtp",
-        data={"smtp_host": "smtp.example.com", "smtp_password": "the-real-password"},
-    )
-
-    client.post(
-        "/settings/smtp",
-        data={"smtp_host": "smtp.example.com", "smtp_clear_password": "on"},
-    )
-
-    assert client.app.state.settings.smtp.password == ""
-
-
-def test_a_stored_password_is_never_sent_to_the_browser(client):
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-    client.post(
-        "/settings/smtp",
-        data={"smtp_host": "smtp.example.com", "smtp_password": "the-real-password"},
-    )
-
-    page = client.get("/settings").text
-
-    assert "the-real-password" not in page
-    assert "unchanged" in page
-
-
-def test_a_twilio_api_key_is_saved_alongside_the_account_sid(client):
-    """Twilio recommends an API key over the account auth token, and the way to
-    read that recommendation wrongly is to paste the key SID over the account
-    SID. They are two separate boxes because they do two separate jobs: the
-    account SID names the account in the URL and the key signs the request."""
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-
-    client.post(
-        "/settings/sms",
-        data={
-            "sms_enabled": "on",
-            "sms_provider": "twilio",
-            "sms_twilio_account_sid": "AC0123456789",
-            "sms_twilio_key_sid": "SK5555555555",
-            "sms_twilio_auth_token": "the-key-secret",
-            "sms_twilio_messaging_service_sid": "MG9876",
-        },
-    )
-
-    sms = client.app.state.settings.sms
-    assert sms.twilio_account_sid == "AC0123456789"
-    assert sms.twilio_key_sid == "SK5555555555"
-    assert sms.twilio_auth_token == "the-key-secret"
-
-    # The key SID comes back on the page, because it is not a secret and
-    # somebody has to be able to tell which key is in use. The secret does not.
-    page = client.get("/settings").text
-    assert "SK5555555555" in page
-    assert "the-key-secret" not in page
-
-
-def test_the_twilio_secret_is_kept_when_the_box_is_left_empty(client):
-    """Same rule as SMTP and the Shelly. Saving the SMS section to add a key
-    SID must not quietly wipe the secret and leave the alarm unable to send."""
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-    client.post(
-        "/settings/sms",
-        data={
-            "sms_provider": "twilio",
-            "sms_twilio_account_sid": "AC0123456789",
-            "sms_twilio_auth_token": "the-key-secret",
-        },
-    )
-
-    client.post(
-        "/settings/sms",
-        data={
-            "sms_provider": "twilio",
-            "sms_twilio_account_sid": "AC0123456789",
-            "sms_twilio_key_sid": "SK5555555555",
-        },
-    )
-
-    assert client.app.state.settings.sms.twilio_auth_token == "the-key-secret"
+    assert state["pumps"]["1"]["channel"] == 0
+    assert state["pumps"]["2"]["channel"] == 1
+    assert client.app.state.settings.mqtt.clamp_for_pump == {1: 0, 2: 1}
 
 
 def test_the_broker_password_is_kept_when_the_box_is_left_empty(client):

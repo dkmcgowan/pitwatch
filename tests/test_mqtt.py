@@ -28,14 +28,13 @@ def _settings(**extra) -> MqttSettings:
                 pump=1,
                 topic="meter/status/em1:0",
                 path="current",
-                channel=0,
                 ask_topic="meter/rpc",
                 ask_payload='{"id":1,"src":"pitwatch-c1","method":"EM1.GetStatus"}',
                 reply_topic="pitwatch-c1/rpc",
                 reply_path="result.current",
                 ask_while_running=True,
             ),
-            ClampSource(pump=2, topic="meter/status/em1:1", path="current", channel=1),
+            ClampSource(pump=2, topic="meter/status/em1:1", path="current"),
         ],
         "inputs": [
             ContactInput(channel=1, role="pump1_run", topic="pit/in/1"),
@@ -266,7 +265,6 @@ def test_two_clamps_cannot_read_their_answers_off_one_topic_and_path():
                     pump=1,
                     topic="a",
                     path="current",
-                    channel=0,
                     ask_topic="meter/rpc",
                     ask_payload="{}",
                     reply_topic="pitwatch/rpc",
@@ -276,7 +274,6 @@ def test_two_clamps_cannot_read_their_answers_off_one_topic_and_path():
                     pump=2,
                     topic="b",
                     path="current",
-                    channel=1,
                     ask_topic="meter/rpc",
                     ask_payload="{}",
                     reply_topic="pitwatch/rpc",
@@ -294,7 +291,6 @@ def test_one_reply_topic_is_fine_where_the_paths_differ():
             ClampSource(
                 pump=1,
                 topic="a",
-                channel=0,
                 ask_topic="m/rpc",
                 ask_payload="{}",
                 reply_topic="pitwatch/rpc",
@@ -303,7 +299,6 @@ def test_one_reply_topic_is_fine_where_the_paths_differ():
             ClampSource(
                 pump=2,
                 topic="b",
-                channel=1,
                 ask_topic="m/rpc",
                 ask_payload="{}",
                 reply_topic="pitwatch/rpc",
@@ -322,7 +317,6 @@ def test_a_shared_reply_topic_is_subscribed_once():
             ClampSource(
                 pump=1,
                 topic="m/em1:0",
-                channel=0,
                 ask_topic="m/rpc",
                 ask_payload="{}",
                 reply_topic="pitwatch/rpc",
@@ -331,7 +325,6 @@ def test_a_shared_reply_topic_is_subscribed_once():
             ClampSource(
                 pump=2,
                 topic="m/em1:1",
-                channel=1,
                 ask_topic="m/rpc",
                 ask_payload="{}",
                 reply_topic="pitwatch/rpc",

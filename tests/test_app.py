@@ -391,7 +391,6 @@ def test_saving_the_settings_page_unchanged_changes_nothing():
                 pump=1,
                 topic="meter/status/em1:0",
                 path="current",
-                channel=0,
                 ask_topic="meter/rpc",
                 ask_payload='{"method":"EM1.GetStatus","src":"pitwatch-c1"}',
                 reply_topic="pitwatch-c1/rpc",
@@ -399,7 +398,7 @@ def test_saving_the_settings_page_unchanged_changes_nothing():
                 ask_while_running=True,
                 ask_every_s=1.0,
             ),
-            ClampSource(pump=2, topic="meter/status/em1:1", path="current", channel=1),
+            ClampSource(pump=2, topic="meter/status/em1:1", path="current"),
         ],
         health=[
             HealthSource(name="Panel module", topic="site/heartbeat", expect_s=90),

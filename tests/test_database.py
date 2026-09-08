@@ -138,8 +138,8 @@ async def test_settings_survive_a_reload(pool, store):
             enabled=True,
             host="10.0.0.9",
             clamps=[
-                ClampSource(pump=1, topic="a", channel=1),
-                ClampSource(pump=2, topic="b", channel=0),
+                ClampSource(pump=1, topic="a"),
+                ClampSource(pump=2, topic="b"),
             ],
         )
     )
@@ -148,8 +148,7 @@ async def test_settings_survive_a_reload(pool, store):
     await fresh.load()
 
     assert fresh.mqtt.host == "10.0.0.9"
-    # Both stored, both read back as they were saved.
-    assert fresh.mqtt.clamp_for_pump == {1: 1, 2: 0}
+    assert fresh.mqtt.clamp_for_pump == {1: 0, 2: 1}
 
 
 async def test_saving_a_setting_wakes_the_subscribers(store):
@@ -796,9 +795,13 @@ async def test_a_summary_keeps_the_numbers_it_was_given(pool):
 # the edges right.
 
 
-def _store(pump1_run=1, pump2_run=2, high_water=3, clamp1=1, clamp2=0):
-    """Just enough settings for the recorder: which input is which, and which
-    clamp belongs to which pump."""
+def _store(pump1_run=1, pump2_run=2, high_water=3):
+    """Just enough settings for the recorder: which input carries what.
+
+    Which clamp belongs to which pump is no longer a choice. It was one only
+    to keep stored readings under the numbers a meter gave them, and those
+    were wiped.
+    """
     from types import SimpleNamespace
 
     from pitwatch.schemas import ClampSource, ContactInput, MqttSettings
@@ -811,8 +814,8 @@ def _store(pump1_run=1, pump2_run=2, high_water=3, clamp1=1, clamp2=0):
                 ContactInput(channel=high_water, role="high_water", topic=f"pit/in/{high_water}"),
             ],
             clamps=[
-                ClampSource(pump=1, topic="meter/1", channel=clamp1),
-                ClampSource(pump=2, topic="meter/2", channel=clamp2),
+                ClampSource(pump=1, topic="meter/1"),
+                ClampSource(pump=2, topic="meter/2"),
             ],
         ),
     )
@@ -887,11 +890,11 @@ async def test_the_clamp_describes_the_run_without_deciding_it(pool):
     await pool.executemany(
         "INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)",
         [
-            (began, 1, 48.0),
-            (began + timedelta(seconds=1), 1, 44.0),
-            (began + timedelta(seconds=5), 1, 16.0),
-            (began + timedelta(seconds=10), 1, 16.0),
-            (began + timedelta(seconds=15), 1, 16.0),
+            (began, 0, 48.0),
+            (began + timedelta(seconds=1), 0, 44.0),
+            (began + timedelta(seconds=5), 0, 16.0),
+            (began + timedelta(seconds=10), 0, 16.0),
+            (began + timedelta(seconds=15), 0, 16.0),
         ],
     )
 
@@ -922,7 +925,7 @@ async def test_a_run_short_enough_to_give_one_reading_still_gets_it(pool):
 
     began = datetime.now(UTC) - timedelta(minutes=5)
     await pool.execute(
-        "INSERT INTO em_sample (ts, channel, current) VALUES ($1, 1, 15.5)",
+        "INSERT INTO em_sample (ts, channel, current) VALUES ($1, 0, 15.5)",
         began + timedelta(seconds=2),
     )
 

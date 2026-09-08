@@ -722,6 +722,55 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 
 .all-clear { color: var(--ok); font-weight: 600; margin: 0; }
 
+/* The settings page --------------------------------------------------------- */
+
+/* One section open at a time, done by the browser rather than by script: a
+   name on <details> makes a group exclusive, so opening one closes the rest.
+   Where that is not supported they simply all open independently, which is the
+   page as it was. */
+.settings-section { padding: 0; }
+
+.settings-section summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1rem 1.5rem;
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--radius);
+}
+
+.settings-section summary::-webkit-details-marker { display: none; }
+
+/* The arrow, drawn rather than fetched, turning when the row opens. */
+.settings-section summary::before {
+  content: "";
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.settings-section[open] summary::before { transform: rotate(45deg); }
+
+.settings-section summary h2 { margin: 0; font-size: 1.15rem; }
+
+.settings-section summary:hover { background: var(--surface-2); }
+
+.settings-section summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* The contents, indented to the same edge the heading sits on. */
+.settings-section > details > form,
+.settings-section > details > p {
+  padding: 0 1.5rem 1.25rem;
+}
+
 /* Rain, on the dashboard --------------------------------------------------- */
 
 /* Water blue, not the alarm colors. What falls on the roof is not a fault, and

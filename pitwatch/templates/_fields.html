@@ -86,13 +86,6 @@
       <p class="hint">Dots step into nested objects. Empty means the body is
         the number.</p>
     </div>
-    <div class="field">
-      <label for="clamp{{ clamp.pump }}_channel">Recorded as channel</label>
-      <input type="number" id="clamp{{ clamp.pump }}_channel" name="clamp{{ clamp.pump }}_channel"
-             value="{{ clamp.channel }}" min="0" max="63">
-      <p class="hint">Changing this leaves stored readings under the other
-        pump.</p>
-    </div>
   </div>
 
   <details {% if clamp.asks %}open{% endif %}>
@@ -148,8 +141,10 @@
 
 <h3>Panel inputs</h3>
 
-<p class="hint">One topic per contact, each publishing on or off when it moves.
-  An input with no topic is one nothing will arrive for.</p>
+<p class="hint">Give each input a topic that publishes on or off when it moves.
+  Leave <strong>value at</strong> empty when the body is just the state. Fill it
+  in when the body is JSON, with the key the state is under: several inputs may
+  share one topic and each read its own key out of it.</p>
 
 <div class="table-scroll">
 <table class="channels">
@@ -202,7 +197,9 @@
 <p class="hint">A device that has said nothing lately has stopped. Silence is
   the test rather than the broker's last will, which stays true through an
   outage and reports the device gone a tenth of a second before reporting it
-  back.</p>
+  back. Point each one at any topic that device publishes on a schedule: a
+  heartbeat where there is one, or the readings themselves where there is
+  not.</p>
 
 <div class="table-scroll">
 <table class="channels">

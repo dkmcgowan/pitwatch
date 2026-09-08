@@ -11,26 +11,31 @@
 <p class="saved" role="status">Saved.</p>
 {% endif %}
 
-<section class="card">
-  <h2>This site</h2>
+<section class="card settings-section">
+  <details name="settings">
+    <summary><h2>This site</h2></summary>
   <form method="post" action="/settings/site">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     {{ fields.site_fields(site) }}
     <button type="submit" class="button">Save</button>
   </form>
+  </details>
 </section>
 
-<section class="card">
-  <h2>Devices</h2>
+<section class="card settings-section">
+  <details name="settings">
+    <summary><h2>Devices</h2></summary>
   <form method="post" action="/settings/mqtt" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     {{ fields.mqtt_fields(mqtt, roles) }}
     <button type="submit" class="button">Save</button>
   </form>
+  </details>
 </section>
 
-<section class="card">
-  <h2>Email</h2>
+<section class="card settings-section">
+  <details name="settings">
+    <summary><h2>Email</h2></summary>
   <form method="post" action="/settings/smtp" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="field">
@@ -93,10 +98,12 @@
 
     <button type="submit" class="button">Save</button>
   </form>
+  </details>
 </section>
 
-<section class="card">
-  <h2>SMS</h2>
+<section class="card settings-section">
+  <details name="settings">
+    <summary><h2>SMS</h2></summary>
   <form method="post" action="/settings/sms" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="field">
@@ -215,13 +222,15 @@
 
     <button type="submit" class="button">Save</button>
   </form>
+  </details>
 </section>
 
 {# Rain. Two boxes, because there is nothing to authenticate: Open-Meteo serves
    NOAA's own model output with no key and no account. The real switch is
    whether the site has coordinates, which is in the group above. #}
-<section class="card">
-  <h2>Rain</h2>
+<section class="card settings-section">
+  <details name="settings">
+    <summary><h2>Rain</h2></summary>
   <form method="post" action="/settings/weather">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
@@ -258,12 +267,14 @@
 
     <button type="submit" class="button">Save</button>
   </form>
+  </details>
 </section>
 
 {# What the summary page needs. The description is the half a model cannot work
    out from the readings, and the key is somebody's OpenAI account. #}
-<section class="card">
-  <h2>The summary</h2>
+<section class="card settings-section">
+  <details name="settings">
+    <summary><h2>The summary</h2></summary>
   <form method="post" action="/settings/summary" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
@@ -306,6 +317,7 @@
 
     <button type="submit" class="button">Save</button>
   </form>
+  </details>
 </section>
 
 {% endblock %}

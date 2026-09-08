@@ -259,7 +259,14 @@ class MqttReader:
                 continue
             said = payloads.state(text, one.path)
             if said is None:
-                log.warning("%s published %r, which is not on or off", one.title, text[:60])
+                # Nothing for this input in this body. Where a path is set that
+                # is ordinary: several inputs may share a topic and each read
+                # its own key out of it, so most bodies are not about most
+                # inputs. Where no path is set the body was meant to be the
+                # state itself, and something that is neither on nor off is
+                # worth hearing about.
+                if not one.path:
+                    log.warning("%s published %r, which is not on or off", one.title, text[:60])
                 continue
             states[one.channel] = said
             self._heard(f"input{one.channel}", one.title)

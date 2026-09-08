@@ -1816,12 +1816,11 @@ def test_the_key_dot_scales_to_the_size_the_stylesheet_asks_for():
     assert "width: 0.65rem" in css.split(".key-dot {", 1)[1].split("}", 1)[0]
 
 
-def test_a_source_nothing_has_arrived_on_says_what_to_check_on_its_own_line():
-    """The note ran on from the sentence before it with no space, because it
-    was an inline span next to another one: "nothing has arrivedCheck the
-    topic." And only where it is the answer: a row that has been heard from
-    carries its warning in the list at the top, where there is room for a whole
-    sentence rather than a table cell somebody has to widen."""
+def test_the_heard_column_says_what_arrived_and_not_what_to_do_about_it():
+    """It carried a note under the sentence, which ran on from it with no space
+    because they were two inline spans: "nothing has arrivedCheck the topic."
+    Spacing it fixed the run-on and left a cell wrapping to two lines for
+    advice that is one glance away in the column beside it."""
     from pitwatch.domain.diagnostics import Report, Row
 
     quiet = Row(
@@ -1842,8 +1841,13 @@ def test_a_source_nothing_has_arrived_on_says_what_to_check_on_its_own_line():
     )
     page = render_settings(diagnostics=Report(inputs=[quiet], clamps=[heard]))
 
-    assert '<span class="note">Check the topic.</span>' in page
-    assert "unfitted clamp" not in page, "that one belongs in the list at the top"
+    assert "nothing has arrived" in page
+    # No advice in the cell, for either row. What to do about a silent source
+    # is one line and it is the topic in the column beside it; the clamp
+    # reading nothing but zero is named in the list at the top, where there is
+    # room for the whole sentence.
+    assert "Check the topic" not in page
+    assert "unfitted clamp" not in page
     # And a topic and a timestamp are each one thing, not two lines.
     assert page.count('class="nowrap"') == 4
 

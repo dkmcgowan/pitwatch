@@ -313,13 +313,12 @@
             <td>{{ row.name }}</td>
             <td>{{ row.carries }}</td>
             <td class="nowrap"><code>{{ row.topic }}</code></td>
-            <td>
-              <span class="heard {{ 'yes' if row.heard else 'no' }}">{{ row.detail }}</span>
-              {# Only where it is the answer. A note under a row that has been
-                 heard from is already in the list at the top, and there it has
-                 room for the whole sentence. #}
-              {% if row.note and not row.heard %}<span class="note">{{ row.note }}</span>{% endif %}
-            </td>
+            {# No advice in the cell. "nothing has arrived" is the whole of
+               what this column knows, and what to do about it is one line: go
+               and look at the topic in the column beside it. Anything longer
+               wrapped the row to two lines for a sentence nobody needed
+               twice. #}
+            <td><span class="heard {{ 'yes' if row.heard else 'no' }}">{{ row.detail }}</span></td>
             <td class="nowrap">{{ row.last }}</td>
           </tr>
         {% endfor %}

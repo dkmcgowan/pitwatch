@@ -103,7 +103,7 @@ async def test_a_health_check_carries_the_reason_it_is_unhappy(pool):
     assert check.name == "Meter"
     assert check.carries == "Expected every 60 s"
     assert "Nothing heard for 150 s" in check.detail
-    assert "sends on a schedule" in check.note
+    assert "sends on a schedule" in check.note, "and only in the list at the top"
 
 
 async def test_nothing_to_say_when_the_broker_is_switched_off(pool):

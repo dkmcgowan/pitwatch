@@ -137,7 +137,6 @@ async def read(
                 heard=heard,
                 detail=detail,
                 last=clock.on_at(seen["updated_at"], site.timezone) if heard else "never",
-                note="" if heard else "Check the topic.",
             )
         )
 
@@ -156,8 +155,6 @@ async def read(
         note = ""
         if heard and (seen["peak"] or 0) == 0:
             note = "Every reading is zero, which is what an unfitted clamp looks like."
-        elif not heard:
-            note = "Check the topic and the ask."
         report.clamps.append(
             Row(
                 name=pumps.by_number[clamp.pump].name or f"Pump {clamp.pump}",
@@ -197,6 +194,11 @@ async def read(
                 detail=detail if heard else "nothing has arrived",
                 last=clock.on_at(seen["last_seen"], site.timezone) if heard else "never",
                 note="" if online else "Use a topic the device sends on a schedule.",
+                # Kept, because this one is about the setting rather than about
+                # the wiring, and it is the fault that cost a day of false
+                # alarms: a topic that only publishes on change has no floor,
+                # so any interval short enough to catch a real outage is short
+                # enough to trip on a quiet patch.
             )
         )
 

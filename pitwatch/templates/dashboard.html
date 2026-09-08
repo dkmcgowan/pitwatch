@@ -26,18 +26,12 @@
    cannot be red: a panel running on clamps alone is a normal way to run, and
    painting a permanent red for it teaches whoever reads this page that red
    means nothing. #}
-<div class="links" data-links>
-  <span class="link" data-link="health0">
-    <span class="link-dot link-idle" aria-hidden="true"></span>
-    <span class="link-name">Inputs</span>
-    <span class="visually-hidden" data-link-said>status unknown</span>
-  </span>
-  <span class="link" data-link="clamp1">
-    <span class="link-dot link-idle" aria-hidden="true"></span>
-    <span class="link-name">Meter</span>
-    <span class="visually-hidden" data-link-said>status unknown</span>
-  </span>
-</div>
+{# Written by JavaScript, one per configured device, because which devices
+   exist is a setting. Two were hardcoded here, "Inputs" and "clamp1", and the
+   second was the wrong row: it watched the clamp, which was receiving
+   readings, while the health check for the same meter was reporting it
+   offline. The page said green while an alert was open about it. #}
+<div class="links" data-links></div>
 
 {# Four sections down the page: pump 1, pump 2, and then the two groups of
    contacts.

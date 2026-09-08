@@ -9,8 +9,9 @@ nothing for the six hours it stays wet.
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -114,6 +115,32 @@ async def _a_person(pool, **columns):
         """,
         *fields.values(),
     )
+
+
+# -- what an alert says ------------------------------------------------------
+
+
+async def test_an_alert_is_stamped_on_the_buildings_clock(pool, sent):
+    """The time in a message is the time where the pit is, in the format it
+    would be read out in.
+
+    It used to be `datetime.now(UTC).astimezone()`, which is the *server's*
+    zone with no argument. The server is a container and its zone is UTC, so
+    an alert reaching somebody in New York at ten to eleven in the morning
+    said "Time 14:47" and asked them to work out whether that was now or in
+    the middle of the night.
+    """
+    await _a_person(pool)
+    store = _store()
+    store.site = SiteSettings(name="A pit", timezone="America/New_York")
+    contacts = _wire(_Contacts(), high_water=True)
+
+    await _engine(pool, store, contacts).sweep()
+
+    detail = await pool.fetchval("SELECT detail FROM alert WHERE rule = 'high_water'")
+    when = datetime.now(ZoneInfo("America/New_York")).strftime("%-I:%M %p")
+    assert f"Time {when}." in detail, detail
+    assert "AM" in detail or "PM" in detail
 
 
 # -- saying it once ----------------------------------------------------------

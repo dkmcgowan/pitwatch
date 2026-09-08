@@ -38,7 +38,7 @@ from datetime import UTC, datetime
 
 import asyncpg
 
-from pitwatch import domain
+from pitwatch import clock, domain
 from pitwatch.domain import alerts as specs
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
@@ -193,7 +193,7 @@ class AlertEngine:
         spec = specs.BY_KEY[key]
         values = dict(finding.values or {})
         values.setdefault("site", self._store.site.where or "the pit")
-        values.setdefault("time", datetime.now(UTC).astimezone().strftime("%H:%M"))
+        values.setdefault("time", clock.at(datetime.now(UTC), self._store.site.timezone))
         if pump:
             values.setdefault("pump", self._store.pumps.by_number[pump].name)
         detail = specs.fill(rule.message, values)
@@ -411,7 +411,7 @@ class AlertEngine:
         """An alert that is raised and cleared in the same breath."""
         values = dict(values)
         values.setdefault("site", self._store.site.where or "the pit")
-        values.setdefault("time", datetime.now(UTC).astimezone().strftime("%H:%M"))
+        values.setdefault("time", clock.at(datetime.now(UTC), self._store.site.timezone))
         detail = specs.fill(rule.message, values)
         key = "float_activity" if "float" in values else "pump_running"
 

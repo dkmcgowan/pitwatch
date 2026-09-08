@@ -14,13 +14,12 @@ from __future__ import annotations
 
 import logging
 from urllib.parse import quote
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import ValidationError
 
-from pitwatch import auth
+from pitwatch import auth, clock
 from pitwatch import summary as summaries
 from pitwatch.api import forms
 from pitwatch.domain import alerts as alert_specs
@@ -142,18 +141,8 @@ async def settings_page(request: Request, admin: auth.IsAdmin, saved: str | None
 
 
 def _local(when, zone: str) -> str:
-    """A timestamp in the building's own clock.
-
-    Storage is UTC everywhere, which is right, and a page that showed it would
-    be asking somebody standing in a basement to do arithmetic about a flood.
-    """
-    if when is None:
-        return ""
-    try:
-        here = when.astimezone(ZoneInfo(zone))
-    except (ZoneInfoNotFoundError, ValueError):
-        here = when
-    return here.strftime("%-d %b %H:%M")
+    """A timestamp in the building's own clock. See pitwatch.clock."""
+    return clock.on_at(when, zone)
 
 
 def _spoken(seconds: float | None) -> str:

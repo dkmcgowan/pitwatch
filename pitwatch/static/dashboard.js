@@ -444,40 +444,77 @@
     });
   }
 
-  // One indicator per device, named.
+  // One indicator per configured device, named by the settings.
   //
   // "Something is offline" and "the meter is offline" are different amounts of
   // use to somebody standing in a basement, and two devices fail for entirely
   // different reasons: one drops off wifi, the other stops being able to reach
   // the broker.
   //
+  // Built from what is configured rather than from a fixed pair in the page.
+  // The pair was "health0" and "clamp1", and the second one was the wrong row:
+  // it watched the clamp, which was receiving readings the whole time, while
+  // the health check for the same meter was reporting it offline. The page
+  // showed green with an alert open about it.
+  //
   // Three states rather than two. Deliberately not set up is not a fault, and
   // it is the reason a device that is off is hollow rather than red: running
   // on the clamps alone is a normal way to run, and a permanent red for it
   // would teach whoever reads this page that red means nothing.
-  // Named after the job rather than the hardware, because the hardware behind
-  // a source is a setting now. A name that is not here falls back to the role,
-  // which is already a word rather than an id.
-  // Singular, because these are read into "X is connected". "The panel
-  // contacts is connected" is what naming them after the role rather than the
-  // thing gets you, and the sentence is what somebody actually reads.
-  const DEVICE_NAMES = {
-    health0: "The inputs",
-    health1: "The meter",
-    clamp1: "The meter",
-    clamp2: "The second meter",
-  };
+  //
+  // The weather poller is not one of these. It is not a device on the panel
+  // and the rain card says for itself when it went stale.
+
+  function linkBox(name) {
+    const box = document.createElement("span");
+    box.className = "link";
+    box.setAttribute("data-link", name);
+
+    const dot = document.createElement("span");
+    dot.className = "link-dot link-idle";
+    dot.setAttribute("aria-hidden", "true");
+
+    const label = document.createElement("span");
+    label.className = "link-name";
+
+    // A title is a tooltip, which a phone cannot hover over and a screen
+    // reader may or may not read. The hidden span is the same words where they
+    // will always be found.
+    const said = document.createElement("span");
+    said.className = "visually-hidden";
+    said.setAttribute("data-link-said", "");
+
+    box.appendChild(dot);
+    box.appendChild(label);
+    box.appendChild(said);
+    return box;
+  }
 
   function renderLinks(devices) {
+    const row = document.querySelector("[data-links]");
+    if (!row) {
+      return;
+    }
     const known = devices || {};
+    const names = Object.keys(known)
+      .filter(function (name) {
+        return name !== "weather";
+      })
+      .sort();
 
-    document.querySelectorAll("[data-link]").forEach(function (box) {
-      const name = box.getAttribute("data-link");
+    names.forEach(function (name, index) {
+      let box = row.children[index];
+      if (!box || box.getAttribute("data-link") !== name) {
+        box = linkBox(name);
+        if (row.children[index]) {
+          row.replaceChild(box, row.children[index]);
+        } else {
+          row.appendChild(box);
+        }
+      }
+
       const device = known[name];
-      const dot = box.querySelector(".link-dot");
-      const said = box.querySelector("[data-link-said]");
-      const label = DEVICE_NAMES[name] || name;
-
+      const label = (device && device.label) || name;
       let state = "idle";
       let words = label + " is not set up";
 
@@ -495,14 +532,16 @@
         }
       }
 
-      dot.className = "link-dot link-" + state;
+      box.querySelector(".link-dot").className = "link-dot link-" + state;
+      box.querySelector(".link-name").textContent = label;
       box.classList.toggle("link-off", state === "idle");
-      // A title is a tooltip, which a phone cannot hover over and a screen
-      // reader may or may not read. The hidden span is the same words where
-      // they will always be found.
       box.title = words;
-      said.textContent = words;
+      box.querySelector("[data-link-said]").textContent = words;
     });
+
+    while (row.children.length > names.length) {
+      row.removeChild(row.lastChild);
+    }
   }
 
   // -- rain -----------------------------------------------------------------

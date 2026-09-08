@@ -210,9 +210,19 @@ async def build_state(app) -> dict:
     configured = {clamp.role: listening and clamp.configured for clamp in mqtt.clamps}
     for index, check in enumerate(mqtt.health):
         configured[f"health{index}"] = listening and check.configured
+
+    # What to call each one, from the settings rather than from a list in the
+    # browser. A health check is named by whoever set it up, and a page that
+    # keeps its own names for devices gets them wrong the day somebody adds a
+    # third one.
+    labels = {clamp.role: f"{pumps.by_number[clamp.pump].name} clamp" for clamp in mqtt.clamps}
+    for index, check in enumerate(mqtt.health):
+        labels[f"health{index}"] = check.name or f"Device {index + 1}"
+
     devices = {
         row["device"]: {
             "configured": configured.get(row["device"], False),
+            "label": labels.get(row["device"], row["device"]),
             "online": row["online"],
             "last_seen": row["last_seen"].isoformat() if row["last_seen"] else None,
             "last_error": row["last_error"] if configured.get(row["device"]) else None,

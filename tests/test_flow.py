@@ -897,12 +897,22 @@ def test_each_source_gets_its_own_indicator(client):
     client.post("/setup", data=CLAMPS_ONLY_FORM)
 
     page = client.get("/").text
-    assert 'data-link="health0"' in page
-    assert 'data-link="clamp1"' in page
+    assert 'class="links" data-links' in page, "the row the indicators are written into"
+    # Not written in the page any more. Two were, and the one labelled Meter
+    # watched clamp1 while the health check for the same meter, health1, had no
+    # indicator at all: the page showed green through an open alert about it.
+    assert "data-link=" not in page, "one per configured device, not a fixed pair"
 
     devices = client.get("/api/state").json()["devices"]
     assert devices["clamp1"]["configured"] is True
     assert devices["health0"]["configured"] is False
+
+    # And each one arrives knowing what it is called, so the browser is not
+    # keeping its own names for things that are named in the settings.
+    assert devices["clamp1"]["label"] == "Pump 1 clamp"
+    # This form left the health rows out entirely, so the check has no name
+    # and falls back to a number rather than to a blank chip.
+    assert devices["health0"]["label"] == "Device 1"
 
 
 def test_a_seeded_device_is_not_a_device_that_is_there(client):

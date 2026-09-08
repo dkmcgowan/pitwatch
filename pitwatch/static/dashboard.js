@@ -496,9 +496,14 @@
       return;
     }
     const known = devices || {};
+    // The health checks, which are the devices somebody named. A clamp has a
+    // row too and it only ever changes when the broker connection does, which
+    // the health checks already report, so a lamp for each clamp was two more
+    // lamps saying what the two beside them said. The weather poller is not a
+    // device on the panel and the rain card reports its own staleness.
     const names = Object.keys(known)
       .filter(function (name) {
-        return name !== "weather";
+        return name.indexOf("health") === 0;
       })
       .sort();
 

@@ -20,6 +20,7 @@ from pitwatch.schemas import (
     AlertsSettings,
     ClampSource,
     ContactInput,
+    HealthSource,
     MqttSettings,
     PumpsSettings,
     Severity,
@@ -141,6 +142,64 @@ async def test_an_alert_is_stamped_on_the_buildings_clock(pool, sent):
     when = datetime.now(ZoneInfo("America/New_York")).strftime("%-I:%M %p")
     assert f"Time {when}." in detail, detail
     assert "AM" in detail or "PM" in detail
+
+
+# -- which devices count as a device -----------------------------------------
+
+
+async def _device(pool, name, online):
+    await pool.execute(
+        """
+        INSERT INTO device_status (device, online) VALUES ($1, $2)
+        ON CONFLICT (device) DO UPDATE SET online = excluded.online
+        """,
+        name,
+        online,
+    )
+
+
+async def test_a_health_check_going_quiet_is_the_alert(pool, sent):
+    """Named from the settings, so it says which one rather than "a device".
+
+    This could not fire at all for a while. It held a hardcoded map of device
+    names, and when the names changed the lookup matched nothing, found nothing
+    offline, and reported all clear on every sweep.
+    """
+    await _a_person(pool)
+    store = _store()
+    store.mqtt = MqttSettings(
+        host="broker",
+        enabled=True,
+        health=[HealthSource(name="Meter", topic="meter/tick", expect_s=60)],
+    )
+    await _device(pool, "health0", False)
+
+    await _engine(pool, store, _Contacts()).sweep()
+
+    detail = await pool.fetchval("SELECT detail FROM alert WHERE rule = 'device_offline'")
+    assert "Meter" in detail, detail
+
+
+async def test_a_clamp_row_is_not_a_second_voice_for_the_same_thing(pool, sent):
+    """A clamp's row only changes state when the broker connection does, and
+    that reports every source at once, health checks included. Watching the
+    clamps as well would say it twice: two alerts' worth of names in one
+    message, and on the dashboard two more lamps repeating the two beside
+    them."""
+    await _a_person(pool)
+    store = _store()
+    store.mqtt = MqttSettings(
+        host="broker",
+        enabled=True,
+        clamps=[ClampSource(pump=1, topic="meter/em1:0")],
+        health=[HealthSource(name="Meter", topic="meter/tick", expect_s=60)],
+    )
+    await _device(pool, "clamp1", False)
+    await _device(pool, "health0", True)
+
+    await _engine(pool, store, _Contacts()).sweep()
+
+    assert await pool.fetchval("SELECT count(*) FROM alert WHERE rule = 'device_offline'") == 0
 
 
 # -- saying it once ----------------------------------------------------------

@@ -678,20 +678,24 @@ class AlertEngine:
         clear: an alert that can only ever find nothing reads as working right
         up until the day it is needed.
 
+        The health checks and nothing else. A clamp has a device_status row of
+        its own, and it only ever changes state when the broker connection
+        does, because that is the one event that reports every source at once.
+        The health checks change state for that *and* for a device that has
+        gone quiet on a live connection, so watching them covers both and
+        watching the clamps as well says the same thing twice.
+
         Weather is deliberately not in here. It is not a device on the panel
         and its own card says when it went stale.
         """
         mqtt = self._store.mqtt
         if not (mqtt.enabled and mqtt.host):
             return {}
-        watched = {
-            clamp.role: f"the {self._store.pumps.by_number[clamp.pump].name} clamp"
-            for clamp in mqtt.used_clamps
+        return {
+            f"health{index}": check.name or f"device {index + 1}"
+            for index, check in enumerate(mqtt.health)
+            if check.configured
         }
-        for index, check in enumerate(mqtt.health):
-            if check.configured:
-                watched[f"health{index}"] = check.name or f"device {index + 1}"
-        return watched
 
 
 async def _first_of(*waits, timeout: float) -> None:

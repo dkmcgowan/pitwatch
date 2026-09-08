@@ -12,6 +12,7 @@ looking fine and doing nothing.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
@@ -913,6 +914,14 @@ def test_each_source_gets_its_own_indicator(client):
     # This form left the health rows out entirely, so the check has no name
     # and falls back to a number rather than to a blank chip.
     assert devices["health0"]["label"] == "Device 1"
+
+    # A lamp per health check, and not one per clamp as well. A clamp's row
+    # only ever changes state when the broker connection does, which is the one
+    # event that reports every source at once, so a lamp for it repeats what
+    # the health check beside it already said.
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+    links = js.split("function renderLinks", 1)[1].split("// -- rain", 1)[0]
+    assert 'name.indexOf("health") === 0' in links
 
 
 def test_a_seeded_device_is_not_a_device_that_is_there(client):

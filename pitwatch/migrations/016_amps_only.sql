@@ -29,6 +29,17 @@
 -- different circuit and everything derived from it, watts and power factor,
 -- inherits that. Current does not care what the meter is plugged into.
 
+-- The policies before the views they run against. Dropping a continuous
+-- aggregate out from under its own refresh job is a race with Timescale's
+-- background scheduler, and it loses as "tuple concurrently deleted" from the
+-- catalog. It is not theoretical: it took CI out on the first run of this file
+-- and reproduces on any fresh database, where 003 registers these jobs and
+-- this file drops them seconds later. Unregistering first leaves nothing to
+-- run.
+SELECT remove_continuous_aggregate_policy('em_1h', if_exists => true);
+SELECT remove_continuous_aggregate_policy('em_1m', if_exists => true);
+SELECT remove_retention_policy('em_1m', if_exists => true);
+
 DROP MATERIALIZED VIEW IF EXISTS em_1h;
 DROP MATERIALIZED VIEW IF EXISTS em_1m;
 

@@ -360,6 +360,10 @@
     FAIL: "Overload tripped. This pump is off and staying off"
   };
 
+  // Written the way the rest of the page is written. The panel's own display
+  // has one case available to it and shouts; a web page does not have to.
+  const SHOWN = { LEAD: "Lead", LAG: "Lag", ON: "On", FAIL: "Fail" };
+
   function renderStatus(number, word) {
     const card = document.querySelector('[data-pump="' + number + '"]');
     const badge = card && card.querySelector("[data-status]");
@@ -370,7 +374,7 @@
     // which pump is lead and neither do we. A dash is the honest answer; a
     // guess would be wrong half the time.
     const known = Boolean(MEANS[word]);
-    badge.textContent = known ? word : "--";
+    badge.textContent = known ? SHOWN[word] : "--";
     badge.className = "status " + (known ? "status-" + word.toLowerCase() : "status-none");
     badge.title = known
       ? MEANS[word]
@@ -411,15 +415,12 @@
         const held = duration(history.last_held_s);
         setFact(last, held ? since(history.last_on) + " for " + held : since(history.last_on));
       } else {
-        // Three different things, and only one of them is "never".
-        //
         // A contact that has been read all month and has not closed says
-        // never. One PitWatch has never received a single message for cannot
-        // say that: it cannot tell a quiet contact from a wrong topic, a rule
-        // that was never saved, or a cut wire. On an overload input a
-        // reassuring "0 this month" would be the worst answer available, so it
-        // says what is actually true, which is that nothing has arrived.
-        setFact(last, counted ? "never" : "nothing heard");
+        // never. One PitWatch has never had a message for says n/a, the same
+        // as every other empty field on the page: it cannot tell a quiet
+        // contact from a wrong topic or a cut wire, and on an overload a
+        // reassuring "never" would be the worst answer available.
+        setFact(last, counted ? "never" : null);
       }
       // Both lines, always, whether or not there is anything behind them. A
       // lamp with one line beside it is a row shorter than the one under it,
@@ -446,9 +447,9 @@
   // One indicator per device, named.
   //
   // "Something is offline" and "the meter is offline" are different amounts of
-  // use to somebody standing in a basement, and the two fail for entirely
-  // different reasons: the Shelly drops off wifi, the X-408 stops being able
-  // to reach the broker.
+  // use to somebody standing in a basement, and two devices fail for entirely
+  // different reasons: one drops off wifi, the other stops being able to reach
+  // the broker.
   //
   // Three states rather than two. Deliberately not set up is not a fault, and
   // it is the reason a device that is off is hollow rather than red: running

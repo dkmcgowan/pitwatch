@@ -4,8 +4,8 @@
 here counts runs and calls out of `pump_run` and `pump_cycle`, which are
 written from the panel's own run contacts at the moment the contact moves. It
 used to count them out of the meter's readings, by looking for the current
-rising off nothing, and that was a floor rather than a tally: the Shelly
-reports when something changes rather than on a clock, so two runs close
+rising off nothing, and that was a floor rather than a tally: a meter that
+reports when something changes rather than on a clock means two runs close
 together arrive looking like one and a short run can arrive as nothing at all.
 The contacts have neither problem.
 

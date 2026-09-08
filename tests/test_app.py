@@ -306,8 +306,6 @@ def render_settings(**overrides) -> str:
         "site": SiteSettings(),
         "weather": WeatherSettings(),
         "mqtt": MqttSettings(),
-        "shelly": MqttSettings(),
-        "inputs": MqttSettings(),
         "pumps": PumpsSettings(),
         "smtp": SmtpSettings(),
         "sms": SmsSettings(),
@@ -1285,7 +1283,7 @@ def test_every_long_note_is_a_dialog_opened_from_beside_its_heading():
         assert 'id="note-' + key + '"' in page, key
 
     # And the words are still there, just not on the page.
-    assert "middle reading while the pump" in page
+    assert "less the starting surge" in page
     assert "How often the pit has filled" in page
 
 
@@ -1454,18 +1452,7 @@ def test_the_live_state_records_a_rise_and_not_a_level():
     base = datetime(2026, 8, 27, 3, 0, tzinfo=UTC)
 
     def reading(seconds: int, amps: float) -> None:
-        live.update(
-            EmSample(
-                ts=base + timedelta(seconds=seconds),
-                channel=0,
-                current=amps,
-                voltage=None,
-                act_power=None,
-                aprt_power=None,
-                pf=None,
-                freq=None,
-            )
-        )
+        live.update(EmSample(ts=base + timedelta(seconds=seconds), channel=0, current=amps))
 
     reading(0, 0.0)
     assert live.rose_at(0) is None
@@ -1495,7 +1482,7 @@ def test_the_run_count_says_which_source_it_came_from():
     # Compared against what the page says, not against how the template wraps.
     prose = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", render_dashboard()))
 
-    assert "come from the panel's own run contact" in prose
+    assert "measured from the panel's own run contact" in prose
     assert "a tally rather than an estimate" in prose
     # And the fallback still admits what it is, including why no duration is
     # offered when the clamp is all there is.
@@ -1842,7 +1829,11 @@ def test_an_input_nothing_has_arrived_for_does_not_claim_a_count():
     history = js.split("function renderHistory", 1)[1].split("function renderLinks", 1)[0]
 
     assert '"never"' in history, "a contact that has been read and stayed open"
-    assert '"nothing heard"' in history, "one that has never been heard from"
+    # And nothing for one that has never been heard from, which every empty
+    # field on this page renders as n/a. It said "nothing heard" for a while,
+    # which was accurate and was also a fifth way of saying the same thing on a
+    # page that already had one.
+    assert 'counted ? "never" : null' in history
     # And the count line still says nothing rather than zero.
     assert "counted ? times" in history
 

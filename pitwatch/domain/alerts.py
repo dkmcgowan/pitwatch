@@ -250,8 +250,8 @@ SPECS: tuple[Spec, ...] = (
         key="device_offline",
         title="A device stopped answering",
         what=(
-            "The Shelly or the I/O module has gone quiet, so PitWatch is not "
-            "watching the pumps and cannot tell you if something happens. "
+            "A meter or a panel module has stopped publishing, so PitWatch is "
+            "not watching the pumps and cannot tell you if something happens. "
             "Administrators only by default: it is worth waking somebody who "
             "can do something about it and is noise to everybody else."
         ),

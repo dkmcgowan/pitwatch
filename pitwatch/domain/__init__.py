@@ -13,7 +13,8 @@ from __future__ import annotations
 # How long the current has to stay below the running threshold before the run
 # is treated as over.
 #
-# There has to be some hold. The Shelly pushes about once a second and these
+# There has to be some hold. The meter on this pit pushes about once a second
+# and these
 # pumps run three or four seconds, so a single low reading in the middle of a
 # run would otherwise end it and start another, turning one four second run
 # into two two second ones. Two runs a moment apart is exactly the shape short

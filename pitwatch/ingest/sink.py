@@ -3,7 +3,8 @@
 Two jobs, kept apart from the device code so that neither reader has to know
 anything about Postgres:
 
-* Batch the clamp samples. The Shelly pushes about once a second per channel,
+* Batch the clamp samples. A meter publishes on the order of once a second per
+  channel,
   which is not much, but one INSERT per reading is a round trip per reading
   forever and there is no reason to pay it. Samples are queued and written in
   groups.
@@ -65,22 +66,12 @@ class LiveState:
 
     def update(self, sample: EmSample) -> None:
         previous = self.samples.get(sample.channel)
-        # Delta notifications carry only what changed, so a frame with a
-        # voltage and no current would otherwise wipe out the current. Carry
-        # forward the fields this frame did not mention.
-        if previous is not None:
-            sample = EmSample(
-                ts=sample.ts,
-                channel=sample.channel,
-                current=sample.current if sample.current is not None else previous.current,
-                voltage=sample.voltage if sample.voltage is not None else previous.voltage,
-                act_power=sample.act_power if sample.act_power is not None else previous.act_power,
-                aprt_power=sample.aprt_power
-                if sample.aprt_power is not None
-                else previous.aprt_power,
-                pf=sample.pf if sample.pf is not None else previous.pf,
-                freq=sample.freq if sample.freq is not None else previous.freq,
-            )
+        # A frame that mentioned no current does not wipe out the last one. It
+        # used to matter more, when a reading carried six figures and a delta
+        # frame could carry one of them; with one figure it is the difference
+        # between a live card and a card that blinks to n/a.
+        if previous is not None and sample.current is None:
+            sample = EmSample(ts=sample.ts, channel=sample.channel, current=previous.current)
         # A rise, not a level. The threshold that decides what counts as
         # running is a setting and this does not have it, but it does not need
         # it: an idle clamp on this meter reads 0.000 exactly, so anything at
@@ -219,15 +210,12 @@ class SampleSink:
         return batch
 
     async def _write(self, batch: list[EmSample]) -> None:
-        rows = [
-            (s.ts, s.channel, s.current, s.voltage, s.act_power, s.aprt_power, s.pf, s.freq)
-            for s in batch
-        ]
+        rows = [(s.ts, s.channel, s.current) for s in batch]
         try:
             await self._pool.executemany(
                 """
-                INSERT INTO em_sample (ts, channel, current, voltage, act_power, aprt_power, pf, freq)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                INSERT INTO em_sample (ts, channel, current)
+                VALUES ($1, $2, $3)
                 """,
                 rows,
             )
@@ -243,7 +231,7 @@ class SampleSink:
         """Fill the live state from the database so a restart is not a blank page."""
         rows = await self._pool.fetch(
             """
-            SELECT DISTINCT ON (channel) ts, channel, current, voltage, act_power, aprt_power, pf, freq
+            SELECT DISTINCT ON (channel) ts, channel, current
             FROM em_sample
             WHERE ts > now() - interval '1 hour'
             ORDER BY channel, ts DESC
@@ -251,16 +239,7 @@ class SampleSink:
         )
         for row in rows:
             self._live.update(
-                EmSample(
-                    ts=row["ts"],
-                    channel=row["channel"],
-                    current=row["current"],
-                    voltage=row["voltage"],
-                    act_power=row["act_power"],
-                    aprt_power=row["aprt_power"],
-                    pf=row["pf"],
-                    freq=row["freq"],
-                )
+                EmSample(ts=row["ts"], channel=row["channel"], current=row["current"])
             )
         if rows:
             log.info("Primed the live state from %d recent reading(s)", len(rows))

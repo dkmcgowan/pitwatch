@@ -206,8 +206,8 @@ async def test_samples_are_written_and_primed_back(pool):
     now = datetime.now(UTC)
     await sink.submit(
         [
-            EmSample(now, 0, 7.2, 121.0, 850.0, 860.0, 0.98, 60.0),
-            EmSample(now, 1, 0.02, 121.0, 0.0, 0.0, 0.0, 60.0),
+            EmSample(now, 0, 7.2),
+            EmSample(now, 1, 0.02),
         ]
     )
     await sink._write(sink._drain())
@@ -235,12 +235,12 @@ async def test_priming_ignores_readings_that_are_too_old_to_mean_anything(pool):
 
 
 async def test_device_status_is_upserted_and_keeps_the_last_seen_time(pool):
-    await record_device_status(pool, "shelly", True, None)
-    seen = await pool.fetchval("SELECT last_seen FROM device_status WHERE device = 'shelly'")
+    await record_device_status(pool, "clamp1", True, None)
+    seen = await pool.fetchval("SELECT last_seen FROM device_status WHERE device = 'clamp1'")
     assert seen is not None
 
-    await record_device_status(pool, "shelly", False, "connection refused")
-    row = await pool.fetchrow("SELECT * FROM device_status WHERE device = 'shelly'")
+    await record_device_status(pool, "clamp1", False, "connection refused")
+    row = await pool.fetchrow("SELECT * FROM device_status WHERE device = 'clamp1'")
 
     assert row["online"] is False
     assert row["last_error"] == "connection refused"

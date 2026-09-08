@@ -184,8 +184,8 @@ class ClampSource(BaseModel):
     # a source asks only when it has a topic and a payload.
     ask_topic: str = Field(default="", max_length=300)
     ask_payload: str = Field(default="", max_length=1000)
-    # Where the answer lands, which is usually not the topic above. On a Shelly
-    # it is decided by the src inside the payload, which is why two clamps
+    # Where the answer lands, which is usually not the topic asked on. Where a
+    # meter decides the reply topic from something in the request, two clamps
     # asking one meter need two of them: a reply carries no sign of what it is
     # answering, so two sources reading one topic at one path would each match
     # every answer.
@@ -503,7 +503,7 @@ class AlertRule(BaseModel):
 
     severity: Severity = Severity.WARNING
 
-    # Who hears it. A separate question from how urgent it is: "the Shelly
+    # Who hears it. A separate question from how urgent it is: "the meter
     # stopped answering" is worth waking an administrator for and is noise to
     # somebody whose only job is to know the basement is flooding. Severity
     # says how loud, this says who can do anything about it.

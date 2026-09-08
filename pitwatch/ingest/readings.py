@@ -13,19 +13,22 @@ from datetime import datetime
 
 @dataclass(frozen=True, slots=True)
 class EmSample:
-    """One reading from one clamp.
+    """One reading from one clamp: when, which channel, how many amps.
 
-    ``channel`` is which recorded channel this belongs under, which is a
-    setting on the source rather than anything the device knows: nothing on a
-    meter knows which motor a clamp is around. Readings already stored are
-    filed under those numbers, so they are carried rather than derived.
+    There were five more fields here, voltage and real power and apparent
+    power and power factor and frequency, which were the field names of one
+    meter's status frame. They have been written as NULL on every row since a
+    clamp source became a topic and a path, because a path reads one number
+    and the number a pump monitor wants is the current. Five fields carried
+    through a dataclass, a merge, an insert and a prime query to store nothing
+    is the shape of the old design left behind in the new one.
+
+    Voltage is the one worth saying why about. A meter's own supply is not
+    necessarily the phase the clamps are around, so its voltage belongs to a
+    different circuit, and everything derived from it, watts and power factor,
+    inherits that. Current does not care what the meter is plugged into.
     """
 
     ts: datetime
     channel: int
     current: float | None
-    voltage: float | None
-    act_power: float | None
-    aprt_power: float | None
-    pf: float | None
-    freq: float | None

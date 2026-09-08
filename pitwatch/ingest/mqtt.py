@@ -289,20 +289,15 @@ class MqttReader:
     def _sample(self, clamp: ClampSource, reading: float) -> EmSample:
         """A reading, filed under the channel this clamp records against.
 
-        The channel is a setting rather than the pump number, because the
-        readings already stored are filed under whatever the meter called its
-        clamps. Renumbering them would leave last month's amps describing the
-        other pump.
+        Derived from the pump number rather than configured. It was a setting
+        while there were stored readings filed under whatever numbers a meter
+        had given its own clamps; those were wiped, so the only correct answer
+        is the obvious one.
         """
         return EmSample(
             ts=datetime.now(UTC),
             channel=clamp.channel,
             current=reading,
-            voltage=None,
-            act_power=None,
-            aprt_power=None,
-            pf=None,
-            freq=None,
         )
 
     def _heard(self, key: str, title: str) -> None:

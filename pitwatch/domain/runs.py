@@ -73,7 +73,7 @@ MINIMUM_RUN_S = 0.25
 # A motor's starting surge is several times its running draw and lasts a
 # moment, so a mean over the whole run describes the surge rather than the
 # pump. That was excluded by time to begin with, two seconds of it, and the
-# real meter showed why that does not work here: the Shelly reports on change
+# real meter showed why that does not work here: it reports on change
 # rather than on a schedule, so a four second run on this pit yields one or two
 # readings and a two second window throws away all of them. Every run came back
 # with a null average and a null median.

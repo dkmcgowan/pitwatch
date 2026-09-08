@@ -81,8 +81,9 @@
 
     {# Amps and the contacts, and nothing derived from voltage.
 
-       The Shelly's own supply is a 120 V outlet, not a tap off the phase the
-       clamps are around, so its voltage reading belongs to a different
+       A meter's own supply is often an ordinary outlet rather than a tap off
+       the phase the clamps are around, so its voltage reading belongs to a
+       different
        circuit. Current does not care: a CT measures the field around a
        conductor and is independent of what the meter is using as a voltage
        reference. Watts and power factor very much do care, because real power
@@ -137,34 +138,23 @@
     <dialog class="note" id="note-pump-{{ number }}">
       <h3 class="note-title">Pump {{ number }}</h3>
       <div class="hint">
-        <p>The word beside the name is the controller's own, and it means what
-          it means on the panel door. <strong>LEAD</strong> is the pump that
-          answers the next call, and the one running while it runs.
-          <strong>LAG</strong> is the one sitting out, which is whichever pump
-          went last. <strong>ON</strong> on both means the pit came up past the
-          lag float and the controller called them both.
-          <strong>FAIL</strong> is an overload: that pump is off and staying
-          off.</p>
+        <p>The word beside the name is the controller's own.
+          <strong>Lead</strong> answers the next call and runs.
+          <strong>Lag</strong> sits this one out. <strong>On</strong> for both
+          means the pit came up past the lag float and the controller called
+          them both. <strong>Fail</strong> is an overload: that pump is off and
+          staying off.</p>
         <p><strong>Load</strong> is what the clamp reads this second, usually
-          zero on a pit that runs for seconds at a time. Beside it is the
-          typical load, which is the middle reading while the pump was running
-          this week, less the starting surge. That is the number to watch:
-          drawing more than it did a month ago is a pump on its way to a
-          problem. When it moves, the change against the four weeks before
-          appears after it.</p>
-        <p><strong>Runs</strong> is when it last started and for how long, how
-          many times it has started today, and how many times it starts on an
-          ordinary day. They come from the panel's own run contact, so the
-          count is a tally rather than an estimate and the duration is measured
-          from the moment the contactor pulled in to the moment it dropped out.
-          The ordinary day is the last month's starts over the days actually
-          recorded, and it appears once there are three of them.</p>
-        <p>With no run contact wired, all of it falls back to the load rising
-          off nothing, and then the count is a floor rather than a tally: the
-          meter reports on its own schedule, so two close runs can arrive as
-          one and a short run can be missed. No duration is offered at all in
-          that case, because the end of a run is only known to within a
-          reporting interval and a number that precise would be a lie.</p>
+          zero on a pit that runs for seconds. Beside it is the typical load
+          while running this week, less the starting surge. Drawing more than
+          it did a month ago is the number to watch.</p>
+        <p><strong>Runs</strong> is when it last started, for how long, and how
+          many times today, measured from the panel's own run contact, so the
+          count is a tally rather than an estimate. The ordinary day appears
+          once there are three days to average.</p>
+        <p>With no run contact wired it falls back to the load rising off
+          nothing, and then the count is a floor rather than a tally: two close
+          runs can arrive as one, and no duration is offered at all.</p>
       </div>
       <p class="note-close">Click anywhere to close</p>
     </dialog>
@@ -278,37 +268,24 @@
     <dialog class="note" id="note-alerts">
       <h3 class="note-title">Alerts</h3>
       <div class="hint">
-        <p><strong>System alert</strong> is the controller's own alarm. Several
-          faults raise the same contact, so it means read the panel rather
-          than anything more specific.</p>
+        <p><strong>System alert</strong> is the controller's own alarm.
+          Several faults raise the same contact, so it means read the
+          panel.</p>
         <p><strong>High water</strong> means the pit came up past the high
-          float, usually a storm putting water in faster than one pump takes
-          it out. Once in a while is the system working. Regularly is the pit
+          float. Once in a while is the system working. Regularly is the pit
           losing to the inflow.</p>
-        <p>An <strong>overload</strong> is the worst of the four, because it is
-          the only one that has already taken a pump away: the panel cut that
-          motor for drawing more than the overload allows, and it is off and
-          will not run.</p>
-        <p>The selector decides what happens next. <strong>H</strong> is hand
-          reset: it stays off until somebody presses the red button back in.
-          <strong>A</strong> resets itself once cool, which is often worse, a
-          motor that trips and restarts all night being one nobody hears
-          about. <strong>O</strong> adds a stop, so <strong>HO</strong> and
-          <strong>AO</strong> are those two with a stop button.</p>
-        <p>It tripped for a reason, and a pump drawing more than it used to
-          will show that in its typical load.</p>
-        <p><strong>Both pumps</strong> is the pit winning: the controller
-          called the lag pump as well because one could not keep up. It is not
-          a contact and has no wire of its own, it is the two run signals
-          closed at the same time. The high float can be wet without this
-          happening; this happening usually means the float was wet too.</p>
-        <p>Counted by the month. An alarm counted by the day reads zero
-          forever.</p>
-        <p>The words beside the heading are the four rows added up.
-          <strong>All clear</strong> means every input assigned here is being
-          read and none of them is raised. It counts what it can see, so an
-          alert with no input assigned is not in it, and the lamp for that row
-          is drawn dim to say so.</p>
+        <p>An <strong>overload</strong> has already taken a pump away: the
+          panel cut that motor and it will not run. The selector says what
+          happens next. <strong>H</strong> stays off until somebody presses the
+          red button back in. <strong>A</strong> resets itself once cool, which
+          is often worse. <strong>O</strong> adds a stop, so <strong>HO</strong>
+          and <strong>AO</strong> are those two with a stop button.</p>
+        <p><strong>Both pumps</strong> is the two run signals closed at once,
+          which is the controller calling the lag pump because one could not
+          keep up.</p>
+        <p>Counted by the month, because an alarm counted by the day reads zero
+          forever. <strong>All clear</strong> counts only the inputs that are
+          assigned and being read; a row with no input is drawn dim.</p>
       </div>
       <p class="note-close">Click anywhere to close</p>
     </dialog>
@@ -383,22 +360,18 @@
     <dialog class="note" id="note-rain">
       <h3 class="note-title">Rain</h3>
       <div class="hint">
-        <p>Hour by hour over the pit: a day behind and a day ahead, with the
-          line marking now. Bars to the left of it are what fell, bars to the
-          right are what is expected.</p>
-        <p>This is why an ejector pit gets busy. Groundwater rises after rain
-          and keeps rising for a day or two after it stops, so a night of calls
-          that follows a wet afternoon is the pit doing its job, and the same
-          night with a dry chart is a question.</p>
-        <p>These are model numbers rather than a gauge on the roof, from
-          Open-Meteo, which for the United States serves NOAA's own output. A
-          storm cell that sat over one block can be off by a lot. It is right
-          enough to answer "was it raining", which is what it is here for.</p>
-        <p>Snow is counted as the water it holds, not as what has reached the
-          pit. It gets there when it melts.</p>
-        <p>Saying "not set up" means there is nowhere to look yet. Put the
-          address of the pit in settings and press Look up, or type the
-          coordinates in directly, then turn the rain on.</p>
+        <p>Hour by hour over the pit, a day behind and a day ahead, with the
+          line marking now. Left of it is what fell, right of it is what is
+          expected.</p>
+        <p>This is why an ejector pit gets busy. Groundwater keeps rising for a
+          day or two after the rain stops, so a night of calls after a wet
+          afternoon is the pit doing its job, and the same night under a dry
+          chart is a question.</p>
+        <p>Model numbers rather than a gauge on the roof, from Open-Meteo,
+          right enough to answer "was it raining". Snow counts as the water it
+          holds, which reaches the pit when it melts.</p>
+        <p>"Not set up" means there is nowhere to look yet: set the location in
+          settings and turn the rain on.</p>
       </div>
       <p class="note-close">Click anywhere to close</p>
     </dialog>

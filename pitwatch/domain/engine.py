@@ -655,27 +655,45 @@ class AlertEngine:
         """One alert, naming whatever is not answering.
 
         Not one per device, because the only discriminator the alert table has
-        is a pump column and a device is not a pump. Riding on it would put
-        "the Shelly" in a field every other rule and the history page read as a
+        is a pump column and a device is not a pump. Riding on it would put a
+        meter's name in a field every other rule and the history page read as a
         motor. The alert is about PitWatch not watching the pumps, which is
         equally true whichever box went quiet, and the detail says which.
         """
-        rows = await self._pool.fetch("SELECT device, online FROM device_status")
-        configured = {
-            "shelly": bool(self._store.mqtt.enabled and self._store.mqtt.host),
-            "inputs": bool(self._store.mqtt.enabled and self._store.mqtt.host),
-        }
-        gone = [
-            _DEVICE_NAMES[row["device"]]
-            for row in rows
-            if configured.get(row["device"]) and not row["online"]
-        ]
-        if not any(configured.values()):
+        watched = self._watched_devices()
+        if not watched:
             return None
+        rows = await self._pool.fetch("SELECT device, online FROM device_status")
+        gone = [
+            watched[row["device"]] for row in rows if row["device"] in watched and not row["online"]
+        ]
         return {None: Finding(values={"device": " and ".join(gone)}) if gone else None}
 
+    def _watched_devices(self) -> dict[str, str]:
+        """The rows in device_status this rule is about, and what to call them.
 
-_DEVICE_NAMES = {"shelly": "Shelly EM", "inputs": "X-408"}
+        Built from the settings rather than from a list of device names, which
+        is the whole point of the settings being about topics: this used to
+        hold {"shelly": "Shelly EM", "inputs": "X-408"} and go looking for rows
+        under those names. Nothing has written a row called "shelly" since
+        everything moved to MQTT, so the lookup matched nothing, and an alert
+        that can only ever find nothing is an alert that never fires. It reads
+        as working right up until the day it is needed.
+
+        Weather is deliberately not in here. It is not a device on the panel
+        and its own card says when it went stale.
+        """
+        mqtt = self._store.mqtt
+        if not (mqtt.enabled and mqtt.host):
+            return {}
+        watched = {
+            clamp.role: f"the {self._store.pumps.by_number[clamp.pump].name} clamp"
+            for clamp in mqtt.used_clamps
+        }
+        for index, check in enumerate(mqtt.health):
+            if check.configured:
+                watched[f"health{index}"] = check.name or f"device {index + 1}"
+        return watched
 
 
 async def _first_of(*waits, timeout: float) -> None:

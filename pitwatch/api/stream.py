@@ -6,8 +6,9 @@ up to a refresh interval later. The payload is the same shape /api/state
 returns, so the page has one renderer and the first paint and every update go
 through it.
 
-Updates are sent on a short timer rather than on every reading. The Shelly
-pushes about twice a second across the two clamps, and a browser does not need
+Updates are sent on a short timer rather than on every reading. The meter on
+this pit pushes about twice a second across the two clamps, and a browser does
+not need
 to be told about a current that moved by a hundredth of an amp. What it does
 need is to never be more than a moment behind, which is what the interval buys,
 and to be told immediately when something changes state.

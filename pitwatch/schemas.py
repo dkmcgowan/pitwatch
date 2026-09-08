@@ -479,6 +479,40 @@ class MqttSettings(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def answers_are_told_apart(self) -> MqttSettings:
+        """Two sources cannot read their answers off one topic and one path.
+
+        An MQTT message carries no sender and no sign of what it is answering.
+        The topic is the whole of its address, so two sources asking different
+        questions and reading the reply at the same path both match every
+        answer, and one reading is filed under both pumps.
+
+        Not hypothetical: the migration wrote exactly that, both clamps
+        answering on pitwatch/rpc at result.current, and the reply for pump 1
+        would have been recorded as pump 2's as well. It would also have
+        convinced the history page that pump 2 had a clamp fitted, and drawn a
+        line for a reading that never happened.
+
+        Sharing a topic is fine where the paths differ, because then only one
+        source finds anything in a given body. It is the pair that has to be
+        distinct. A device answers on whatever it was told to answer on, so the
+        fix is a different src per source.
+        """
+        seen: dict[tuple[str, str], str] = {}
+        for source in self.sources:
+            if not source.asks:
+                continue
+            where = (source.answers_on, source.answer_path)
+            if where in seen:
+                raise ValueError(
+                    f"{seen[where]} and {source.role} both read their answer from "
+                    f"{where[0]!r} at {where[1]!r}. One reply would be recorded as both. "
+                    f"Give them different reply topics, by asking with a different src."
+                )
+            seen[where] = source.role
+        return self
+
+    @model_validator(mode="after")
     def clamps_record_apart(self) -> MqttSettings:
         """Both pumps filed under one channel is two motors in one bucket.
 

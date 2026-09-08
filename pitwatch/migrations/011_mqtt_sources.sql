@@ -85,8 +85,11 @@ SELECT
                 'expect_s', 45,
                 'ask_topic',   'shellyemg3/rpc',
                 'ask_payload',
-                    '{"id":1,"src":"pitwatch","method":"EM1.GetStatus","params":{"id":0}}',
-                'reply_topic', 'pitwatch/rpc',
+                    '{"id":1,"src":"pitwatch-c1","method":"EM1.GetStatus","params":{"id":0}}',
+                -- Its own reply topic, because a reply carries no sign of what
+                -- it is answering. Two sources reading one topic at one path
+                -- would each match every answer and file one reading as both.
+                'reply_topic', 'pitwatch-c1/rpc',
                 'reply_path',  'result.current',
                 'ask_while_running', true,
                 'ask_every_s', 1.0
@@ -101,8 +104,11 @@ SELECT
                 'expect_s', 45,
                 'ask_topic',   'shellyemg3/rpc',
                 'ask_payload',
-                    '{"id":2,"src":"pitwatch","method":"EM1.GetStatus","params":{"id":1}}',
-                'reply_topic', 'pitwatch/rpc',
+                    '{"id":2,"src":"pitwatch-c2","method":"EM1.GetStatus","params":{"id":1}}',
+                -- Its own reply topic, because a reply carries no sign of what
+                -- it is answering. Two sources reading one topic at one path
+                -- would each match every answer and file one reading as both.
+                'reply_topic', 'pitwatch-c2/rpc',
                 'reply_path',  'result.current',
                 'ask_while_running', true,
                 'ask_every_s', 1.0

@@ -365,8 +365,9 @@ async def test_a_source_that_comes_back_is_only_reported_once_each_way():
 
 
 def test_a_shared_reply_topic_is_subscribed_once():
-    """Several sources asking one device get their answers on the same topic,
-    and subscribing to it twice would deliver every answer twice."""
+    """Several sources asking one device may share an answer topic, as long as
+    they read different paths out of it. Subscribing to it twice would deliver
+    every answer twice."""
     settings = _settings(
         sources=[
             MqttSource(
@@ -377,6 +378,7 @@ def test_a_shared_reply_topic_is_subscribed_once():
                 ask_topic="pit/clamps/rpc",
                 ask_payload="{}",
                 reply_topic="pitwatch/rpc",
+                reply_path="params.em1:0.current",
             ),
             MqttSource(
                 role="clamp2",
@@ -386,6 +388,7 @@ def test_a_shared_reply_topic_is_subscribed_once():
                 ask_topic="pit/clamps/rpc",
                 ask_payload="{}",
                 reply_topic="pitwatch/rpc",
+                reply_path="params.em1:1.current",
             ),
         ]
     )
@@ -408,3 +411,114 @@ def test_a_source_that_is_half_configured_is_not_subscribed_to():
 
     assert settings.used_sources == []
     assert reader._subscriptions() == []
+
+
+# -- telling two answers apart -----------------------------------------------
+
+
+def test_two_sources_cannot_read_their_answers_off_one_topic_and_path():
+    """An MQTT message carries no sender and no sign of what it is answering.
+    The topic is the whole of its address, so two sources asking different
+    questions and reading the reply at the same path both match every answer.
+
+    This shipped. The migration gave both clamps `pitwatch/rpc` at
+    `result.current`, and pump 1's reading would have been recorded as pump 2's
+    as well, which would also have convinced the history page that pump 2 had a
+    clamp fitted and drawn a line for a CT that is not installed.
+    """
+    with pytest.raises(ValueError, match="both read their answer from"):
+        MqttSettings(
+            sources=[
+                MqttSource(
+                    role="clamp1",
+                    topic="a",
+                    profile="number",
+                    path="current",
+                    ask_topic="meter/rpc",
+                    ask_payload='{"src":"pitwatch"}',
+                    reply_topic="pitwatch/rpc",
+                    reply_path="result.current",
+                ),
+                MqttSource(
+                    role="clamp2",
+                    topic="b",
+                    profile="number",
+                    path="current",
+                    ask_topic="meter/rpc",
+                    ask_payload='{"src":"pitwatch"}',
+                    reply_topic="pitwatch/rpc",
+                    reply_path="result.current",
+                ),
+            ]
+        )
+
+
+def test_one_reply_topic_is_fine_where_the_paths_differ():
+    """It is the pair that has to be distinct. Where the paths differ, only one
+    source finds anything in a given body, so sharing a topic costs nothing."""
+    settings = MqttSettings(
+        sources=[
+            MqttSource(
+                role="clamp1",
+                topic="a",
+                profile="number",
+                path="current",
+                ask_topic="meter/rpc",
+                ask_payload="{}",
+                reply_topic="pitwatch/rpc",
+                reply_path="params.em1:0.current",
+            ),
+            MqttSource(
+                role="clamp2",
+                topic="b",
+                profile="number",
+                path="current",
+                ask_topic="meter/rpc",
+                ask_payload="{}",
+                reply_topic="pitwatch/rpc",
+                reply_path="params.em1:1.current",
+            ),
+        ]
+    )
+
+    assert len(settings.used_sources) == 2
+
+
+async def test_a_reply_reaches_only_the_source_that_asked_for_it():
+    """The behavior the validator protects, checked at the router rather than
+    in the model, because this is where the misfiling would have happened."""
+    settings = MqttSettings(
+        enabled=True,
+        sources=[
+            MqttSource(
+                name="Pump 1 clamp",
+                role="clamp1",
+                topic="meter/status/em1:0",
+                profile="number",
+                path="current",
+                channel=0,
+                ask_topic="meter/rpc",
+                ask_payload='{"src":"pitwatch-c1"}',
+                reply_topic="pitwatch-c1/rpc",
+                reply_path="result.current",
+            ),
+            MqttSource(
+                name="Pump 2 clamp",
+                role="clamp2",
+                topic="meter/status/em1:1",
+                profile="number",
+                path="current",
+                channel=1,
+                ask_topic="meter/rpc",
+                ask_payload='{"src":"pitwatch-c2"}',
+                reply_topic="pitwatch-c2/rpc",
+                reply_path="result.current",
+            ),
+        ],
+    )
+    reader, caught = _reader(settings)
+
+    await reader._handle(_Message("pitwatch-c1/rpc", RPC_REPLY))
+
+    assert len(caught.samples) == 1, "one answer, one reading"
+    assert caught.samples[0].channel == 0, "and it belongs to the pump that asked"

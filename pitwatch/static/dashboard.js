@@ -411,10 +411,15 @@
         const held = duration(history.last_held_s);
         setFact(last, held ? since(history.last_on) + " for " + held : since(history.last_on));
       } else {
-        // Never is an answer; n/a is the absence of one. A contact that has
-        // been read all month and has not closed says never. One nobody has
-        // wired has nothing to say either way.
-        setFact(last, counted ? "never" : null);
+        // Three different things, and only one of them is "never".
+        //
+        // A contact that has been read all month and has not closed says
+        // never. One PitWatch has never received a single message for cannot
+        // say that: it cannot tell a quiet contact from a wrong topic, a rule
+        // that was never saved, or a cut wire. On an overload input a
+        // reassuring "0 this month" would be the worst answer available, so it
+        // says what is actually true, which is that nothing has arrived.
+        setFact(last, counted ? "never" : "nothing heard");
       }
       // Both lines, always, whether or not there is anything behind them. A
       // lamp with one line beside it is a row shorter than the one under it,

@@ -1820,6 +1820,28 @@ def test_the_key_dot_scales_to_the_size_the_stylesheet_asks_for():
     assert "width: 0.65rem" in css.split(".key-dot {", 1)[1].split("}", 1)[0]
 
 
+def test_an_input_nothing_has_arrived_for_does_not_claim_a_count():
+    """Three different things, and only one of them is "never".
+
+    A contact read all month that has not closed says never. One PitWatch has
+    never received a message for cannot say that: it cannot tell a quiet
+    contact from a wrong topic, a rule that was never saved, or a cut wire.
+
+    This is not hypothetical and it is worst exactly where it matters. After
+    the readings were wiped on 2026-09-08, the system alert and both overload
+    inputs had published nothing, because nothing had changed them. "0 this
+    month" against an overload would have read as "no overload has tripped"
+    when what was true is "nothing has ever arrived".
+    """
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+    history = js.split("function renderHistory", 1)[1].split("function renderLinks", 1)[0]
+
+    assert '"never"' in history, "a contact that has been read and stayed open"
+    assert '"nothing heard"' in history, "one that has never been heard from"
+    # And the count line still says nothing rather than zero.
+    assert "counted ? times" in history
+
+
 def test_a_lamp_with_nothing_behind_it_still_has_two_lines():
     """One line under a lamp and two under the one beside it is a row that does
     not line up, which is what happens the day some inputs are wired and some

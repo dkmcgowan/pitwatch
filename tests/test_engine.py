@@ -8,6 +8,8 @@ nothing for the six hours it stays wet.
 
 from __future__ import annotations
 
+import asyncio
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -255,6 +257,52 @@ async def test_a_failed_send_is_written_down_rather_than_raised(pool, monkeypatc
 
 
 # -- the rules that need a clamp ---------------------------------------------
+
+
+async def test_a_held_rule_asks_to_be_looked_at_again(pool, sent):
+    """The panel alarm was tripped by hand on 2026-09-08 and held for fourteen
+    seconds. Nothing was raised and nothing was sent.
+
+    The contact change nudged a sweep, the sweep started the five second hold
+    and returned nothing, and the next look was the thirty second tick, which
+    arrived after the alarm had already cleared. The hold was not a delay, it
+    was a filter that dropped every alarm shorter than a sweep, on the contact
+    that carries the controller's own alarm.
+
+    A rule that defers now says when it wants asking again, and the run loop
+    waits that long instead of a whole tick.
+    """
+    await _a_person(pool)
+    store = _store()
+    engine = _engine(pool, store, _wire(_Contacts(), system_alert=True))
+
+    # The first look, the one the contact change triggers. It starts the hold
+    # and says nothing, which is correct.
+    await engine.sweep()
+
+    raised = [row["rule"] for row in await pool.fetch("SELECT rule FROM alert")]
+    assert "panel_alert" not in raised, "held back to see whether anything explains it"
+    assert engine._recheck_at is not None, "and it asked to be looked at again"
+
+    hold = store.alerts.panel_alert.hold_s
+    assert engine._recheck_at - asyncio.get_running_loop().time() <= hold + 0.1
+
+
+async def test_a_panel_alarm_shorter_than_a_sweep_is_still_raised(pool, sent):
+    """The whole point of the recheck: the alarm goes up, the hold elapses, and
+    it is raised without waiting for the tick that would have missed it."""
+    await _a_person(pool)
+    store = _store()
+    engine = _engine(pool, store, _wire(_Contacts(), system_alert=True))
+
+    await engine.sweep()
+    # The hold elapsing, without a thirty second tick and without the contact
+    # changing again.
+    engine._panel_alert_since -= timedelta(seconds=store.alerts.panel_alert.hold_s + 1)
+    await engine.sweep()
+
+    raised = [row["rule"] for row in await pool.fetch("SELECT rule FROM alert")]
+    assert "panel_alert" in raised
 
 
 async def test_a_pump_with_no_runs_on_record_is_not_reported_idle(pool, sent):

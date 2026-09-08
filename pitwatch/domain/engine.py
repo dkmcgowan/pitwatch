@@ -92,6 +92,16 @@ class AlertEngine:
         # briefly to see whether something that carries detail explains it.
         self._panel_alert_since: datetime | None = None
         self._wake = asyncio.Event()
+        # When a rule that deferred wants looking at again.
+        #
+        # A rule that holds back is saying "ask me later", and until this
+        # existed nothing ever did. The panel alarm was tripped by hand on
+        # 2026-09-08 and held for fourteen seconds: the contact change nudged a
+        # sweep, the sweep started the five second hold and returned nothing,
+        # and the next look was the thirty second tick, which arrived after the
+        # alarm had already cleared. Any panel alarm shorter than a tick was
+        # invisible, on the contact that carries the controller's own alarm.
+        self._recheck_at: float | None = None
 
     # -- when it runs -------------------------------------------------------
 
@@ -99,6 +109,19 @@ class AlertEngine:
         """Something changed on the panel, so sweep now rather than on the
         tick. Called from the ingest path, which must not be made to wait."""
         self._wake.set()
+
+    def _ask_again_in(self, seconds: float) -> None:
+        """A rule saying it deferred and wants another look.
+
+        The soonest request wins, because two rules holding for different
+        lengths both have to be answered on time.
+        """
+        try:
+            at = asyncio.get_running_loop().time() + max(0.0, seconds)
+        except RuntimeError:  # pragma: no cover -- swept outside a loop
+            return
+        if self._recheck_at is None or at < self._recheck_at:
+            self._recheck_at = at
 
     async def run(self, stop: asyncio.Event) -> None:
         while not stop.is_set():
@@ -113,10 +136,19 @@ class AlertEngine:
             # the one moment nothing can usefully be judged: ingest has not
             # connected and the contacts have not been primed, so every rule
             # would be reading a state that is empty rather than calm.
-            await _first_of(self._wake.wait(), stop.wait(), timeout=SWEEP_S)
+            # A rule that deferred gets its second look when it asked for it,
+            # rather than waiting out a whole tick.
+            timeout = SWEEP_S
+            if self._recheck_at is not None:
+                waiting = self._recheck_at - asyncio.get_running_loop().time()
+                timeout = max(0.05, min(timeout, waiting))
+            await _first_of(self._wake.wait(), stop.wait(), timeout=timeout)
             if stop.is_set():
                 return
             self._wake.clear()
+            # Cleared before the sweep, so a rule that still wants another look
+            # says so again rather than inheriting one it has finished with.
+            self._recheck_at = None
             try:
                 await self.sweep()
             except (asyncpg.PostgresError, OSError) as error:
@@ -318,7 +350,12 @@ class AlertEngine:
         now = datetime.now(UTC)
         if self._panel_alert_since is None:
             self._panel_alert_since = now
-        if (now - self._panel_alert_since).total_seconds() < rule.hold_s:
+        held = (now - self._panel_alert_since).total_seconds()
+        if held < rule.hold_s:
+            # Ask to be looked at again when the hold is up. Without this the
+            # hold is not a delay, it is a filter that drops every alarm
+            # shorter than a sweep.
+            self._ask_again_in(rule.hold_s - held)
             return None
 
         explained = await self._pool.fetchval(

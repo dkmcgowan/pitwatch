@@ -374,8 +374,6 @@ def test_saving_the_settings_page_unchanged_changes_nothing():
         contact_phone="+12125550142",
         operator="Jane Smith, Sole Proprietor",
         operator_locality="Anytown, NY 12345",
-        notify_delay_s=11,
-        notify_cooldown_s=1234,
     )
     mqtt = MqttSettings(
         enabled=True,

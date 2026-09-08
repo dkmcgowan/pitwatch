@@ -540,10 +540,16 @@ class PanelAlertRule(AlertRule):
     that gets read first.
     """
 
-    # How long to wait for a better explanation. Short, because the controller
-    # raises everything at once rather than in sequence; this only has to
-    # cover the poll interval and the debounce, not a human's reaction.
-    hold_s: int = Field(default=5, ge=0, le=300)
+    # How long to wait for a better explanation.
+    #
+    # Two seconds, because the check it is waiting for is "is another alert
+    # already open", and that is a question about whether a row exists rather
+    # than one that needs time to pass. The overload or the high float trips
+    # first or in the same instant, so by the time this is evaluated the
+    # detailed alert is usually already raised and this one is correctly
+    # suppressed without any wait at all. The hold only has to cover the
+    # debounce and a message hop, not a human's reaction.
+    hold_s: int = Field(default=2, ge=0, le=300)
 
 
 class OverCurrentRule(AlertRule):
@@ -925,15 +931,14 @@ class SiteSettings(BaseModel):
         """A phrase for prose: "the pumps at 123 Main St"."""
         return f"the pumps at {self.where}" if self.where else "the pumps in this building"
 
-    # An alert has to stay open this long before anyone is told, which stops a
-    # float that bobs once from waking the building. Critical alerts ignore it.
-    #
-    # Short on purpose. This is an ejector pit: the thing on the other end of a
-    # delay is water coming up through a floor, and half a minute of politeness
-    # is not worth it.
-    notify_delay_s: int = Field(default=5, ge=0, le=3600)
-    # Do not send the same alert again within this window.
-    notify_cooldown_s: int = Field(default=900, ge=0, le=86_400)
+    # A delay before sending and a cooldown between repeats used to live here.
+    # Both were rendered, parsed and stored, and read by no code anywhere,
+    # which is worse than missing: somebody tunes one and believes they have
+    # changed something. Waiting belongs to each rule's own hold, because the
+    # right wait differs per rule, and repeats are already impossible without a
+    # timer. One open alert per rule is a unique index, so a float that stays
+    # up is one message rather than one per sweep, and clearing it is what
+    # makes the next trip worth sending.
 
 
 class WeatherSettings(BaseModel):

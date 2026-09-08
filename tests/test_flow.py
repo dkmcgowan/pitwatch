@@ -57,8 +57,6 @@ def sign_in_as_admin(client):
 SETUP_FORM = {
     "site_name": "Basement pit",
     "site_timezone": "America/New_York",
-    "notify_delay_s": "5",
-    "notify_cooldown_s": "900",
     "mqtt_enabled": "on",
     "mqtt_host": "192.168.1.51",
     "mqtt_port": "1883",

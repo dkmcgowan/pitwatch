@@ -110,8 +110,6 @@ def site_from(form: FormData) -> SiteSettings:
         contact_phone=text(form, "site_contact_phone"),
         operator=text(form, "site_operator"),
         operator_locality=text(form, "site_operator_locality"),
-        notify_delay_s=integer(form, "notify_delay_s", 5),
-        notify_cooldown_s=integer(form, "notify_cooldown_s", 900),
     )
 
 

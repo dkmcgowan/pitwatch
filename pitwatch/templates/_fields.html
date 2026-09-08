@@ -88,9 +88,9 @@
     </div>
   </div>
 
-  <p class="hint">A meter that publishes on change says nothing while a motor
-    runs steady. Set a topic to ask on and it is asked while the pump runs;
-    leave it empty and nothing is asked.</p>
+  <h5>Ask while the pump runs</h5>
+  <p class="hint">Optional, and only for a meter that publishes when the
+    reading changes, which goes quiet while a motor runs steady.</p>
   <div class="grid">
     <div class="field">
       <label for="clamp{{ clamp.pump }}_ask_topic">Ask on</label>
@@ -211,9 +211,8 @@
   </tbody>
 </table>
 </div>
-<p class="hint">Any topic the device publishes on a schedule. Silence for about
-  two and a half of these and it is reported offline; <strong>0</strong> never
-  holds silence against it.</p>
+<p class="hint">Any topic the device publishes on a schedule, and how often it
+  should arrive. Heard from in time, the device is up. Zero to never check.</p>
 </div>
 {% endmacro %}
 
@@ -228,7 +227,15 @@
   </div>
   <div class="field">
     <label for="site_timezone">Timezone</label>
-    <input type="text" id="site_timezone" name="site_timezone" value="{{ site.timezone }}">
+    <select id="site_timezone" name="site_timezone">
+      {%- for region, zones in timezones %}
+      <optgroup label="{{ region }}">
+        {%- for zone in zones %}
+        <option value="{{ zone }}" {% if site.timezone == zone %}selected{% endif %}>{{ zone }}</option>
+        {%- endfor %}
+      </optgroup>
+      {%- endfor %}
+    </select>
     <p class="hint">Used for every time shown. Storage is always UTC.</p>
   </div>
   <div class="field">
@@ -240,12 +247,6 @@
   </div>
 </div>
 
-{# Where the pit is, which is only ever asked so the rain over it can be looked
-   up. Its own group with its own heading, because the box above it is a label
-   for alerts and this one is a location, and running them together invites
-   somebody to think the building name is being sent somewhere. #}
-<h3>Where the pit is</h3>
-
 <div class="grid">
   <div class="field field-wide">
     <label for="site_address">Address of the pit</label>
@@ -255,8 +256,7 @@
       <button type="button" class="button secondary" data-geocode>Look up</button>
     </div>
     <p class="hint">Used once, when you press the button, to turn the address
-      into a coordinate pair. Rainfall is then asked for by coordinates and
-      the address never leaves this server again.</p>
+      into a coordinate pair.</p>
     <div class="test-result" data-geocode-result hidden></div>
   </div>
   <div class="field">
@@ -277,18 +277,13 @@
 
 <p class="hint">Rounded to two decimal places, about a kilometer. Every
   rainfall model in use is coarser than that, so the rounding costs nothing
-  that could be measured and keeps the request off the building. Fill these in
-  by hand and you never have to type an address at all.
+  that could be measured and keeps the request off the building.
   {%- if site.located %} Last matched: <strong>{{ site.located }}</strong>.{% endif %}</p>
 
-{# Kept apart from the three above, because there is a second email and a
-   second phone number in this application and they are for the opposite
-   purpose. These two are printed on a public web page. The other two are where
-   your alerts go.
-
-   Fields first and explanation under them, like every other group here. #}
-<h3>Published on the public pages</h3>
-
+{# Every label here starts with "Public", which is the whole of what the
+   heading used to say. There is a second email and a second phone number in
+   this application, for the opposite purpose: these are printed on a public
+   web page and the others are where your alerts go. #}
 <div class="grid">
   <div class="field">
     <label for="site_operator">Operated by</label>

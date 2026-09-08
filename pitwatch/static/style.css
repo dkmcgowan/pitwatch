@@ -784,6 +784,10 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .source-card { padding: 0.9rem 1.25rem 1rem; }
 .source-card > h4 { margin: 0 0 0.6rem; font-size: 1rem; }
 
+/* The second group inside a clamp card. Smaller than the card's own heading,
+   because it divides the card rather than naming it. */
+.source-card > h5 { margin: 1.4rem 0 0; font-size: 0.9rem; font-weight: 650; }
+
 /* Its own marker rather than the browser's, which carries an indent this does
    not want: the block under it is more of the same form, not a sub item of the
    label, so it lines up with the fields above. */

@@ -1,24 +1,21 @@
-"""Sending a text message.
+"""Sending a text message, through Twilio.
 
-Two providers, and the choice between them is mostly about paperwork.
+Reaching a US number is not a sign-up-and-go affair. A registered origination
+identity is required, meaning a 10DLC campaign, a toll-free number or a short
+code, and the registration takes days and is reviewed by a human. That is a
+rule about US A2P messaging rather than anything a vendor invented.
 
-Either way, reaching a US number is not a sign-up-and-go affair. A registered
-origination identity is required, meaning a 10DLC campaign, a toll-free number
-or a short code, and the registration takes days and is reviewed by a human.
-That is a rule about US A2P messaging rather than anything either vendor
-invented, and there is no provider that does not have it.
+Twilio's API is a form post, its errors say what is wrong in a sentence, and
+its console shows a delivery receipt per message, which matters when the
+question is "did the alarm actually arrive".
 
-**Twilio** is the default and the one being registered for here. Its API is a
-form post, its errors say what is wrong in a sentence, and its console shows a
-delivery receipt per message, which matters when the question is "did the alarm
-actually arrive".
-
-**Amazon SNS** publishes to a number the same way and is kept because it is
-already wired and already works. Its errors are worded unhelpfully enough that
-they are translated below.
-
-A carrier email gateway was a third option and was removed. See SmsSettings for
-why.
+Two other providers have been in here and are gone. A carrier email gateway
+was free and needed no registration and was delivered at the carrier's
+convenience, which is the wrong shape for a flood alarm. Amazon SNS worked as
+far as anybody could tell and that is the problem: the account it was written
+against never came out of the SMS sandbox, so not one message was ever sent
+through it. Code that has never run once is not a fallback, it is a guess with
+a settings page, and it went along with the request signing it needed.
 """
 
 from __future__ import annotations
@@ -26,21 +23,17 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import UTC, datetime
-from urllib.parse import quote, urlencode
+from urllib.parse import quote
 
 import httpx2
 
-from pitwatch.notify.sigv4 import authorization_header
 from pitwatch.schemas import SmsSettings
 
 log = logging.getLogger(__name__)
 
 TIMEOUT_S = 30
-SNS_API_VERSION = "2010-03-31"
 
-# E.164: a plus, then up to fifteen digits. AWS rejects anything else, with a
-# message that does not say so.
+# E.164: a plus, then up to fifteen digits.
 E164 = re.compile(r"^\+[1-9]\d{7,14}$")
 
 
@@ -67,98 +60,6 @@ def normalize(value: str) -> str:
     if len(digits) == 11 and digits.startswith("1"):
         return f"+{digits}"
     return cleaned
-
-
-def _sns_error(status: int, body: str) -> str:
-    """Turn an SNS error body into something worth reading.
-
-    AWS reports the two conditions that actually stop a new account from
-    sending, the sandbox and the missing origination identity, in wording that
-    gives no hint about what to do next.
-    """
-    lowered = body.lower()
-    if "no origination identity" in lowered or "originationidentity" in lowered:
-        return (
-            "AWS has no origination identity for this destination. Sending to "
-            "US numbers needs a registered 10DLC or toll-free number on the "
-            "account; a plain AWS account cannot text a US phone without one."
-        )
-    if "sandbox" in lowered or "not verified" in lowered:
-        return (
-            "This AWS account is still in the SNS SMS sandbox, which can only "
-            "reach verified numbers. Either verify this number in the SNS "
-            "console under Text messaging, or request production access."
-        )
-    if status in (401, 403) or "signaturedoesnotmatch" in lowered:
-        return (
-            "AWS rejected the credentials. Check the access key and secret, and "
-            "that the region matches the one the origination number is in."
-        )
-    if "invalidparameter" in lowered and "phonenumber" in lowered:
-        return "AWS rejected the phone number. It has to be in +country format."
-    return f"AWS returned {status}: {body[:400]}"
-
-
-async def send_via_sns(settings: SmsSettings, to: str, message: str) -> None:
-    if not settings.aws_access_key_id or not settings.aws_secret_access_key:
-        raise SmsError("No AWS access key is configured")
-    if not settings.aws_region:
-        raise SmsError("No AWS region is configured")
-
-    number = normalize(to)
-    if not looks_like_a_number(number):
-        raise SmsError(f"{to!r} does not look like a phone number. Use +1 and ten digits.")
-
-    host = f"sns.{settings.aws_region}.amazonaws.com"
-    fields = {
-        "Action": "Publish",
-        "Version": SNS_API_VERSION,
-        "PhoneNumber": number,
-        "Message": message,
-    }
-
-    # Transactional asks the carriers to prioritize delivery and costs a little
-    # more. A pump alarm is the definition of transactional.
-    attributes = [("AWS.SNS.SMS.SMSType", "Transactional")]
-    if settings.origination_number:
-        attributes.append(("AWS.MM.SMS.OriginationNumber", normalize(settings.origination_number)))
-    if settings.sender_id:
-        attributes.append(("AWS.SNS.SMS.SenderID", settings.sender_id))
-    for index, (name, value) in enumerate(attributes, start=1):
-        fields[f"MessageAttributes.entry.{index}.Name"] = name
-        fields[f"MessageAttributes.entry.{index}.Value.DataType"] = "String"
-        fields[f"MessageAttributes.entry.{index}.Value.StringValue"] = value
-
-    body = urlencode(sorted(fields.items()), quote_via=quote).encode("utf-8")
-    now = datetime.now(UTC)
-    headers = {
-        "host": host,
-        "x-amz-date": now.strftime("%Y%m%dT%H%M%SZ"),
-        "content-type": "application/x-www-form-urlencoded; charset=utf-8",
-    }
-    headers["authorization"] = authorization_header(
-        access_key=settings.aws_access_key_id,
-        secret_key=settings.aws_secret_access_key,
-        region=settings.aws_region,
-        service="sns",
-        method="POST",
-        path="/",
-        query="",
-        headers=headers,
-        payload=body,
-        now=now,
-    )
-
-    try:
-        async with httpx2.AsyncClient(timeout=TIMEOUT_S) as client:
-            response = await client.post(f"https://{host}/", content=body, headers=headers)
-    except httpx2.HTTPError as error:
-        raise SmsError(f"Could not reach {host}: {error}") from error
-
-    if response.status_code >= 400:
-        raise SmsError(_sns_error(response.status_code, response.text))
-
-    log.info("Sent a text to %s through SNS", number)
 
 
 async def send_via_twilio(settings: SmsSettings, to: str, message: str) -> None:
@@ -249,9 +150,4 @@ def _twilio_error(status: int, body: str) -> str:
 
 
 async def send(settings: SmsSettings, to: str, message: str) -> None:
-    if settings.provider == "twilio":
-        await send_via_twilio(settings, to, message)
-    elif settings.provider == "sns":
-        await send_via_sns(settings, to, message)
-    else:  # pragma: no cover -- the model restricts this
-        raise SmsError(f"Unknown SMS provider {settings.provider!r}")
+    await send_via_twilio(settings, to, message)

@@ -443,20 +443,6 @@ function csrfHeader(form) {
   wire("[data-test-email]", "[data-email-result]", "/api/test/email", "Sending...");
   wire("[data-test-sms]", "[data-sms-result]", "/api/test/sms", "Sending...");
 
-  // Show only the provider that is selected. Both blocks stay in the form and
-  // both still submit, so switching provider and back does not lose what you
-  // typed; they are only hidden.
-  const provider = document.querySelector("#sms_provider");
-  const blocks = Array.prototype.slice.call(document.querySelectorAll("[data-sms-provider]"));
-  if (provider && blocks.length) {
-    const refresh = function () {
-      blocks.forEach(function (block) {
-        block.hidden = block.getAttribute("data-sms-provider") !== provider.value;
-      });
-    };
-    provider.addEventListener("change", refresh);
-    refresh();
-  }
 })();
 
 

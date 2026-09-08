@@ -15,7 +15,7 @@ wrong". Add them when the shape settles, not before.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -136,21 +136,12 @@ class SmsSettings(BaseModel):
     # way to tell the difference. That is an acceptable trade for a reminder
     # and not for a flood alarm, and leaving it on the page invited somebody to
     # pick it because it was the one with no paperwork.
-    provider: str = Field(default="twilio", pattern="^(twilio|sns)$")
+    # Amazon SNS was the second option and is gone too. It was written, it had
+    # a settings page, it had tests, and not one message was ever sent through
+    # it, because the account it was written against never left the SMS
+    # sandbox. That is the difference between a fallback and a guess.
+    provider: Literal["twilio"] = "twilio"
 
-    # An IAM access key with permission to call sns:Publish, and nothing else.
-    aws_region: str = "us-east-1"
-    aws_access_key_id: str = ""
-    aws_secret_access_key: str = ""
-    # The registered 10DLC or toll-free number messages are sent from. Required
-    # in practice for US destinations; AWS refuses without one and says so
-    # obscurely.
-    origination_number: str = ""
-    # An alphabetic sender name. Works in much of the world and is ignored in
-    # the US and Canada, where an origination number is required instead.
-    sender_id: str = ""
-
-    # Twilio.
     #
     # The account SID is not a credential. It names the account in the URL
     # every request is sent to, so it is required whichever way the request is

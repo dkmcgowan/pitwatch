@@ -283,6 +283,7 @@ def test_only_inputs_carrying_something_are_shown():
 def render_settings(**overrides) -> str:
     from jinja2 import Environment, FileSystemLoader
 
+    from pitwatch.app import TIMEZONES
     from pitwatch.schemas import (
         DASHBOARD_ROLES,
         MqttSettings,
@@ -297,6 +298,10 @@ def render_settings(**overrides) -> str:
     env = Environment(loader=FileSystemLoader("pitwatch/templates"), autoescape=True)
     env.globals["csrf_token"] = lambda: "token"
     env.globals["version"] = "test"
+    # The real list rather than a stub: an empty one renders a select with no
+    # options, which submits nothing, and this file's round trip test would
+    # then be checking that a timezone survives being dropped.
+    env.globals["timezones"] = TIMEZONES
     context = {
         "site": SiteSettings(),
         "weather": WeatherSettings(),
@@ -1680,11 +1685,13 @@ def test_the_lamps_are_chosen_on_the_input_that_carries_them():
 def render_page(name: str, **context) -> str:
     from jinja2 import Environment, FileSystemLoader
 
+    from pitwatch.app import TIMEZONES
     from pitwatch.schemas import MqttSettings, SiteSettings, WeatherSettings
 
     env = Environment(loader=FileSystemLoader("pitwatch/templates"), autoescape=True)
     env.globals["csrf_token"] = lambda: "token"
     env.globals["version"] = "test"
+    env.globals["timezones"] = TIMEZONES
     context.setdefault("site", SiteSettings(name="A pit"))
     context.setdefault("weather", WeatherSettings())
     context.setdefault("mqtt", MqttSettings())

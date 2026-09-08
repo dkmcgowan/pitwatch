@@ -281,17 +281,6 @@ def _kept_secret(form: FormData, field: str, clear_field: str, existing: str) ->
 def sms_from(form: FormData, existing: SmsSettings) -> SmsSettings:
     return SmsSettings(
         enabled=checkbox(form, "sms_enabled"),
-        provider=text(form, "sms_provider", "twilio") or "twilio",
-        aws_region=text(form, "sms_aws_region", "us-east-1") or "us-east-1",
-        aws_access_key_id=text(form, "sms_aws_access_key_id"),
-        aws_secret_access_key=_kept_secret(
-            form,
-            "sms_aws_secret_access_key",
-            "sms_clear_secret",
-            existing.aws_secret_access_key,
-        ),
-        origination_number=text(form, "sms_origination_number"),
-        sender_id=text(form, "sms_sender_id"),
         twilio_account_sid=text(form, "sms_twilio_account_sid"),
         twilio_key_sid=text(form, "sms_twilio_key_sid"),
         twilio_auth_token=_kept_secret(

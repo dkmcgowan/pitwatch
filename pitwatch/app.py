@@ -14,6 +14,7 @@ import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from zoneinfo import available_timezones
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
@@ -51,6 +52,40 @@ def _csrf_token(context) -> str:
 
 PACKAGE_ROOT = Path(__file__).parent
 templates = Jinja2Templates(directory=str(PACKAGE_ROOT / "templates"))
+
+
+def timezone_choices() -> list[tuple[str, list[str]]]:
+    """Every zone this machine's tzdata knows, grouped by region.
+
+    A list rather than a text box, because a timezone typed by hand is either
+    right or it is a page of times that are quietly wrong by an hour, and the
+    difference between America/New_York and America/New York is not something
+    anybody proofreads. Grouped because five hundred names in one flat list is
+    a scroll rather than a choice.
+
+    Read once at import: the tz database changes a few times a year and a
+    process that has been up since before an update is not the thing to worry
+    about.
+    """
+    # Two names that come back from tzdata and are not places. "localtime" is
+    # this machine's own symlink and "Factory" is a zone whose whole purpose is
+    # to print a message telling you to set your timezone.
+    skip = {"localtime", "Factory"}
+
+    regions: dict[str, list[str]] = {}
+    for zone in sorted(available_timezones() - skip):
+        region, _, rest = zone.partition("/")
+        # UTC and the handful of bare names have no region of their own, and
+        # putting them last keeps them out of the way of the ones people want.
+        regions.setdefault(region if rest else "Other", []).append(zone)
+    other = regions.pop("Other", [])
+    grouped = sorted(regions.items())
+    if other:
+        grouped.append(("Other", other))
+    return grouped
+
+
+TIMEZONES = timezone_choices()
 
 
 def configure_logging(config: Config) -> None:
@@ -199,6 +234,8 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
     # days. One shared date meant that rewriting the terms silently claimed the
     # privacy notice had been rewritten too, which on a page whose whole job is
     # being accurate is a small lie in the first line.
+    # The timezone list, shared by the settings page and the setup wizard.
+    templates.env.globals["timezones"] = TIMEZONES
     templates.env.globals["terms_updated"] = "5 September 2026"
     templates.env.globals["privacy_updated"] = "26 August 2026"
     app.state.templates = templates

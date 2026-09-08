@@ -79,7 +79,6 @@
       <div class="field">
         <label for="smtp_from_address">From address</label>
         <input type="email" id="smtp_from_address" name="smtp_from_address" value="{{ smtp.from_address }}">
-        <p class="hint">Has to be an identity you have verified in SES.</p>
       </div>
       <div class="field">
         <label for="smtp_from_name">From name</label>
@@ -114,79 +113,28 @@
     </div>
 
     <div class="field">
-      <label for="sms_provider">Through</label>
+      <label for="sms_provider">Provider</label>
       <select id="sms_provider" name="sms_provider">
-        <option value="twilio" {% if sms.provider == 'twilio' %}selected{% endif %}>Twilio</option>
-        <option value="sns" {% if sms.provider == 'sns' %}selected{% endif %}>Amazon SNS</option>
+        <option value="twilio" selected>Twilio</option>
       </select>
-      <p class="hint">Either one needs a registered origination identity before
-        it can text a US number. That is the law rather than the vendor.</p>
     </div>
 
-    <div class="grid" data-sms-provider="sns">
-      <div class="field">
-        <label for="sms_aws_region">Region</label>
-        <input type="text" id="sms_aws_region" name="sms_aws_region" value="{{ sms.aws_region }}"
-               placeholder="us-east-1">
-        <p class="hint">The region your origination number lives in.</p>
-      </div>
-      <div class="field">
-        <label for="sms_aws_access_key_id">Access key ID</label>
-        <input type="text" id="sms_aws_access_key_id" name="sms_aws_access_key_id"
-               value="{{ sms.aws_access_key_id }}" autocomplete="off">
-        <p class="hint">An IAM user whose only permission is
-          <code>sns:Publish</code>.</p>
-      </div>
-      <div class="field">
-        <label for="sms_aws_secret_access_key">Secret access key</label>
-        <input type="password" id="sms_aws_secret_access_key" name="sms_aws_secret_access_key"
-               autocomplete="new-password"
-               placeholder="{% if sms.aws_secret_access_key %}unchanged{% else %}none set{% endif %}">
-        {% if sms.aws_secret_access_key %}
-        <label class="hint">
-          <input type="checkbox" name="sms_clear_secret"> Clear the stored secret
-        </label>
-        {% endif %}
-      </div>
-      <div class="field">
-        <label for="sms_origination_number">Origination number</label>
-        <input type="tel" id="sms_origination_number" name="sms_origination_number"
-               value="{{ sms.origination_number }}" placeholder="+18885550142">
-        <p class="hint">Required for US destinations.</p>
-      </div>
-      <div class="field">
-        <label for="sms_sender_id">Sender ID</label>
-        <input type="text" id="sms_sender_id" name="sms_sender_id" value="{{ sms.sender_id }}"
-               placeholder="PITWATCH">
-        <p class="hint">Used outside North America, ignored in the US and
-          Canada.</p>
-      </div>
-    </div>
-
-    <div class="grid" data-sms-provider="twilio">
+    <div class="grid">
       <div class="field">
         <label for="sms_twilio_account_sid">Account SID</label>
         <input type="text" id="sms_twilio_account_sid" name="sms_twilio_account_sid"
                value="{{ sms.twilio_account_sid }}" placeholder="AC..." autocomplete="off">
-        <p class="hint">From the Twilio console home page. Always needed, even
-          when signing with an API key: it names the account rather than
-          proving anything.</p>
       </div>
       <div class="field">
         <label for="sms_twilio_key_sid">API key SID</label>
         <input type="text" id="sms_twilio_key_sid" name="sms_twilio_key_sid"
                value="{{ sms.twilio_key_sid }}" placeholder="SK..." autocomplete="off">
-        <p class="hint">Optional and recommended. An API key can be revoked on
-          its own, so a leaked one costs a rotation instead of the whole
-          account. Leave it empty to sign with the account's auth token.</p>
       </div>
       <div class="field">
         <label for="sms_twilio_auth_token">Auth token or key secret</label>
         <input type="password" id="sms_twilio_auth_token" name="sms_twilio_auth_token"
                autocomplete="new-password"
                placeholder="{% if sms.twilio_auth_token %}unchanged{% else %}none set{% endif %}">
-        <p class="hint">The account's auth token, or the key's secret when an
-          API key SID is set above. Twilio shows a key secret once.</p>
         {% if sms.twilio_auth_token %}
         <label class="hint">
           <input type="checkbox" name="sms_clear_twilio_token"> Clear the stored token
@@ -199,15 +147,11 @@
                name="sms_twilio_messaging_service_sid"
                value="{{ sms.twilio_messaging_service_sid }}" placeholder="MG..."
                autocomplete="off">
-        <p class="hint">Preferred. An approved A2P campaign is attached to a
-          messaging service, so sending through it is what keeps the traffic
-          registered.</p>
       </div>
       <div class="field">
         <label for="sms_twilio_from">From number</label>
         <input type="tel" id="sms_twilio_from" name="sms_twilio_from"
                value="{{ sms.twilio_from }}" placeholder="+18885550142">
-        <p class="hint">Used only when no messaging service is set.</p>
       </div>
     </div>
 
@@ -290,7 +234,7 @@
       individual reading.</p>
 
     <div class="field">
-      <label for="summary_description">Your system</label>
+      <label for="summary_description">Context prompt</label>
       <textarea id="summary_description" name="summary_description" rows="6"
                 maxlength="4000">{{ summary.description }}</textarea>
       <p class="hint">What the pit does, what the pumps are, how the panel is

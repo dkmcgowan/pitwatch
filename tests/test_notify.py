@@ -54,63 +54,6 @@ def test_e164_validation():
     assert not sms_sender.looks_like_a_number("+1234567890123456"), "too long"
 
 
-# -- turning AWS refusals into something actionable --------------------------
-
-
-def test_a_missing_origination_identity_says_what_to_do():
-    """The error that stops every new AWS account texting a US number.
-
-    AWS words it as though you had forgotten a parameter. What it means is that
-    you have to register a 10DLC or toll-free number, which takes days.
-    """
-    message = sms_sender._sns_error(
-        400,
-        "<Error><Code>InvalidParameter</Code><Message>No origination identity "
-        "found for this account</Message></Error>",
-    )
-
-    assert "10DLC" in message
-    assert "toll-free" in message
-
-
-def test_the_sandbox_error_says_it_is_the_sandbox():
-    message = sms_sender._sns_error(400, "Phone number is not verified in the SMS sandbox")
-
-    assert "sandbox" in message.lower()
-    assert "verify" in message.lower()
-
-
-def test_a_signature_failure_points_at_the_credentials_and_the_region():
-    message = sms_sender._sns_error(403, "<Code>SignatureDoesNotMatch</Code>")
-
-    assert "credentials" in message.lower()
-    assert "region" in message.lower()
-
-
-def test_an_unrecognized_error_is_passed_through_rather_than_swallowed():
-    message = sms_sender._sns_error(500, "Service Unavailable")
-
-    assert "500" in message
-    assert "Service Unavailable" in message
-
-
-# -- refusing to send when it obviously cannot work --------------------------
-
-
-async def test_sns_without_credentials_fails_before_making_a_request():
-    with pytest.raises(sms_sender.SmsError, match="access key"):
-        await sms_sender.send_via_sns(SmsSettings(aws_region="us-east-1"), "+12125550142", "hi")
-
-
-async def test_sns_refuses_a_number_it_cannot_make_sense_of():
-    settings = SmsSettings(
-        aws_region="us-east-1", aws_access_key_id="AKIDEXAMPLE", aws_secret_access_key="secret"
-    )
-
-    with pytest.raises(sms_sender.SmsError, match="does not look like a phone number"):
-        await sms_sender.send_via_sns(settings, "nonsense", "hi")
-
-
 # -- Twilio ------------------------------------------------------------------
 
 

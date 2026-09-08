@@ -429,7 +429,14 @@ def _daily_average(runs: int | None, first_seen: datetime | None, now: datetime)
 # whole story for the other. Both are cheap enough that the display picks which
 # to show rather than the query being asked twice.
 
-SIGNAL_TODAY = timedelta(hours=24)
+# Today is today, not the last twenty four hours.
+#
+# It was a rolling window, and it sat on the dashboard beside a run count taken
+# from local midnight, both labelled "today". At seven in the morning that read
+# as eighteen float closings against fourteen runs on a panel that had answered
+# every single call: the float was counting back into last night and the pumps
+# were not. Two numbers side by side that cannot be compared are worse than one
+# that is wrong, because nothing about them looks broken.
 SIGNAL_MONTH = timedelta(days=30)
 
 SIGNAL_QUERY = """
@@ -450,7 +457,9 @@ WITH edges AS (
     SELECT channel,
            max(ts)                                           AS last_on,
            min(ts)                                           AS first_on,
-           count(*) FILTER (WHERE ts > now() - $2::interval) AS today,
+           count(*) FILTER (
+               WHERE ts >= date_trunc('day', now() AT TIME ZONE $2::text) AT TIME ZONE $2::text
+           )                                                AS today,
            count(*) FILTER (WHERE ts > now() - $3::interval) AS month,
            (array_agg(held_s ORDER BY ts DESC)
                 FILTER (WHERE held_s IS NOT NULL))[1]        AS last_held_s
@@ -535,6 +544,10 @@ class SignalHistory:
 
     def __init__(self) -> None:
         self._at: datetime | None = None
+        # Cached per timezone as well as per moment: today is a question about
+        # where the pit is, and a cache that ignored that would answer a
+        # renamed timezone with yesterday's boundary.
+        self._zone: str = ""
         self._by_channel: dict[int, Closings] = {}
         self._both_at: datetime | None = None
         self._both = Closings()
@@ -562,17 +575,19 @@ class SignalHistory:
         )
         return self._both
 
-    async def closings(self, pool: asyncpg.Pool, channels: list[int]) -> dict[int, Closings]:
+    async def closings(
+        self, pool: asyncpg.Pool, channels: list[int], timezone: str = "UTC"
+    ) -> dict[int, Closings]:
         now = datetime.now(UTC)
-        if self._at is not None and now - self._at < REFRESH_RUNS:
+        if self._at is not None and now - self._at < REFRESH_RUNS and self._zone == timezone:
             return self._by_channel
         if not channels:
-            self._at, self._by_channel = now, {}
+            self._at, self._zone, self._by_channel = now, timezone, {}
             return self._by_channel
 
-        self._at = now
+        self._at, self._zone = now, timezone
         try:
-            rows = await pool.fetch(SIGNAL_QUERY, channels, SIGNAL_TODAY, SIGNAL_MONTH)
+            rows = await pool.fetch(SIGNAL_QUERY, channels, timezone, SIGNAL_MONTH)
         except (asyncpg.PostgresError, OSError) as error:
             log.warning("Could not read the contact history: %s", error)
             return self._by_channel

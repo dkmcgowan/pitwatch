@@ -308,7 +308,12 @@ async def build_state(app) -> dict:
     assigned = {mapped.channel for mapped in inputs.used_channels}
 
     signals: SignalHistory | None = getattr(app.state, "signal_history", None)
-    closings = await signals.closings(pool, sorted(assigned)) if signals else {}
+    # The site's own timezone, the same one the run counts use. Today is a word
+    # about where the pit is, and two numbers on one screen counting from two
+    # different midnights cannot be read against each other.
+    closings = (
+        await signals.closings(pool, sorted(assigned), store.site.timezone) if signals else {}
+    )
     both_ran = await signals.both_ran(pool) if signals else None
 
     # The rain, which on an ejector pit is the cause and everything else on

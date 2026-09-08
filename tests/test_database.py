@@ -406,15 +406,26 @@ async def test_counting_what_a_contact_has_done(pool):
     from pitwatch.domain.history import SignalHistory
 
     now = datetime.now(UTC)
+    # Placed against local midnight rather than as "so many hours ago", because
+    # that is what today means and a test written in hours would pass or fail
+    # depending on what time it ran.
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
     rows = []
-    # A float that has closed three times today, once more this month, and once
-    # long enough ago to be outside both. Written in days, because 400 hours
-    # reads like a long time and is two weeks.
-    for days in (0.04, 0.2, 0.85, 10, 45):
-        rows.append((now - timedelta(days=days), 3, "Lead float", True, True))
-        rows.append(
-            (now - timedelta(days=days) + timedelta(seconds=30), 3, "Lead float", False, False)
-        )
+    for at in (
+        midnight + timedelta(seconds=1),
+        midnight + (now - midnight) / 2,
+        now - timedelta(seconds=1),
+        # Just before midnight: inside the last twenty four hours, and not
+        # today. This is the one that matters. It used to count as today, which
+        # put a float count on the dashboard that could not be read against the
+        # run counts beside it.
+        midnight - timedelta(seconds=1),
+        # And one outside the month entirely.
+        now - timedelta(days=45),
+    ):
+        rows.append((at, 3, "Lead float", True, True))
+        rows.append((at + timedelta(seconds=30), 3, "Lead float", False, False))
     # An alarm that went off once, three weeks ago.
     rows.append((now - timedelta(days=21), 4, "High water", True, True))
     rows.append((now - timedelta(days=21, seconds=-60), 4, "High water", False, False))
@@ -424,9 +435,9 @@ async def test_counting_what_a_contact_has_done(pool):
         rows,
     )
 
-    closings = await SignalHistory().closings(pool, [3, 4, 5])
+    closings = await SignalHistory().closings(pool, [3, 4, 5], "UTC")
 
-    assert closings[3].today == 3, "three inside a day"
+    assert closings[3].today == 3, "today is since midnight, not the last 24 hours"
     assert closings[3].month == 4, "the 45 day old one is outside a month"
     assert (now - closings[3].last_on).total_seconds() < 3700
 

@@ -11,7 +11,11 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
+
 from pitwatch import summary
+from pitwatch.notify import email as email_sender
+from pitwatch.notify import sms as sms_sender
 from pitwatch.schemas import (
     ClampSource,
     MqttSettings,
@@ -163,79 +167,6 @@ async def test_a_device_error_stays_on_the_diagnostics_page(pool, store):
     assert "Errno" not in body
 
 
-def _last(created_at, context: str) -> dict:
-    return {"created_at": created_at, "context": context, "body": "Both pumps look normal."}
-
-
-def test_the_first_summary_is_always_allowed():
-    settings = SummarySettings(api_key="sk-test", description="Two pumps in a pit.")
-
-    assert summary.offer(settings, None).allowed
-
-
-def test_the_same_week_and_the_same_words_give_the_same_answer():
-    """Which is not worth a second call on somebody's account. The button goes
-    gray and says which half is stale rather than disappearing: a control that
-    vanishes and comes back is a control nobody learns."""
-    settings = SummarySettings(api_key="sk-test", description="Two pumps in a pit.")
-    yesterday = datetime.now(UTC) - timedelta(days=1)
-
-    decision = summary.offer(settings, _last(yesterday, "Two pumps in a pit."))
-
-    assert not decision.allowed
-    assert "6 days" in decision.because
-    assert "change what you have written" in decision.because
-
-
-def test_a_week_of_readings_it_has_not_seen_opens_the_button():
-    settings = SummarySettings(api_key="sk-test", description="Two pumps in a pit.")
-    last_week = datetime.now(UTC) - timedelta(days=7, minutes=1)
-
-    assert summary.offer(settings, _last(last_week, "Two pumps in a pit.")).allowed
-
-
-def test_telling_it_something_new_opens_the_button():
-    """The deliberate way through, and not a loophole. A summary is worth
-    arguing with, and the way to argue with this one is to tell it the thing it
-    did not know."""
-    settings = SummarySettings(
-        api_key="sk-test",
-        description="Two pumps in a pit. The check valve was replaced in the spring.",
-    )
-    an_hour_ago = datetime.now(UTC) - timedelta(hours=1)
-
-    assert summary.offer(settings, _last(an_hour_ago, "Two pumps in a pit.")).allowed
-
-
-def test_a_summary_written_before_the_context_was_kept_does_not_hold_the_button():
-    """Rows from before the column existed carry an empty context, and nothing
-    is known about what those were told."""
-    settings = SummarySettings(api_key="sk-test", description="Two pumps in a pit.")
-
-    assert summary.offer(settings, _last(datetime.now(UTC), "")).allowed
-
-
-def test_no_key_is_its_own_answer():
-    assert not summary.offer(SummarySettings(), None).allowed
-
-
-async def test_a_summary_keeps_what_it_was_told_about_the_building(pool, store):
-    """So a summary read a month later can be checked against the description it
-    was given as well as the readings it saw, and so the page can tell whether
-    anything has changed since."""
-    await pool.execute(
-        """
-        INSERT INTO summary (window_key, model, body, facts, context, written_by)
-        VALUES ('7d', 'gpt-4o-mini', 'Both pumps look normal.', '{}'::jsonb, $1, 'david')
-        """,
-        "Two pumps in a pit.",
-    )
-
-    last = await summary.latest(pool)
-
-    assert last["context"] == "Two pumps in a pit."
-
-
 async def _write(pool, body: str, context: str, minutes_ago: int) -> int:
     return await pool.fetchval(
         """
@@ -249,32 +180,195 @@ async def _write(pool, body: str, context: str, minutes_ago: int) -> int:
     )
 
 
-async def test_the_earlier_list_is_everything_but_the_one_on_the_page(pool):
-    """The latest is printed in full above it, so listing it again would be the
-    same paragraph twice."""
+async def test_the_history_lists_every_check_including_the_latest(pool):
+    """The two tabs are read at different moments, and a history missing its own
+    most recent entry is a history somebody has to reconcile in their head."""
     await _write(pool, "Oldest.", "First words.", 300)
     await _write(pool, "Middle.", "Second words.", 200)
-    newest = await _write(pool, "Newest.", "Third words.", 10)
+    await _write(pool, "Newest.", "Third words.", 10)
 
-    rows = await summary.earlier(pool)
+    rows = await summary.every(pool)
 
-    assert [row["body"] for row in rows] == ["Middle.", "Oldest."]
-    assert newest not in [row["id"] for row in rows]
-    assert rows[0]["context"] == "Second words."
+    assert [row["body"] for row in rows] == ["Newest.", "Middle.", "Oldest."]
 
 
-async def test_the_words_a_summary_was_written_from_can_be_asked_for(pool):
-    which = await _write(pool, "Both pumps look normal.", "Two pumps in a pit.", 60)
+async def test_what_a_check_was_told_is_still_kept_even_though_no_page_shows_it(pool):
+    """The prompt came off both pages on 2026-09-09 and is still stored, which
+    is not an oversight: a reading a month old is an opinion unless what it was
+    looking at, numbers and description alike, is beside it."""
+    await _write(pool, "Both pumps look normal.", "Two pumps in a pit.", 60)
 
-    assert await summary.told(pool, which) == "Two pumps in a pit."
-    # Not the same answer as a row that was never written.
-    assert await summary.told(pool, which + 1000) is None
+    assert (await summary.latest(pool))["context"] == "Two pumps in a pit."
 
 
-async def test_a_summary_from_before_the_words_were_kept_has_none_to_give_back(pool):
-    """Empty, and not None: the row exists and nothing is known about what it
-    was told. Restoring it would wipe the description and call it a restore,
-    which is why the page checks before it offers."""
-    which = await _write(pool, "Nothing worth acting on.", "", 60)
+# -- the daily one ------------------------------------------------------------
 
-    assert await summary.told(pool, which) == ""
+
+def _at(hour: int, minute: int = 0) -> datetime:
+    """That time in New York, as the UTC instant it happens at."""
+    from zoneinfo import ZoneInfo
+
+    here = datetime.now(ZoneInfo("America/New_York")).replace(
+        hour=hour, minute=minute, second=0, microsecond=0
+    )
+    return here.astimezone(UTC)
+
+
+class _App:
+    """Everything DailyCheck reaches for, and nothing else."""
+
+    def __init__(self, pool, store):
+        self.state = SimpleNamespace(pool=pool, settings=store, history=None)
+
+
+async def test_the_schedule_does_nothing_until_it_is_switched_on(pool, store):
+    from pitwatch.domain.checkup import DailyCheck
+
+    await store.put(SummarySettings(api_key="sk-test", model="m", daily=False))
+
+    assert await DailyCheck(_App(pool, store)).tick(_at(9)) is False
+
+
+async def test_the_schedule_waits_for_the_hour_on_the_buildings_clock(pool, store):
+    """Seven in the morning is seven in the morning where the pit is, not where
+    the server happens to be."""
+    from pitwatch.domain.checkup import DailyCheck
+
+    await _site(store)
+    await store.put(SummarySettings(api_key="sk-test", model="m", daily=True, daily_at="07:00"))
+
+    assert await DailyCheck(_App(pool, store)).tick(_at(6, 30)) is False
+
+
+async def test_one_a_day_is_decided_by_the_last_one_and_not_by_a_timer(pool, store):
+    """A process that remembers in memory forgets on every deploy, and this is
+    deployed several times on a busy afternoon. The last check's own timestamp
+    answers it across restarts."""
+    from pitwatch.domain.checkup import DailyCheck
+
+    await _site(store)
+    await store.put(SummarySettings(api_key="sk-test", model="m", daily=True, daily_at="07:00"))
+    await _write(pool, "This morning's.", "Two pumps in a pit.", 60)
+
+    assert await DailyCheck(_App(pool, store)).tick(_at(9)) is False
+
+
+async def test_a_check_whose_hour_passed_while_it_was_down_still_runs(pool, store, monkeypatch):
+    """Late rather than never. Yesterday's being the newest one you have is
+    worse than one arriving at ten past nine."""
+    from pitwatch.domain.checkup import DailyCheck
+
+    await _site(store)
+    await store.put(SummarySettings(api_key="sk-test", model="m", daily=True, daily_at="07:00"))
+    await _write(pool, "Yesterday's.", "Two pumps in a pit.", 60 * 30)
+
+    async def answer(settings, payload):
+        return "Both pumps look normal."
+
+    # Nothing in this suite talks to a model. The half being tested here is
+    # which day it is, not what comes back.
+    monkeypatch.setattr(summary, "ask", answer)
+
+    assert await DailyCheck(_App(pool, store)).tick(_at(9)) is True
+
+    written = await summary.latest(pool)
+    assert written["body"] == "Both pumps look normal."
+    assert written["written_by"] == "the schedule", "no account ran it, so none is named"
+
+
+async def test_the_daily_one_is_emailed_and_not_texted(pool, store, monkeypatch):
+    """Four paragraphs of prose is several text messages, arriving every
+    morning, on the channel that exists here for two in the morning."""
+    from pitwatch.domain.checkup import DailyCheck
+
+    await _site(store)
+    await store.put(
+        SummarySettings(api_key="sk-test", model="m", daily=True, daily_at="07:00", notify=True)
+    )
+    await pool.execute(
+        """
+        INSERT INTO app_user (username, name, email, phone, notify_email, notify_sms,
+                              min_severity, enabled)
+        VALUES ('super', 'Alex', 'alex@example.com', '+12125550142', true, true, 'info', true)
+        """
+    )
+
+    async def answer(settings, payload):
+        return "Both pumps look normal."
+
+    sent = []
+
+    async def by_email(settings, to, subject, body):
+        sent.append((to, subject, body))
+        return "queued"
+
+    monkeypatch.setattr(summary, "ask", answer)
+    monkeypatch.setattr(email_sender, "send", by_email)
+    monkeypatch.setattr(sms_sender, "send", _refuse_to_text)
+
+    assert await DailyCheck(_App(pool, store)).tick(_at(9)) is True
+
+    assert len(sent) == 1
+    to, subject, body = sent[0]
+    assert to == "alex@example.com"
+    assert "health check" in subject
+    assert body == "Both pumps look normal."
+
+    rows = await pool.fetch("SELECT alert_id, event, channel, status FROM notification")
+    assert [dict(row) for row in rows] == [
+        {"alert_id": None, "event": "written", "channel": "email", "status": "sent"}
+    ]
+
+
+async def _refuse_to_text(settings, to, message):
+    raise AssertionError("a health check does not go out as a text message")
+
+
+def test_the_time_of_day_has_to_be_a_time_of_day():
+    for bad in ("25:00", "07:99", "seven", "7"):
+        with pytest.raises(ValueError, match="HH:MM"):
+            SummarySettings(daily_at=bad)
+
+    assert SummarySettings(daily_at="7:5").daily_at == "07:05"
+    assert SummarySettings(daily_at="23:59").daily_hour_and_minute == (23, 59)
+
+
+# -- what it takes to be ready ------------------------------------------------
+
+
+def test_a_model_on_this_network_is_asked_without_a_key():
+    """Requiring one meant an installation pointed at its own hardware saw a
+    page saying "add an OpenAI key" and a button that never appeared."""
+    for address in (
+        "http://127.0.0.1:11434/v1",
+        "http://localhost:8080/v1",
+        "http://192.168.1.40:1234/v1",
+        "http://10.136.1.36:8000/v1",
+        "http://172.16.4.4/v1",
+        "http://workstation/v1",
+        "http://tower.local:5000/v1",
+    ):
+        settings = SummarySettings(model="llama3", base_url=address, api_key="")
+        assert settings.asks_this_network, address
+        assert settings.ready, address
+
+
+def test_anything_out_on_the_internet_still_needs_one():
+    """Including a fresh install, where the model and the address are filled in
+    by default and the key is the one thing nobody has typed yet."""
+    assert not SummarySettings().api_key
+    assert not SummarySettings().ready, "the defaults point at OpenAI"
+
+    for address in ("https://api.openai.com/v1", "https://models.example.com/v1"):
+        settings = SummarySettings(model="gpt-4o-mini", base_url=address, api_key="")
+        assert not settings.asks_this_network, address
+        assert not settings.ready, address
+        assert SummarySettings(model="gpt-4o-mini", base_url=address, api_key="sk-x").ready
+
+
+def test_an_address_it_cannot_place_is_treated_as_the_internet():
+    """The safe way round. Being wrong here costs a page asking for a key that
+    was not needed; the other way round is a button that fails at the far end of
+    a request."""
+    assert not SummarySettings(model="m", base_url="nonsense", api_key="").ready
+    assert not SummarySettings(model="m", base_url="", api_key="").ready

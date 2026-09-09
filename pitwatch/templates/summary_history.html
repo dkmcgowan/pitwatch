@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% set active = 'summary' %}
+{% block title %}AI Health Check{% endblock %}
+
+{% block content %}
+{% include "_summary_tabs.html" %}
+
+{# Every check that has been run, newest first, folded shut.
+
+   What each one was told is stored with it and is not printed. It is the same
+   paragraph on every row until somebody changes it, and a page that repeated it
+   twenty times would bury the twenty readings underneath it. #}
+<div class="charts">
+  <section class="card chart-card">
+    <h2 class="section-heading">Earlier checks</h2>
+
+    {% if not checks %}
+    <p class="hint">Nothing has been checked yet.</p>
+    {% endif %}
+
+    {% for one in checks %}
+    <details class="earlier">
+      <summary>
+        <span class="earlier-when">{{ one.when_local }}</span>
+        <span class="earlier-who">{{ one.who }}</span>
+      </summary>
+      <p class="summary-body">{{ one.body }}</p>
+      <p class="hint">{{ one.window_key }} of readings, using {{ one.model }}.</p>
+    </details>
+    {% endfor %}
+  </section>
+</div>
+
+{% endblock %}

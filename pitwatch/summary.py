@@ -18,8 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import asyncpg
 import httpx2
@@ -40,12 +39,14 @@ TIMEOUT_S = 90.0
 WINDOW = series.WINDOWS["7d"]
 
 # Said in one place, because the page draws it and the post refuses with it.
-NO_KEY = "Add an OpenAI key and a model on the settings page first."
+NOT_READY = "Name a model and an API address on the settings page first."
 
-# How long a summary stands before there is a week of readings it has not seen.
-# The same seven days the summary is written over, so "there is another week to
-# read" and "this one has read a whole week it did not" are the same moment.
-FRESH_FOR = timedelta(days=7)
+# There was a gate here, holding the button until a week had passed or the
+# description had changed, on the reasoning that the same readings and the same
+# words give the same answer for money. It went on 2026-09-09, when the base URL
+# turned out to be the setting that mattered: an installation answering itself
+# on its own network has no per call cost to ration, and rationing a free thing
+# is a page arguing with somebody about their own hardware.
 
 # Every daily figure here is cut on the site's own midnight, the meter's and
 # the panel's and the rain's alike. Days that do not start at the same moment
@@ -107,47 +108,6 @@ INSTRUCTIONS = (
     "Four short paragraphs at most, plain text, no headings and no bullet "
     "points."
 )
-
-
-@dataclass(frozen=True)
-class Offer:
-    """Whether there is anything new to ask, and what to say when there is not.
-
-    Every press is a paid call on somebody's OpenAI account, and the same week
-    of readings with the same description written about them gives the same
-    answer twice. So the button is live only when one of the two halves has
-    moved: a week has gone by, or somebody has changed what they said about the
-    building.
-
-    Editing the description is the deliberate way through, not a loophole. A
-    summary is worth arguing with, and the way to argue with this one is to tell
-    it the thing it did not know.
-    """
-
-    allowed: bool
-    # Under a button that cannot be pressed, saying which half is stale.
-    because: str = ""
-
-
-def offer(settings: SummarySettings, last: dict | None, now: datetime | None = None) -> Offer:
-    """Whether the button is live."""
-    if not settings.ready:
-        return Offer(False, NO_KEY)
-    if last is None:
-        return Offer(True)
-    if (last.get("context") or "") != settings.description.strip():
-        return Offer(True)
-    now = now or datetime.now(UTC)
-    old = now - last["created_at"]
-    if old >= FRESH_FOR:
-        return Offer(True)
-    days = max(1, round((FRESH_FOR - old).total_seconds() / 86400))
-    return Offer(
-        False,
-        f"This one has read the same week and the same description. "
-        f"There is a new week to read in {days} day{'s' if days != 1 else ''}, "
-        f"or change what you have written below and ask again.",
-    )
 
 
 async def rainfall(pool, store: SettingsStore, window: series.Window, zone: str) -> dict | None:
@@ -349,14 +309,18 @@ async def ask(settings: SummarySettings, payload: list[dict]) -> str:
     is a summary that fails for no reason.
     """
     if not settings.ready:
-        raise SummaryError(NO_KEY)
+        raise SummaryError(NOT_READY)
 
     url = settings.base_url.rstrip("/") + "/chat/completions"
+    # Sent only when there is one. A model on this network usually wants no key,
+    # and an empty bearer token is a header that says "I have a credential" and
+    # then does not, which some servers reject and none are helped by.
+    headers = {"Authorization": f"Bearer {settings.api_key}"} if settings.api_key else {}
     try:
         async with httpx2.AsyncClient(timeout=TIMEOUT_S) as client:
             response = await client.post(
                 url,
-                headers={"Authorization": f"Bearer {settings.api_key}"},
+                headers=headers,
                 json={"model": settings.model, "messages": payload},
             )
     except httpx2.HTTPError as error:
@@ -408,38 +372,28 @@ async def write(app, username: str) -> dict:
     return dict(row)
 
 
-# How many earlier ones the page lists. Every summary is kept, and a page that
-# printed all of them would be a wall of paragraphs by the second month. Enough
-# to find the description that read best, which is the reason the list exists.
-EARLIER = 8
+# How many the history tab lists. Every check is kept forever, and a page that
+# printed all of them would be a wall of paragraphs by the second month.
+KEEP_ON_THE_PAGE = 60
 
 
-async def earlier(pool: asyncpg.Pool, limit: int = EARLIER) -> list[dict]:
-    """The ones before the latest, newest first.
+async def every(pool: asyncpg.Pool, limit: int = KEEP_ON_THE_PAGE) -> list[dict]:
+    """The checks that have been run, newest first, for the history tab.
 
-    Each carries the words it was written from, which is the point of the list.
-    A description is worth arguing with and the argument goes in circles without
-    a way back to the one that read best.
+    Including the latest, which the other tab also shows. The two tabs are read
+    at different moments and a history missing its own most recent entry is a
+    history somebody has to reconcile in their head.
     """
     rows = await pool.fetch(
         """
         SELECT id, created_at, window_key, model, body, context, written_by
         FROM summary
         ORDER BY created_at DESC
-        OFFSET 1 LIMIT $1
+        LIMIT $1
         """,
         limit,
     )
     return [dict(row) for row in rows]
-
-
-async def told(pool: asyncpg.Pool, summary_id: int) -> str | None:
-    """What one summary was told about the building, or None if there is no
-    such row. Empty for one written before that was kept, which is not the same
-    as having been told nothing and is why this is separate from the empty
-    string."""
-    row = await pool.fetchrow("SELECT context FROM summary WHERE id = $1", summary_id)
-    return None if row is None else (row["context"] or "")
 
 
 async def latest(pool: asyncpg.Pool) -> dict | None:
@@ -469,18 +423,15 @@ def age(created_at: datetime | None) -> str:
 
 
 __all__ = [
-    "EARLIER",
-    "NO_KEY",
-    "Offer",
+    "KEEP_ON_THE_PAGE",
+    "NOT_READY",
     "SummaryError",
     "age",
     "ask",
-    "earlier",
+    "every",
     "facts",
     "latest",
     "messages",
-    "offer",
     "rainfall",
-    "told",
     "write",
 ]

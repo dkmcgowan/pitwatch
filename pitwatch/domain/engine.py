@@ -40,9 +40,7 @@ import asyncpg
 
 from pitwatch import clock, domain
 from pitwatch.domain import alerts as specs
-from pitwatch.notify import email as email_sender
-from pitwatch.notify import sms as sms_sender
-from pitwatch.schemas import Severity
+from pitwatch.notify import dispatch
 
 log = logging.getLogger(__name__)
 
@@ -62,8 +60,6 @@ SWEEP_S = 30.0
 # feels like it, so the first seconds of a run say nothing about whether the
 # thing is turning. This only has to outlast that.
 SETTLE_S = 6.0
-
-_RANK = {Severity.INFO: 0, Severity.WARNING: 1, Severity.CRITICAL: 2}
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,63 +240,16 @@ class AlertEngine:
     # -- telling somebody ---------------------------------------------------
 
     async def _notify(self, alert_id: int, event: str, rule, message: str) -> None:
-        try:
-            people = await self._pool.fetch(
-                """
-                SELECT name, email, phone, notify_email, notify_sms
-                FROM app_user
-                WHERE enabled
-                  AND (NOT $1::boolean OR is_admin)
-                  AND CASE min_severity
-                          WHEN 'info' THEN 0 WHEN 'warning' THEN 1 ELSE 2
-                      END <= $2::int
-                """,
-                rule.admins_only,
-                _RANK[rule.severity],
-            )
-        except (asyncpg.PostgresError, OSError) as error:
-            log.error("Could not work out who to tell about %d: %s", alert_id, error)
-            return
-
-        for person in people:
-            if person["notify_email"] and person["email"]:
-                await self._send(alert_id, event, "email", person["email"], message)
-            if person["notify_sms"] and person["phone"]:
-                await self._send(alert_id, event, "sms", person["phone"], message)
-
-    async def _send(self, alert_id: int, event: str, channel: str, to: str, message: str) -> None:
-        """One message to one person, written down before it is attempted.
-
-        The row exists whether or not the send works, because "we tried to tell
-        you and could not" is the thing somebody needs to see afterwards, and a
-        record written only on success is a record that cannot show a failure.
-        """
-        note_id = await self._pool.fetchval(
-            """
-            INSERT INTO notification (alert_id, event, channel, target, status, attempts)
-            VALUES ($1, $2, $3, $4, 'pending', 1) RETURNING id
-            """,
-            alert_id,
-            event,
-            channel,
-            to,
-        )
-        try:
-            if channel == "email":
-                site = self._store.site.where or "PitWatch"
-                await email_sender.send(self._store.smtp, to, f"PitWatch: {site}", message)
-            else:
-                await sms_sender.send(self._store.sms, to, message)
-        except Exception as error:  # noqa: BLE001 -- one bad address must not stop the rest
-            log.error("Could not send %s to %s: %s", channel, to, error)
-            await self._pool.execute(
-                "UPDATE notification SET status = 'failed', error = $2 WHERE id = $1",
-                note_id,
-                str(error)[:500],
-            )
-            return
-        await self._pool.execute(
-            "UPDATE notification SET status = 'sent', sent_at = now() WHERE id = $1", note_id
+        """Tell whoever asked to be told. The doing of it is in notify.dispatch,
+        which the daily health check uses as well."""
+        await dispatch.tell(
+            self._pool,
+            self._store,
+            message=message,
+            severity=rule.severity,
+            event=event,
+            admins_only=rule.admins_only,
+            alert_id=alert_id,
         )
 
     # -- what the contacts say ----------------------------------------------

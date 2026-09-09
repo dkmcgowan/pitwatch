@@ -17,7 +17,6 @@ from fastapi.testclient import TestClient
 from pitwatch import __version__
 from pitwatch.app import create_app
 from pitwatch.config import Config
-from pitwatch.summary import Offer
 
 
 def build() -> TestClient:
@@ -1985,37 +1984,21 @@ def test_the_charts_are_drawn_here_and_not_fetched_from_anywhere():
 
 
 def test_the_summary_page_says_what_it_needs_before_it_offers_the_button():
-    """A button that spends money and fails is worse than no button."""
-    nothing = render_page(
-        "summary.html",
-        last=None,
-        age="",
-        ready=False,
-        context="",
-        offer=Offer(False, "Add an OpenAI key and a model on the settings page first."),
-        earlier=[],
-        error=None,
-    )
+    """A button that fails at the far end of a request is worse than no button,
+    whether or not the call costs anything."""
+    nothing = render_page("summary.html", last=None, age="", ready=False, error=None)
 
-    assert "New summary" not in nothing
+    assert "Run a check" not in nothing
     assert "settings" in nothing
 
-    ready = render_page(
-        "summary.html",
-        last=None,
-        age="",
-        ready=True,
-        context="",
-        offer=Offer(True),
-        earlier=[],
-        error=None,
-    )
-    assert "New summary" in ready
-    # The empty box is how the page says nothing has been written about the
-    # building. A sentence saying so, printed above a box labelled with what to
-    # put in it, is the same thing said twice.
-    assert 'name="summary_description"' in ready
-    assert "What it knows about this building" in ready
+    ready = render_page("summary.html", last=None, age="", ready=True, error=None)
+
+    assert "Run a check" in ready
+    # And the prompt is not on this page. It is a description of the building,
+    # set once and revisited when the building changes, so it lives with the
+    # key that asks and not under the reading it produced.
+    assert 'name="summary_description"' not in ready
+    assert "Context prompt" not in ready
 
 
 def test_a_written_summary_is_rendered_as_text_with_its_age():
@@ -2032,9 +2015,6 @@ def test_a_written_summary_is_rendered_as_text_with_its_age():
         },
         age="3 min ago",
         ready=True,
-        context="Two pumps in a pit.",
-        offer=Offer(False, "This one has read the same week."),
-        earlier=[],
         error=None,
     )
 
@@ -2077,18 +2057,35 @@ def test_the_summary_sends_the_description_and_the_numbers_and_nothing_else():
         assert leaked not in body, leaked
 
 
-def test_a_summary_needs_a_key_before_it_asks_anything():
-    """And says so in a sentence somebody can act on rather than failing at the
-    far end of a request."""
+def test_a_check_needs_a_model_and_an_address_but_not_a_key():
+    """A model running on the same network as this usually wants no key, and
+    requiring one meant an installation pointed at its own hardware saw a page
+    saying "add an OpenAI key" and a button that never appeared. A key nobody
+    needs is not a safety check, it is a locked door in front of an open one."""
     import asyncio
 
     from pitwatch.schemas import SummarySettings
     from pitwatch.summary import SummaryError, ask
 
+    # Nothing named to ask, which is the case worth refusing before the request.
     with pytest.raises(SummaryError) as raised:
-        asyncio.run(ask(SummarySettings(), [{"role": "user", "content": "hello"}]))
-
+        asyncio.run(ask(SummarySettings(model=""), [{"role": "user", "content": "hello"}]))
     assert "settings page" in str(raised.value)
+
+    # A model on this network, no key. Ready.
+    local = SummarySettings(model="llama3", base_url="http://127.0.0.1:11434/v1")
+    assert local.ready
+    assert not local.api_key
+
+
+def test_the_key_is_only_sent_when_there_is_one():
+    """An empty bearer token is a header that says "I have a credential" and
+    then does not, which some servers reject and none are helped by."""
+    source = Path("pitwatch/summary.py").read_text(encoding="utf-8")
+    ask_body = source.split("async def ask(", 1)[1].split("async def write(", 1)[0]
+
+    assert "if settings.api_key else {}" in ask_body
+    assert "headers=headers" in ask_body
 
 
 def test_the_notes_are_wired_from_one_file_for_every_page():
@@ -2234,108 +2231,69 @@ def test_every_window_carries_the_english_it_is_read_in():
         assert not window.heading.startswith("The last The")
 
 
-def test_the_summary_page_says_what_it_is_and_offers_a_refresh():
-    """It is an AI summary and the page should say so, the way the settings
-    section that configures it does. And the button is pressed again and again
-    on a page that already has one, so it reads as another rather than a first."""
-    page = render_page(
-        "summary.html",
-        ready=True,
-        last=None,
-        age="",
-        context="",
-        offer=Offer(True),
-        earlier=[],
-        error=None,
-    )
+def test_the_page_is_named_for_what_it_answers():
+    """It was "Summary", which undersold it: what comes back is an opinion on
+    whether the system is well, not a restatement of the figures. "AI" stays in
+    the name, because a paragraph written by a model is read differently from
+    one written by the panel."""
+    page = render_page("summary.html", ready=True, last=None, age="", error=None)
+    settings = render_settings()
 
-    assert "AI Summary" in page
-    assert ">New summary<" in page
+    assert "AI Health Check" in page
+    assert ">Run a check<" in page
+    assert "AI Health Check" in settings, "the section that configures it agrees"
 
-    # The note used to say it knows nothing that is not on this page, which is
-    # not true: it is sent a week of figures the page never draws.
+    # The note says it is an opinion rather than a measurement, which is the
+    # one thing separating it from every other number on this application.
     note = page.split('id="note-summary"', 1)[1]
-    assert "not on this page" not in note
-    assert "reading of the numbers" not in note
-    # What is worth keeping from it: this costs money and only happens on a
-    # press, and the building is not named to the model.
-    assert "presses the button" in note and "no address" in note
+    assert "not a measurement" in note
+    assert "No address" in note
 
 
-def test_an_earlier_summary_is_shown_with_the_words_it_was_written_from():
-    """The list is the history. Nothing new is stored for it: every summary has
-    been kept since the table was made, and since 018 each one carries the
-    description it was given, so this is a view onto rows that already exist."""
+def test_the_check_has_two_tabs_the_way_the_alerts_page_does():
+    """One header icon for two faces of one thing. The latest first here, and
+    not the history: the question somebody opens this with is what the pumps
+    look like now."""
+    latest = render_page("summary.html", ready=True, last=None, age="", error=None)
+    history = render_page("summary_history.html", checks=[])
+
+    for page in (latest, history):
+        assert 'href="/summary"' in page and 'href="/summary/history"' in page
+        assert "subtabs" in page
+
+    assert latest.index('href="/summary"') < latest.index('href="/summary/history"')
+    assert "Nothing has been checked yet" in history
+
+
+def test_the_history_tab_lists_the_checks_without_repeating_the_prompt():
+    """What each was told is stored with it and is not printed. It is the same
+    paragraph on every row until somebody changes it, and a page repeating it
+    twenty times would bury the twenty readings under it."""
     page = render_page(
-        "summary.html",
-        ready=True,
-        last=None,
-        age="",
-        context="Two pumps in a pit.",
-        offer=Offer(True),
-        earlier=[
+        "summary_history.html",
+        checks=[
             {
-                "id": 12,
-                "when_local": "3 Sep 9:14 AM",
+                "when_local": "8 Sep 9:14 AM",
                 "who": "david",
                 "model": "gpt-4o-mini",
+                "window_key": "7d",
                 "body": "Both pumps look normal.",
-                "context": "Two pumps and a check valve replaced in the spring.",
-                "restorable": True,
-                "same": False,
             },
             {
-                "id": 4,
-                "when_local": "27 Aug 8:02 AM",
-                "who": "david",
+                "when_local": "1 Sep 8:02 AM",
+                "who": "alex",
                 "model": "gpt-4o-mini",
-                "body": "Nothing worth acting on.",
-                "context": "",
-                "restorable": False,
-                "same": False,
+                "window_key": "7d",
+                "body": "A quiet week.",
             },
         ],
-        error=None,
     )
 
-    assert "3 Sep 9:14 AM" in page
-    assert "check valve replaced in the spring" in page
-    assert 'action="/summary/restore"' in page
-    assert 'value="12"' in page
-
-    # The one written before the words were kept offers no restore, because
-    # restoring nothing would wipe the description and call it a restore.
-    assert 'value="4"' not in page
-    assert "not kept" in page
-
-
-def test_the_words_already_in_the_box_are_not_offered_back():
-    """A button that puts back what is already there is a button that does
-    nothing, and pressing it would still count as a change."""
-    page = render_page(
-        "summary.html",
-        ready=True,
-        last=None,
-        age="",
-        context="Two pumps in a pit.",
-        offer=Offer(True),
-        earlier=[
-            {
-                "id": 12,
-                "when_local": "3 Sep 9:14 AM",
-                "who": "david",
-                "model": "gpt-4o-mini",
-                "body": "Both pumps look normal.",
-                "context": "Two pumps in a pit.",
-                "restorable": True,
-                "same": True,
-            }
-        ],
-        error=None,
-    )
-
-    assert 'action="/summary/restore"' not in page
-    assert "the words in the box now" in page
+    assert page.count("<details") == 2
+    assert "8 Sep 9:14 AM" in page and "A quiet week." in page
+    # Folded shut, and no prompt anywhere on it.
+    assert "[open]" not in page and "<details open" not in page
+    assert "Told:" not in page and "Use these words" not in page
 
 
 def test_the_history_page_is_charts_and_not_a_list_of_runs():

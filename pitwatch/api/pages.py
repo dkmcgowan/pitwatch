@@ -277,103 +277,67 @@ async def history_page(request: Request, user: auth.SignedIn):
     return _templates(request).TemplateResponse(request, "history.html", _context(request))
 
 
-# Not an administrator's page any more. It was one because every press spends
-# money, and the gate below is a better answer to that than a locked door: a
-# summary can only be written when there is a week of readings it has not seen
-# or somebody has changed what was written about the building, so the people who
-# look after the pit can read one and the account cannot be run up by refreshing.
+# Not an administrator's page. It was one because every run spends money on an
+# OpenAI account, and that stopped being the deciding fact once this could be
+# pointed at a model running on the same network: the base URL is a setting, and
+# an installation answering itself has no per call cost to ration.
 @router.get("/summary", include_in_schema=False)
 async def summary_page(request: Request, user: auth.SignedIn, error: str | None = None):
     store: SettingsStore = request.app.state.settings
-    pool = request.app.state.pool
-    zone = store.site.timezone
-    last = await summaries.latest(pool)
+    last = await summaries.latest(request.app.state.pool)
     return _templates(request).TemplateResponse(
         request,
         "summary.html",
         _context(
             request,
+            tab="latest",
             last=last,
             age=summaries.age(last["created_at"]) if last else "",
             ready=store.summary.ready,
-            context=store.summary.description,
-            offer=summaries.offer(store.summary, last),
-            earlier=[
+            error=error,
+        ),
+    )
+
+
+@router.get("/summary/history", include_in_schema=False)
+async def summary_history(request: Request, user: auth.SignedIn):
+    """Every check that has been run, newest first.
+
+    What each was told is stored with it and is not printed. It is the same
+    paragraph on every row until somebody changes the description, and a page
+    repeating it twenty times would bury the twenty readings under it.
+    """
+    zone = request.app.state.settings.site.timezone
+    rows = await summaries.every(request.app.state.pool)
+    return _templates(request).TemplateResponse(
+        request,
+        "summary_history.html",
+        _context(
+            request,
+            tab="history",
+            checks=[
                 {
-                    "id": row["id"],
                     "when_local": _local(row["created_at"], zone),
                     "who": row["written_by"] or "somebody",
                     "model": row["model"],
+                    "window_key": row["window_key"],
                     "body": row["body"],
-                    "context": row["context"],
-                    # Written before the words were kept. Offering to restore
-                    # nothing would wipe the description and call it a restore.
-                    "restorable": bool((row["context"] or "").strip()),
-                    "same": (row["context"] or "") == store.summary.description.strip(),
                 }
-                for row in await summaries.earlier(pool)
+                for row in rows
             ],
-            error=error,
         ),
     )
 
 
 @router.post("/summary", include_in_schema=False)
 async def summary_write(request: Request, user: auth.SignedIn):
-    store: SettingsStore = request.app.state.settings
-    last = await summaries.latest(request.app.state.pool)
-    # Checked here and not only drawn on the page. A disabled button is a
-    # courtesy; this is the part that holds when somebody posts the form anyway.
-    allowed = summaries.offer(store.summary, last)
-    if not allowed.allowed:
-        return RedirectResponse(f"/summary?error={quote(allowed.because[:300])}", status_code=303)
     try:
         await summaries.write(request.app, user.username)
     except summaries.SummaryError as error:
         # Straight back to the page with what went wrong on it. The one thing
-        # somebody needs after a failed call is the reason, and OpenAI's own
+        # somebody needs after a failed call is the reason, and the model's own
         # message is nearly always the reason.
         return RedirectResponse(f"/summary?error={quote(str(error)[:300])}", status_code=303)
-    return RedirectResponse("/summary", status_code=303)
-
-
-@router.post("/summary/restore", include_in_schema=False)
-async def summary_restore(request: Request, user: auth.SignedIn):
-    """Put an earlier description back in the box.
-
-    An ordinary edit that happens to be typed by the machine. It saves the same
-    setting a hand edit saves and it re-opens the button the same way, which is
-    the honest reading: asking again from words the model has not been given
-    lately is a new question, however those words were found.
-    """
-    store: SettingsStore = request.app.state.settings
-    form = await request.form()
-    try:
-        which = int(str(form.get("id") or ""))
-    except ValueError:
-        return RedirectResponse("/summary", status_code=303)
-
-    written = await summaries.told(request.app.state.pool, which)
-    if not written:
-        return RedirectResponse("/summary", status_code=303)
-    await store.put(store.summary.model_copy(update={"description": written}))
-    return RedirectResponse("/summary", status_code=303)
-
-
-@router.post("/summary/context", include_in_schema=False)
-async def summary_context(request: Request, user: auth.SignedIn):
-    """The description, edited where its effect is read.
-
-    The same setting the settings page holds, saved from the page where
-    somebody has just read what it produced. That is where the wish to change
-    it happens: a summary that missed the check valve replaced in the spring is
-    a summary somebody wants to correct now, not after finding the right
-    accordion section on another page.
-    """
-    store: SettingsStore = request.app.state.settings
-    form = await request.form()
-    written = str(form.get("summary_description") or "")[:4000]
-    await store.put(store.summary.model_copy(update={"description": written}))
     return RedirectResponse("/summary", status_code=303)
 
 

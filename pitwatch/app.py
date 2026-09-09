@@ -170,7 +170,7 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
             # The rules read the same cached histories the dashboard does,
             # rather than a second copy that would answer differently.
             engine = AlertEngine(pool, store, live, live_io, history, recent_runs)
-            supervisor = Supervisor(pool, store, live, live_io, engine)
+            supervisor = Supervisor(pool, store, live, live_io, engine, app=app)
 
             app.state.config = config
             app.state.pool = pool

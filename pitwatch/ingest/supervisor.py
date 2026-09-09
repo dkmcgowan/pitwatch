@@ -18,12 +18,13 @@ import logging
 
 import asyncpg
 
+from pitwatch.domain.checkup import DailyCheck
 from pitwatch.domain.engine import AlertEngine
 from pitwatch.domain.runs import RunRecorder
 from pitwatch.ingest.mqtt import MqttReader
 from pitwatch.ingest.sink import IoSink, LiveIo, LiveState, SampleSink, record_device_status
 from pitwatch.ingest.weather import WeatherReader
-from pitwatch.schemas import MqttSettings, SiteSettings, WeatherSettings
+from pitwatch.schemas import MqttSettings, SiteSettings, SummarySettings, WeatherSettings
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -36,6 +37,9 @@ MQTT_KEYS = {MqttSettings.KEY}
 # the weather settings. Moving the pit and turning the rain off are both
 # reasons to restart the poller.
 WEATHER_KEYS = {WeatherSettings.KEY, SiteSettings.KEY}
+# Two again, and for the same reason: the schedule is on the summary settings
+# and the clock it runs on is the site's.
+CHECKUP_KEYS = {SummarySettings.KEY, SiteSettings.KEY}
 
 
 class Supervisor:
@@ -46,7 +50,13 @@ class Supervisor:
         live: LiveState,
         live_io: LiveIo,
         engine: AlertEngine | None = None,
+        app=None,
     ) -> None:
+        # The application, for the one task that needs the whole of it: writing
+        # a health check reads the settings, the pool and the cached histories,
+        # which is most of what is hung off app.state. None in the tests that
+        # only exercise ingest, and the schedule is not started without it.
+        self._app = app
         self._pool = pool
         self._store = store
         self._live = live
@@ -75,6 +85,7 @@ class Supervisor:
             self._spawn("alerts", self._engine.run)
         await self._start_mqtt()
         await self._start_weather()
+        await self._start_checkup()
 
         self._queue = self._store.subscribe()
         self._watcher = asyncio.create_task(self._watch_settings(), name="pitwatch-settings-watch")
@@ -189,6 +200,25 @@ class Supervisor:
         self._spawn("weather", reader.run)
         log.info("Weather reading for %.2f, %.2f", site.latitude, site.longitude)
 
+    async def _start_checkup(self) -> None:
+        """The daily health check, if it has been switched on.
+
+        Started whatever the settings say and stopped by them instead would be
+        simpler, but a task that wakes every five minutes to decide it has
+        nothing to do is a task somebody has to reason about when reading a log.
+        """
+        if self._app is None:
+            return
+        settings = self._store.summary
+        if not settings.daily:
+            log.info("The daily health check is off")
+            return
+        if not settings.ready:
+            log.info("The daily health check is on with nothing to ask: no key or model")
+            return
+        self._spawn("checkup", DailyCheck(self._app).run)
+        log.info("The daily health check runs at %s, site time", settings.daily_at)
+
     def _watch_the_clamps(self) -> None:
         """Tell the meter to look closely while a pump is turning.
 
@@ -258,6 +288,10 @@ class Supervisor:
                 log.info("Broker settings changed, restarting ingest")
                 await self._kill("mqtt")
                 await self._start_mqtt()
+            if keys & CHECKUP_KEYS:
+                log.info("Health check settings changed, restarting the schedule")
+                await self._kill("checkup")
+                await self._start_checkup()
             if keys & WEATHER_KEYS:
                 log.info("Weather settings changed, restarting the poller")
                 await self._kill("weather")

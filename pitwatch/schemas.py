@@ -15,7 +15,9 @@ wrong". Add them when the shape settles, not before.
 from __future__ import annotations
 
 from enum import StrEnum
+from ipaddress import ip_address
 from typing import ClassVar, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -97,14 +99,27 @@ class SummarySettings(BaseModel):
     hand when it storms: none of that is in a current reading, and all of it
     changes what the readings mean.
 
-    The key is somebody's OpenAI account and this is the only place it is
-    stored. It is never rendered back to the browser, the same as every other
-    secret here.
+    The key, where there is one, is somebody's account and this is the only
+    place it is stored. It is never rendered back to the browser, the same as
+    every other secret here. There need not be one: the base URL can point at a
+    model on this network, and then nothing leaves the building at all.
     """
 
     KEY: ClassVar[str] = "summary"
 
     description: str = Field(default="", max_length=4000)
+
+    # Run one every day without being asked, at this time on the building's own
+    # clock. Off by default: something that calls out to a model on a schedule
+    # should be a thing somebody switched on.
+    daily: bool = False
+    daily_at: str = "07:00"
+    # And send what it says to whoever takes information level news. Email
+    # only, which is not a setting: a health check is four paragraphs of prose
+    # and four paragraphs of prose is several text messages, arriving daily, on
+    # a channel that exists here for two in the morning.
+    notify: bool = False
+
     api_key: str = ""
     # Any model name the account can reach. A field rather than a list,
     # because the list changes faster than this application does and a
@@ -117,10 +132,59 @@ class SummarySettings(BaseModel):
     def trim(cls, value: str) -> str:
         return value.strip()
 
+    @field_validator("daily_at")
+    @classmethod
+    def a_time_of_day(cls, value: str) -> str:
+        """Twenty four hour, because it is stored rather than read aloud."""
+        try:
+            hour, minute = (int(part) for part in value.strip().split(":", 1))
+        except ValueError:
+            raise ValueError("Write the time as HH:MM, like 07:00.") from None
+        if not (0 <= hour < 24 and 0 <= minute < 60):
+            raise ValueError("Write the time as HH:MM, like 07:00.")
+        return f"{hour:02d}:{minute:02d}"
+
+    @property
+    def daily_hour_and_minute(self) -> tuple[int, int]:
+        hour, minute = self.daily_at.split(":", 1)
+        return int(hour), int(minute)
+
     @property
     def ready(self) -> bool:
-        """Enough to ask. The description is optional and the key is not."""
-        return bool(self.api_key and self.model and self.base_url)
+        """Enough to ask.
+
+        A model, somewhere to ask it, and a key **unless the somewhere is on
+        this network**. A model running beside this usually wants no key, and
+        requiring one meant an installation pointed at its own hardware saw a
+        page saying "add an OpenAI key" and a button that never appeared.
+
+        The address is what decides it, not a checkbox, because the address is
+        the fact: everything out on the internet wants to know who is asking and
+        nothing on a private network here does. It also keeps a fresh install
+        honest, where the model and the address are filled in by default and the
+        key is the one thing nobody has typed yet.
+        """
+        return bool(self.model and self.base_url and (self.api_key or self.asks_this_network))
+
+    @property
+    def asks_this_network(self) -> bool:
+        """Whether the API address is somewhere on this side of the router.
+
+        Loopback, the three private ranges, and a name with no dots in it or a
+        local suffix, which is what a machine on a LAN is called. Anything this
+        cannot place is treated as the internet, which is the safe way round:
+        the cost of being wrong here is a page asking for a key that was not
+        needed, and the other way round is a button that fails at the far end of
+        a request.
+        """
+        host = (urlsplit(self.base_url).hostname or "").strip().lower()
+        if not host:
+            return False
+        try:
+            return ip_address(host).is_private or ip_address(host).is_loopback
+        except ValueError:
+            pass
+        return host == "localhost" or "." not in host or host.endswith((".local", ".lan", ".home"))
 
 
 class SmsSettings(BaseModel):

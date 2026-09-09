@@ -1,15 +1,16 @@
 {% extends "base.html" %}
 {% set active = 'summary' %}
-{% block title %}AI Summary{% endblock %}
+{% block title %}AI Health Check{% endblock %}
 
 {% block content %}
+{% include "_summary_tabs.html" %}
 
-{# What it last said, and the thing you tell it.
+{# A model reading the week and saying how the pumps are doing.
 
-   Nothing here happens on its own. Every press is a paid call on somebody's
-   OpenAI account, so the page shows the last summary until there is something
-   new to ask, and says when it was written so nobody reads a week old reading
-   as this morning's. #}
+   The context prompt used to be edited here. It went back to the settings page:
+   it is a description of the building, set once and revisited when something
+   about the building changes, and having it under the reading made a page about
+   the pumps into a page about the prompt. #}
 <div class="charts">
 
   {% if error %}
@@ -18,14 +19,13 @@
 
   <section class="card chart-card">
     <div class="card-head">
-      <h2 class="section-heading">AI Summary
+      <h2 class="section-heading">AI Health Check
         <button type="button" class="info-mark" data-info="summary" aria-label="What this is">i</button>
       </h2>
       {% if ready %}
       <form method="post" action="/summary" data-summary-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="button" data-summary-button
-                {% if not offer.allowed %}disabled{% endif %}>New summary</button>
+        <button type="submit" class="button" data-summary-button>Run a check</button>
       </form>
       {% endif %}
     </div>
@@ -34,95 +34,37 @@
     <p class="hint">
       Nothing to ask with yet. The key and the model live
       {% if user and user.is_admin %}on the <a href="/settings">settings page</a>,
-      under AI Summary{% else %}in the settings, which an administrator can
+      under AI Health Check{% else %}in the settings, which an administrator can
       fill in{% endif %}.
     </p>
-    {% elif not offer.allowed %}
-    {# Under a dead button, saying which half is stale and how to move it. A
-       button that is off and says nothing reads as broken. #}
-    <p class="hint">{{ offer.because }}</p>
     {% endif %}
 
     {% if last %}
     <p class="summary-when">
-      Written {{ age }} by {{ last.written_by or 'somebody' }}, from
+      {{ age }} by {{ last.written_by or 'somebody' }}, from
       {{ last.window_key }} of readings, using {{ last.model }}.
     </p>
     {# Whitespace kept, and nothing rendered as markup. This is text from a
        model, and text from a model goes on the page as text. #}
     <p class="summary-body">{{ last.body }}</p>
     {% elif ready %}
-    <p class="hint">Nothing written yet. The button reads the last week and asks.</p>
+    <p class="hint">Nothing checked yet. The button reads the last week and asks.</p>
     {% endif %}
 
     <dialog class="note" id="note-summary">
-      <h3 class="note-title">AI Summary</h3>
+      <h3 class="note-title">AI Health Check</h3>
       <div class="hint">
-        <p>The last week of daily figures, plus what you wrote about the
-          building and the pumps below, sent to OpenAI and read back as a few
-          paragraphs on how the pumps are working. It happens when somebody
-          presses the button, never on a schedule, and no address and no
-          account names go with it.</p>
-        <p>One a week. The same readings and the same description give the same
-          answer, so the button waits for a new week unless you change what you
-          have told it. Every one is kept with the words it was written from,
-          and those words can be put back.</p>
+        <p>The last week of daily figures, plus what has been written about the
+          building on the settings page, read by a model and answered as a few
+          paragraphs on how the pumps are doing. No address and no account
+          names go with it.</p>
+        <p>It is not a measurement. Everything else on this application is
+          something the panel or the meter said; this is an opinion about those
+          numbers, and the numbers it read are kept beside it.</p>
       </div>
       <p class="note-close">Click anywhere to close</p>
     </dialog>
   </section>
-
-  {# The half a model cannot work out from the numbers, edited where its effect
-     is read. Somebody who has just read a summary that missed the check valve
-     replaced in the spring wants to say so now. #}
-  <section class="card chart-card">
-    <h2 class="section-heading">What it knows about this building</h2>
-    <form method="post" action="/summary/context" autocomplete="off">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="field">
-        <textarea id="summary_description" name="summary_description" rows="7"
-                  aria-label="What it knows about this building"
-                  maxlength="4000">{{ context }}</textarea>
-        <p class="hint">What the pit does, what the pumps are, how the panel is
-          set up, what has been repaired and when. Everything the readings
-          cannot say for themselves. Changing this is also how you ask again
-          before the week is up.</p>
-      </div>
-      <button type="submit" class="button secondary">Save</button>
-    </form>
-  </section>
-
-  {# Every summary is kept, with the words it was written from. That is the
-     whole of the history: nothing new is stored, this is a way to look at it.
-
-     Folded shut, because eight paragraphs stacked under the one somebody came
-     to read is a page nobody scrolls to the bottom of. #}
-  {% if earlier %}
-  <section class="card chart-card">
-    <h2 class="section-heading">Earlier</h2>
-    {% for one in earlier %}
-    <details class="earlier">
-      <summary>
-        <span class="earlier-when">{{ one.when_local }}</span>
-        <span class="earlier-who">{{ one.who }}</span>
-      </summary>
-      <p class="summary-body">{{ one.body }}</p>
-      <p class="hint earlier-told"><strong>Told:</strong>
-        {% if one.context %}{{ one.context }}{% else %}not kept, this one was
-        written before the description was recorded{% endif %}</p>
-      {% if one.restorable and not one.same %}
-      <form method="post" action="/summary/restore">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="id" value="{{ one.id }}">
-        <button type="submit" class="button secondary small">Use these words</button>
-      </form>
-      {% elif one.same %}
-      <p class="hint">These are the words in the box now.</p>
-      {% endif %}
-    </details>
-    {% endfor %}
-  </section>
-  {% endif %}
 </div>
 
 {% endblock %}

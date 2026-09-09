@@ -210,13 +210,17 @@
   </details>
 </section>
 
-{# What the summary page needs. The description is the half a model cannot work
-   out from the readings, and the key is somebody's OpenAI account. Named for
-   what it is: this is the one section where something leaves the building and
-   a third party reads it, and a page of settings should say so on the tin. #}
+{# What the health check needs. The description is the half a model cannot work
+   out from the readings, and the key and base URL say what is being asked.
+
+   Named for what it is. It was "Summary", which undersold it: what comes back
+   is an opinion about whether the system is well, not a restatement of the
+   figures. "AI" stays in the name because a paragraph written by a model is
+   read differently from one written by the panel, and because where the base
+   URL points decides whether anything leaves the building at all. #}
 <section class="card settings-section">
   <details name="settings">
-    <summary><h2>AI Summary</h2></summary>
+    <summary><h2>AI Health Check</h2></summary>
   <form method="post" action="/settings/summary" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
@@ -231,7 +235,8 @@
 
     <p class="hint"><strong>Not sent:</strong> the address, the site name, the
       coordinates, account names, phone numbers, email addresses, error text
-      from a device, or any individual reading.</p>
+      from a device, or any individual reading. Where it is sent is the API
+      address below: point it at this network and it goes nowhere else.</p>
 
     <div class="field">
       <label for="summary_description">Context prompt</label>
@@ -242,9 +247,31 @@
         say.</p>
     </div>
 
+    <div class="field checkboxes">
+      <label>
+        <input type="checkbox" name="summary_daily"
+               {% if summary.daily %}checked{% endif %}>
+        Run one every day
+      </label>
+      <label>
+        <input type="checkbox" name="summary_notify"
+               {% if summary.notify %}checked{% endif %}>
+        Email it to everybody who takes information alerts
+      </label>
+    </div>
+
+    <div class="field">
+      <label for="summary_daily_at">Time of day</label>
+      <input type="time" id="summary_daily_at" name="summary_daily_at"
+             value="{{ summary.daily_at }}">
+      <p class="hint">On the building's clock. Emailed rather than texted: this
+        is four paragraphs, and four paragraphs is several text messages
+        arriving every morning.</p>
+    </div>
+
     <div class="grid">
       <div class="field">
-        <label for="summary_api_key">OpenAI key</label>
+        <label for="summary_api_key">API key</label>
         <input type="password" id="summary_api_key" name="summary_api_key"
                autocomplete="new-password"
                placeholder="{% if summary.api_key %}unchanged{% else %}none set{% endif %}">
@@ -253,20 +280,25 @@
           <input type="checkbox" name="summary_clear_key"> Clear the stored key
         </label>
         {% endif %}
+        <p class="hint">Needed for anything out on the internet, and not for a
+          model on this network: an address here that is private or loopback is
+          asked without one.</p>
       </div>
       <div class="field">
         <label for="summary_model">Model</label>
         <input type="text" id="summary_model" name="summary_model"
                value="{{ summary.model }}" placeholder="gpt-4o-mini">
-        <p class="hint">Any model the account can reach. A box rather than a
-          list, because the list changes faster than this application does.</p>
+        <p class="hint">Any model the address below can reach. A box rather
+          than a list, because the list changes faster than this application
+          does.</p>
       </div>
       <div class="field">
         <label for="summary_base_url">API address</label>
         <input type="text" id="summary_base_url" name="summary_base_url"
                value="{{ summary.base_url }}" placeholder="https://api.openai.com/v1">
-        <p class="hint">Leave it alone unless you are pointing this at
-          something else that speaks the same protocol.</p>
+        <p class="hint">Anything that speaks the same protocol, including
+          something on this network. Point it at your own hardware and nothing
+          here leaves the building.</p>
       </div>
     </div>
 

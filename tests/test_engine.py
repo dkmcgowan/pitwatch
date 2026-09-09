@@ -90,8 +90,8 @@ def sent(monkeypatch):
     async def fake_sms(sms_settings, to, message):
         posted.append(("sms", to, message))
 
-    monkeypatch.setattr("pitwatch.domain.engine.email_sender.send", fake_email)
-    monkeypatch.setattr("pitwatch.domain.engine.sms_sender.send", fake_sms)
+    monkeypatch.setattr("pitwatch.notify.dispatch.email_sender.send", fake_email)
+    monkeypatch.setattr("pitwatch.notify.dispatch.sms_sender.send", fake_sms)
     return posted
 
 
@@ -330,7 +330,7 @@ async def test_a_failed_send_is_written_down_rather_than_raised(pool, monkeypatc
     async def explode(*args, **kwargs):
         raise OSError("connection refused")
 
-    monkeypatch.setattr("pitwatch.domain.engine.email_sender.send", explode)
+    monkeypatch.setattr("pitwatch.notify.dispatch.email_sender.send", explode)
     await _a_person(pool)
     contacts = _wire(_Contacts(), high_water=True)
 

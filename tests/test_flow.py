@@ -984,7 +984,7 @@ def test_the_history_page_is_in_the_header_for_everybody(client):
 
     page = client.get("/history").text
     assert 'aria-label="History"' in page
-    assert 'aria-label="AI Summary"' in page, "a reading of the same pumps"
+    assert 'aria-label="AI Health Check"' in page, "a reading of the same pumps"
     assert 'aria-label="Settings"' not in page
     assert 'aria-label="Users"' not in page
 
@@ -1068,35 +1068,19 @@ def test_a_summary_without_a_key_says_so_rather_than_failing(client):
     assert "settings" in response.headers["location"]
 
 
-def test_the_context_can_be_written_from_the_page_that_reads_it(client):
-    """By anybody signed in, not only an administrator. The description is the
-    half a model cannot work out from the numbers, and the moment somebody wants
-    to change it is the moment they have just read a summary that missed
-    something."""
+def test_the_check_can_be_read_and_run_by_anybody_signed_in(client):
+    """Both tabs, and the button. The prompt is not on either of them: it is a
+    description of the building and lives with the key that asks."""
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
     become_a_watcher(client)
 
-    written = "Two pumps in a pit. The check valve was replaced in the spring."
-    response = client.post(
-        "/summary/context", data={"summary_description": written}, follow_redirects=False
-    )
-
-    assert response.status_code == 303
-    assert client.app.state.settings.summary.description == written
-    assert written in client.get("/summary").text
-
-
-def test_restoring_a_summary_that_is_not_there_changes_nothing(client):
-    """A form field is a form field, whoever posts it."""
-    sign_in_as_admin(client)
-    client.post("/setup", data=SETUP_FORM)
-    client.post("/summary/context", data={"summary_description": "Two pumps in a pit."})
-
-    for bad in ("9999", "", "not-a-number"):
-        assert client.post("/summary/restore", data={"id": bad}).status_code == 200
-
-    assert client.app.state.settings.summary.description == "Two pumps in a pit."
+    assert client.get("/summary").status_code == 200
+    assert client.get("/summary/history").status_code == 200
+    assert "summary_description" not in client.get("/summary").text
+    # The routes that edited it from here are gone with the box.
+    assert client.post("/summary/context", data={"summary_description": "x"}).status_code == 404
+    assert client.post("/summary/restore", data={"id": "1"}).status_code == 404
 
 
 def test_the_summary_settings_survive_a_save(client):

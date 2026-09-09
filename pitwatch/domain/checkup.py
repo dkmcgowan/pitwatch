@@ -55,17 +55,19 @@ class DailyCheck:
         return store.summary
 
     async def run(self, stop: asyncio.Event) -> None:
+        # Looked at once before the first sleep, not after it. A check whose
+        # hour passed while the container was down should not wait out another
+        # interval on top of the outage, and the database is what stops it
+        # running twice, so an extra look costs one query.
         while not stop.is_set():
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(stop.wait(), timeout=TICK_S)
-            if stop.is_set():
-                return
             try:
                 await self.tick()
             except Exception:
                 # A schedule that dies takes the daily check with it silently.
                 # Logged with a traceback and tried again on the next tick.
                 log.exception("The daily health check failed")
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(stop.wait(), timeout=TICK_S)
 
     async def tick(self, now: datetime | None = None) -> bool:
         """One look at the clock. True when a check was written."""

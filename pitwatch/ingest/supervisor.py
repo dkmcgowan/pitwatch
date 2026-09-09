@@ -18,7 +18,7 @@ import logging
 
 import asyncpg
 
-from pitwatch.domain.checkup import DailyCheck
+from pitwatch.domain.checkup import Scheduled
 from pitwatch.domain.engine import AlertEngine
 from pitwatch.domain.runs import RunRecorder
 from pitwatch.ingest.mqtt import MqttReader
@@ -201,7 +201,7 @@ class Supervisor:
         log.info("Weather reading for %.2f, %.2f", site.latitude, site.longitude)
 
     async def _start_checkup(self) -> None:
-        """The daily health check, if it has been switched on.
+        """The scheduled health summary, if it has been switched on.
 
         Started whatever the settings say and stopped by them instead would be
         simpler, but a task that wakes every five minutes to decide it has
@@ -210,14 +210,19 @@ class Supervisor:
         if self._app is None:
             return
         settings = self._store.summary
-        if not settings.daily:
-            log.info("The daily health check is off")
+        if not settings.scheduled:
+            log.info("The scheduled health summary is off")
             return
         if not settings.ready:
-            log.info("The daily health check is on with nothing to ask: no key or model")
+            log.info("The health summary is scheduled with nothing to ask: no key or model")
             return
-        self._spawn("checkup", DailyCheck(self._app).run)
-        log.info("The daily health check runs at %s, site time", settings.daily_at)
+        self._spawn("checkup", Scheduled(self._app).run)
+        log.info(
+            "The health summary is written %s at %s site time, over %s",
+            settings.schedule,
+            settings.schedule_at,
+            settings.schedule_window,
+        )
 
     def _watch_the_clamps(self) -> None:
         """Tell the meter to look closely while a pump is turning.
@@ -289,7 +294,7 @@ class Supervisor:
                 await self._kill("mqtt")
                 await self._start_mqtt()
             if keys & CHECKUP_KEYS:
-                log.info("Health check settings changed, restarting the schedule")
+                log.info("Health summary settings changed, restarting the schedule")
                 await self._kill("checkup")
                 await self._start_checkup()
             if keys & WEATHER_KEYS:

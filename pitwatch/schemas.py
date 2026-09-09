@@ -88,6 +88,21 @@ class SmtpSettings(BaseModel):
         return value.strip()
 
 
+# How many days apart each schedule is. Whole days, so a weekly one lands on the
+# same weekday and a monthly one is thirty days rather than a date that does not
+# exist in February.
+SCHEDULE_DAYS = {"daily": 1, "weekly": 7, "monthly": 30}
+
+# What the settings page offers, and what to call each one where somebody reads
+# it. "Every 30 days" rather than "Monthly", because that is what it does.
+SCHEDULE_CHOICES = (
+    ("off", "Never"),
+    ("daily", "Every day"),
+    ("weekly", "Every 7 days"),
+    ("monthly", "Every 30 days"),
+)
+
+
 class SummarySettings(BaseModel):
     """What the summary page needs: a description of the system, and a key.
 
@@ -110,15 +125,22 @@ class SummarySettings(BaseModel):
 
     description: str = Field(default="", max_length=4000)
 
-    # Run one every day without being asked, at this time on the building's own
-    # clock. Off by default: something that calls out to a model on a schedule
-    # should be a thing somebody switched on.
-    daily: bool = False
-    daily_at: str = "07:00"
+    # Write one without being asked. Off by default: something that calls out to
+    # a model on a schedule should be a thing somebody switched on.
+    #
+    # How often and how much to read are separate, because they answer different
+    # questions and the sensible pairings are obvious rather than enforceable: a
+    # week read weekly is the useful one, today read daily is a morning check,
+    # and thirty days read monthly is a trend. Nothing stops somebody reading
+    # thirty days every morning, and nothing should: it is their model.
+    schedule: Literal["off", "daily", "weekly", "monthly"] = "off"
+    schedule_window: Literal["today", "7d", "30d"] = "7d"
+    # The time of day it runs, on the building's own clock.
+    schedule_at: str = "07:00"
     # And send what it says to whoever takes information level news. Email
-    # only, which is not a setting: a health check is four paragraphs of prose
-    # and four paragraphs of prose is several text messages, arriving daily, on
-    # a channel that exists here for two in the morning.
+    # only, which is not a setting: a health summary is four paragraphs of prose
+    # and four paragraphs of prose is several text messages, on a channel that
+    # exists here for two in the morning.
     notify: bool = False
 
     api_key: str = ""
@@ -133,7 +155,7 @@ class SummarySettings(BaseModel):
     def trim(cls, value: str) -> str:
         return value.strip()
 
-    @field_validator("daily_at")
+    @field_validator("schedule_at")
     @classmethod
     def a_time_of_day(cls, value: str) -> str:
         """Twenty four hour, because it is stored rather than read aloud."""
@@ -146,9 +168,24 @@ class SummarySettings(BaseModel):
         return f"{hour:02d}:{minute:02d}"
 
     @property
-    def daily_hour_and_minute(self) -> tuple[int, int]:
-        hour, minute = self.daily_at.split(":", 1)
+    def scheduled(self) -> bool:
+        return self.schedule != "off"
+
+    @property
+    def schedule_hour_and_minute(self) -> tuple[int, int]:
+        hour, minute = self.schedule_at.split(":", 1)
         return int(hour), int(minute)
+
+    @property
+    def every_days(self) -> int:
+        """How many days apart, in whole days.
+
+        Whole days rather than a calendar, so a weekly one lands on the same
+        weekday and a monthly one is thirty days rather than a date that does
+        not exist in February. The pages say "every 30 days" and not "monthly"
+        for exactly that reason.
+        """
+        return SCHEDULE_DAYS.get(self.schedule, 0)
 
     @property
     def ready(self) -> bool:

@@ -260,8 +260,12 @@ def summary_from(form: FormData, existing: SummarySettings) -> SummarySettings:
 
     return SummarySettings(
         description=text(form, "summary_description"),
-        daily=checkbox(form, "summary_daily"),
-        daily_at=text(form, "summary_daily_at", existing.daily_at) or existing.daily_at,
+        schedule=text(form, "summary_schedule", existing.schedule) or existing.schedule,
+        schedule_window=(
+            text(form, "summary_schedule_window", existing.schedule_window)
+            or existing.schedule_window
+        ),
+        schedule_at=text(form, "summary_schedule_at", existing.schedule_at) or existing.schedule_at,
         notify=checkbox(form, "summary_notify"),
         api_key=key,
         model=text(form, "summary_model", existing.model) or existing.model,

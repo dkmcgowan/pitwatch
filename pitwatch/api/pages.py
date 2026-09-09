@@ -26,7 +26,7 @@ from pitwatch.domain import alerts as alert_specs
 from pitwatch.domain import diagnostics, series
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
-from pitwatch.schemas import DASHBOARD_ROLES
+from pitwatch.schemas import DASHBOARD_ROLES, SCHEDULE_CHOICES
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -42,8 +42,11 @@ def _context(request: Request, **extra) -> dict:
         # The eight things the dashboard can draw, which is the list the input
         # rows pick from. Here rather than passed by each caller, because every
         # page that renders those rows needs it and forgetting it renders eight
-        # empty dropdowns rather than an error.
+        # empty dropdowns rather than an error. The same argument for the two
+        # below: a dropdown with no options posts nothing and looks fine.
         "roles": DASHBOARD_ROLES,
+        "windows": [(key, window.title) for key, window in series.WINDOWS.items()],
+        "schedule_choices": SCHEDULE_CHOICES,
         **extra,
     }
 
@@ -294,7 +297,6 @@ async def summary_page(request: Request, user: auth.SignedIn, error: str | None 
             # The window it read, in words. The key is what is stored, because
             # a stored label is a label that goes stale the day one is renamed.
             read_over=_read_over(last["window_key"]) if last else "",
-            windows=[(key, window.title) for key, window in series.WINDOWS.items()],
             # The one it last read, so pressing again repeats rather than
             # silently going back to a week.
             chosen=(last["window_key"] if last else summaries.WINDOW.key),

@@ -208,7 +208,7 @@ async def test_what_a_check_was_told_is_still_kept_even_though_no_page_shows_it(
     assert (await summary.latest(pool))["context"] == "Two pumps in a pit."
 
 
-# -- the daily one ------------------------------------------------------------
+# -- the scheduled one --------------------------------------------------------
 
 
 def _at(hour: int, minute: int = 0) -> datetime:
@@ -229,44 +229,50 @@ class _App:
 
 
 async def test_the_schedule_does_nothing_until_it_is_switched_on(pool, store):
-    from pitwatch.domain.checkup import DailyCheck
+    from pitwatch.domain.checkup import Scheduled
 
-    await store.put(SummarySettings(api_key="sk-test", model="m", daily=False))
+    await store.put(SummarySettings(api_key="sk-test", model="m", schedule="off"))
 
-    assert await DailyCheck(_App(pool, store)).tick(_at(9)) is False
+    assert await Scheduled(_App(pool, store)).tick(_at(9)) is False
 
 
 async def test_the_schedule_waits_for_the_hour_on_the_buildings_clock(pool, store):
     """Seven in the morning is seven in the morning where the pit is, not where
     the server happens to be."""
-    from pitwatch.domain.checkup import DailyCheck
+    from pitwatch.domain.checkup import Scheduled
 
     await _site(store)
-    await store.put(SummarySettings(api_key="sk-test", model="m", daily=True, daily_at="07:00"))
+    await store.put(
+        SummarySettings(api_key="sk-test", model="m", schedule="daily", schedule_at="07:00")
+    )
 
-    assert await DailyCheck(_App(pool, store)).tick(_at(6, 30)) is False
+    assert await Scheduled(_App(pool, store)).tick(_at(6, 30)) is False
 
 
 async def test_one_a_day_is_decided_by_the_last_one_and_not_by_a_timer(pool, store):
     """A process that remembers in memory forgets on every deploy, and this is
     deployed several times on a busy afternoon. The last check's own timestamp
     answers it across restarts."""
-    from pitwatch.domain.checkup import DailyCheck
+    from pitwatch.domain.checkup import Scheduled
 
     await _site(store)
-    await store.put(SummarySettings(api_key="sk-test", model="m", daily=True, daily_at="07:00"))
+    await store.put(
+        SummarySettings(api_key="sk-test", model="m", schedule="daily", schedule_at="07:00")
+    )
     await _write(pool, "This morning's.", "Two pumps in a pit.", 60)
 
-    assert await DailyCheck(_App(pool, store)).tick(_at(9)) is False
+    assert await Scheduled(_App(pool, store)).tick(_at(9)) is False
 
 
 async def test_a_check_whose_hour_passed_while_it_was_down_still_runs(pool, store, monkeypatch):
     """Late rather than never. Yesterday's being the newest one you have is
     worse than one arriving at ten past nine."""
-    from pitwatch.domain.checkup import DailyCheck
+    from pitwatch.domain.checkup import Scheduled
 
     await _site(store)
-    await store.put(SummarySettings(api_key="sk-test", model="m", daily=True, daily_at="07:00"))
+    await store.put(
+        SummarySettings(api_key="sk-test", model="m", schedule="daily", schedule_at="07:00")
+    )
     await _write(pool, "Yesterday's.", "Two pumps in a pit.", 60 * 30)
 
     async def answer(settings, payload):
@@ -276,21 +282,23 @@ async def test_a_check_whose_hour_passed_while_it_was_down_still_runs(pool, stor
     # which day it is, not what comes back.
     monkeypatch.setattr(summary, "ask", answer)
 
-    assert await DailyCheck(_App(pool, store)).tick(_at(9)) is True
+    assert await Scheduled(_App(pool, store)).tick(_at(9)) is True
 
     written = await summary.latest(pool)
     assert written["body"] == "Both pumps look normal."
     assert written["written_by"] == "the schedule", "no account ran it, so none is named"
 
 
-async def test_the_daily_one_is_emailed_and_not_texted(pool, store, monkeypatch):
+async def test_a_scheduled_one_is_emailed_and_not_texted(pool, store, monkeypatch):
     """Four paragraphs of prose is several text messages, arriving every
     morning, on the channel that exists here for two in the morning."""
-    from pitwatch.domain.checkup import DailyCheck
+    from pitwatch.domain.checkup import Scheduled
 
     await _site(store)
     await store.put(
-        SummarySettings(api_key="sk-test", model="m", daily=True, daily_at="07:00", notify=True)
+        SummarySettings(
+            api_key="sk-test", model="m", schedule="daily", schedule_at="07:00", notify=True
+        )
     )
     await pool.execute(
         """
@@ -313,12 +321,12 @@ async def test_the_daily_one_is_emailed_and_not_texted(pool, store, monkeypatch)
     monkeypatch.setattr(email_sender, "send", by_email)
     monkeypatch.setattr(sms_sender, "send", _refuse_to_text)
 
-    assert await DailyCheck(_App(pool, store)).tick(_at(9)) is True
+    assert await Scheduled(_App(pool, store)).tick(_at(9)) is True
 
     assert len(sent) == 1
     to, subject, body = sent[0]
     assert to == "alex@example.com"
-    assert "health check" in subject
+    assert "health summary" in subject
     assert body == "Both pumps look normal."
 
     rows = await pool.fetch("SELECT alert_id, event, channel, status FROM notification")
@@ -334,10 +342,10 @@ async def _refuse_to_text(settings, to, message):
 def test_the_time_of_day_has_to_be_a_time_of_day():
     for bad in ("25:00", "07:99", "seven", "7"):
         with pytest.raises(ValueError, match="HH:MM"):
-            SummarySettings(daily_at=bad)
+            SummarySettings(schedule_at=bad)
 
-    assert SummarySettings(daily_at="7:5").daily_at == "07:05"
-    assert SummarySettings(daily_at="23:59").daily_hour_and_minute == (23, 59)
+    assert SummarySettings(schedule_at="7:5").schedule_at == "07:05"
+    assert SummarySettings(schedule_at="23:59").schedule_hour_and_minute == (23, 59)
 
 
 # -- what it takes to be ready ------------------------------------------------
@@ -388,3 +396,60 @@ def test_the_instruction_says_which_window_it_is_reading():
     payload = summary.messages(SummarySettings(), {"window": "Today", "pumps": []})
     assert "reading Today of monitoring data" in payload[0]["content"]
     assert "over the week" not in payload[0]["content"]
+
+
+async def test_a_weekly_one_waits_a_week_and_a_monthly_one_thirty_days(pool, store, monkeypatch):
+    """Counted in whole days, so a weekly one lands on the same weekday rather
+    than drifting an hour later each week."""
+    from pitwatch.domain.checkup import Scheduled
+
+    await _site(store)
+
+    async def answer(settings, payload):
+        return "Both pumps look normal."
+
+    monkeypatch.setattr(summary, "ask", answer)
+
+    for schedule, days, due_after in (("weekly", 7, 6), ("monthly", 30, 29)):
+        await store.put(
+            SummarySettings(api_key="k", model="m", schedule=schedule, schedule_at="07:00")
+        )
+        assert store.summary.every_days == days
+
+        await pool.execute("DELETE FROM summary")
+        await _write(pool, "The one before.", "Some words.", 60 * 24 * due_after)
+        assert await Scheduled(_App(pool, store)).tick(_at(9)) is False, schedule
+
+        await pool.execute("DELETE FROM summary")
+        await _write(pool, "The one before.", "Some words.", 60 * 24 * days)
+        assert await Scheduled(_App(pool, store)).tick(_at(9)) is True, schedule
+
+
+async def test_the_schedule_reads_the_window_it_was_given(pool, store, monkeypatch):
+    """How often and how much to read are separate questions."""
+    from pitwatch.domain.checkup import Scheduled
+
+    await _site(store)
+    await store.put(
+        SummarySettings(
+            api_key="k", model="m", schedule="daily", schedule_at="07:00", schedule_window="30d"
+        )
+    )
+
+    async def answer(settings, payload):
+        return "Both pumps look normal."
+
+    monkeypatch.setattr(summary, "ask", answer)
+    assert await Scheduled(_App(pool, store)).tick(_at(9)) is True
+
+    assert (await summary.latest(pool))["window_key"] == "30d"
+
+
+def test_a_week_read_weekly_is_where_the_settings_start():
+    """The pairing somebody wants without thinking about it."""
+    fresh = SummarySettings()
+
+    assert fresh.schedule == "off", "nothing calls out to a model unasked"
+    assert fresh.schedule_window == "7d"
+    assert fresh.every_days == 0, "off is not a cadence"
+    assert SummarySettings(schedule="weekly").every_days == 7

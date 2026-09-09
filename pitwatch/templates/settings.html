@@ -246,12 +246,41 @@
         say.</p>
     </div>
 
+    <h3>Write one on a schedule</h3>
+
+    <div class="grid">
+      <div class="field">
+        <label for="summary_schedule">How often</label>
+        <select id="summary_schedule" name="summary_schedule">
+          {% for value, title in schedule_choices %}
+          <option value="{{ value }}"
+                  {% if summary.schedule == value %}selected{% endif %}>{{ title }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="summary_schedule_window">Reading</label>
+        <select id="summary_schedule_window" name="summary_schedule_window">
+          {% for key, title in windows %}
+          <option value="{{ key }}"
+                  {% if summary.schedule_window == key %}selected{% endif %}>{{ title }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="summary_schedule_at">Time of day</label>
+        <input type="time" id="summary_schedule_at" name="summary_schedule_at"
+               value="{{ summary.schedule_at }}">
+      </div>
+    </div>
+
+    <p class="hint">How often and how much to read are separate. A week read
+      every 7 days is the useful one and is what these start on; today read
+      every day is a morning check, and 30 days read every 30 days is a trend.
+      The time is on the building's clock, and one whose hour passed while this
+      was down is written when it comes back rather than skipped.</p>
+
     <div class="field checkboxes">
-      <label>
-        <input type="checkbox" name="summary_daily"
-               {% if summary.daily %}checked{% endif %}>
-        Write one every day, over a week
-      </label>
       <label>
         <input type="checkbox" name="summary_notify"
                {% if summary.notify %}checked{% endif %}>
@@ -259,14 +288,10 @@
       </label>
     </div>
 
-    <div class="field">
-      <label for="summary_daily_at">Time of day</label>
-      <input type="time" id="summary_daily_at" name="summary_daily_at"
-             value="{{ summary.daily_at }}">
-      <p class="hint">On the building's clock. Emailed rather than texted: this
-        is four paragraphs, and four paragraphs is several text messages
-        arriving every morning.</p>
-    </div>
+    <p class="hint">Emailed rather than texted: this is four paragraphs, and
+      four paragraphs is several text messages on the channel that exists here
+      for two in the morning. Only the most recent summary is kept, so a
+      scheduled one replaces the one before it.</p>
 
     <div class="grid">
       <div class="field">

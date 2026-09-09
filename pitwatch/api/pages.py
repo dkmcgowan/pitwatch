@@ -26,7 +26,7 @@ from pitwatch.domain import alerts as alert_specs
 from pitwatch.domain import diagnostics, series
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
-from pitwatch.schemas import DASHBOARD_ROLES, SCHEDULE_CHOICES
+from pitwatch.schemas import DASHBOARD_ROLES, SCHEDULE_CHOICES, SUMMARY_WINDOWS
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -45,7 +45,9 @@ def _context(request: Request, **extra) -> dict:
         # empty dropdowns rather than an error. The same argument for the two
         # below: a dropdown with no options posts nothing and looks fine.
         "roles": DASHBOARD_ROLES,
-        "windows": [(key, window.title) for key, window in series.WINDOWS.items()],
+        # Not every window the history page draws: a summary reads a week or a
+        # month, because a model handed one day has nothing to compare it to.
+        "windows": [(key, series.WINDOWS[key].title) for key in SUMMARY_WINDOWS],
         "schedule_choices": SCHEDULE_CHOICES,
         **extra,
     }
@@ -325,7 +327,10 @@ async def summary_write(request: Request, user: auth.SignedIn):
     store: SettingsStore = request.app.state.settings
     # Today is resolved against the building's clock here, the same as it is for
     # the history page, so the two mean the same day.
-    window = series.window_for(str(form.get("window") or ""), store.site.timezone)
+    asked = str(form.get("window") or "")
+    window = series.window_for(
+        asked if asked in SUMMARY_WINDOWS else summaries.WINDOW.key, store.site.timezone
+    )
     try:
         await summaries.write(request.app, user.username, window)
     except summaries.SummaryError as error:

@@ -222,25 +222,22 @@
   <form method="post" action="/settings/summary" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-    <p class="hint"><strong>Sent:</strong> your description below, and the
-      numbers over whichever window was picked on the summary page: today, a
-      week or a month. Per pump per day, the runs, the mean and longest run,
-      the peak and running amps, and the typical load against four weeks
-      earlier. The calls for water, how many brought on both pumps or reached
-      the high float, and the typical gap between them. Rain per day, as a
-      total in your units. How often each panel contact closed and when it last
-      did. Whether each device is online. Pump and contact names go too, so the
-      reply can name them.</p>
+    <p class="hint"><strong>What is sent</strong>, over a week or a month:
+      per pump per day, the runs and how long they lasted, the peak and running
+      amps, and how the load compares with four weeks before. The calls for
+      water, how many took both pumps or reached the high float, and the typical
+      gap between them. The rain each day. How often each panel contact closed
+      and when it last did. Whether each device is online. The pump and contact
+      names, and the prompt below.</p>
 
-    <p class="hint"><strong>Not sent:</strong> the address, the site name, the
-      coordinates, account names, phone numbers, email addresses, error text
-      from a device, or any individual reading. Where it is sent is the API
-      address below: point it at this network and it goes nowhere else.</p>
+    <p class="hint">Nothing else: no address, no site name, no coordinates, no
+      account names, and no individual readings. Where it goes is the API
+      address below.</p>
 
     <div class="field">
       <label for="summary_description">Context prompt</label>
-      <textarea id="summary_description" name="summary_description" rows="6"
-                maxlength="4000">{{ summary.description }}</textarea>
+      <textarea id="summary_description" name="summary_description" rows="8"
+                >{{ summary.description }}</textarea>
       <p class="hint">What the pit does, what the pumps are, how the panel is
         set up, what has been repaired and when. Everything the readings cannot
         say.</p>
@@ -274,11 +271,10 @@
       </div>
     </div>
 
-    <p class="hint">How often and how much to read are separate. A week read
-      every 7 days is the useful one and is what these start on; today read
-      every day is a morning check, and 30 days read every 30 days is a trend.
-      The time is on the building's clock, and one whose hour passed while this
-      was down is written when it comes back rather than skipped.</p>
+    <p class="hint">A week read every 7 days is the useful one and is what
+      these start on; 30 days read every 30 days is a trend. The time is on the
+      building's clock, and one whose hour passed while this was down is written
+      when it comes back rather than skipped.</p>
 
     <div class="field checkboxes">
       <label>

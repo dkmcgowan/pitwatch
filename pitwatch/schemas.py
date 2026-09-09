@@ -91,16 +91,26 @@ class SmtpSettings(BaseModel):
 # How many days apart each schedule is. Whole days, so a weekly one lands on the
 # same weekday and a monthly one is thirty days rather than a date that does not
 # exist in February.
-SCHEDULE_DAYS = {"daily": 1, "weekly": 7, "monthly": 30}
+SCHEDULE_DAYS = {"weekly": 7, "monthly": 30}
 
 # What the settings page offers, and what to call each one where somebody reads
 # it. "Every 30 days" rather than "Monthly", because that is what it does.
+#
+# A day is not on this list and neither is a day's worth of readings. One day of
+# a pit that calls every twenty minutes is a page of numbers with no shape in
+# it: nothing can have changed since yesterday that a week would not show, and a
+# paragraph a day about a pump that did what it did yesterday is a paragraph
+# nobody reads by Thursday.
 SCHEDULE_CHOICES = (
     ("off", "Never"),
-    ("daily", "Every day"),
     ("weekly", "Every 7 days"),
     ("monthly", "Every 30 days"),
 )
+
+# The windows a summary can read. Not the same list as the history page, which
+# keeps a day because a chart of today is a thing somebody watches while a pump
+# is running. A model handed the same day has nothing to compare it against.
+SUMMARY_WINDOWS = ("7d", "30d")
 
 
 class SummarySettings(BaseModel):
@@ -123,18 +133,24 @@ class SummarySettings(BaseModel):
 
     KEY: ClassVar[str] = "summary"
 
-    description: str = Field(default="", max_length=4000)
+    # No length limit. There was one, four thousand characters, which is about
+    # a page: enough for a paragraph about a pit and not enough for somebody who
+    # wants to describe a building, its history and the last three repairs. A
+    # local model has the context for it, the box is the whole of the input, and
+    # a limit that exists only because a number had to be typed is a limit that
+    # eventually cuts somebody off mid sentence.
+    description: str = ""
 
     # Write one without being asked. Off by default: something that calls out to
     # a model on a schedule should be a thing somebody switched on.
     #
     # How often and how much to read are separate, because they answer different
     # questions and the sensible pairings are obvious rather than enforceable: a
-    # week read weekly is the useful one, today read daily is a morning check,
-    # and thirty days read monthly is a trend. Nothing stops somebody reading
-    # thirty days every morning, and nothing should: it is their model.
-    schedule: Literal["off", "daily", "weekly", "monthly"] = "off"
-    schedule_window: Literal["today", "7d", "30d"] = "7d"
+    # week read weekly is the useful one and thirty days read monthly is a
+    # trend. Nothing stops somebody reading a month every week, and nothing
+    # should: it is their model.
+    schedule: Literal["off", "weekly", "monthly"] = "off"
+    schedule_window: Literal["7d", "30d"] = "7d"
     # The time of day it runs, on the building's own clock.
     schedule_at: str = "07:00"
     # And send what it says to whoever takes information level news. Email

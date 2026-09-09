@@ -243,37 +243,37 @@ async def test_the_schedule_waits_for_the_hour_on_the_buildings_clock(pool, stor
 
     await _site(store)
     await store.put(
-        SummarySettings(api_key="sk-test", model="m", schedule="daily", schedule_at="07:00")
+        SummarySettings(api_key="sk-test", model="m", schedule="weekly", schedule_at="07:00")
     )
 
     assert await Scheduled(_App(pool, store)).tick(_at(6, 30)) is False
 
 
-async def test_one_a_day_is_decided_by_the_last_one_and_not_by_a_timer(pool, store):
+async def test_whether_one_is_due_is_decided_by_the_last_one_not_by_a_timer(pool, store):
     """A process that remembers in memory forgets on every deploy, and this is
-    deployed several times on a busy afternoon. The last check's own timestamp
+    deployed several times on a busy afternoon. The last summary's own timestamp
     answers it across restarts."""
     from pitwatch.domain.checkup import Scheduled
 
     await _site(store)
     await store.put(
-        SummarySettings(api_key="sk-test", model="m", schedule="daily", schedule_at="07:00")
+        SummarySettings(api_key="sk-test", model="m", schedule="weekly", schedule_at="07:00")
     )
     await _write(pool, "This morning's.", "Two pumps in a pit.", 60)
 
     assert await Scheduled(_App(pool, store)).tick(_at(9)) is False
 
 
-async def test_a_check_whose_hour_passed_while_it_was_down_still_runs(pool, store, monkeypatch):
-    """Late rather than never. Yesterday's being the newest one you have is
+async def test_one_whose_hour_passed_while_it_was_down_still_runs(pool, store, monkeypatch):
+    """Late rather than never. Last week's being the newest one you have is
     worse than one arriving at ten past nine."""
     from pitwatch.domain.checkup import Scheduled
 
     await _site(store)
     await store.put(
-        SummarySettings(api_key="sk-test", model="m", schedule="daily", schedule_at="07:00")
+        SummarySettings(api_key="sk-test", model="m", schedule="weekly", schedule_at="07:00")
     )
-    await _write(pool, "Yesterday's.", "Two pumps in a pit.", 60 * 30)
+    await _write(pool, "Last week's.", "Two pumps in a pit.", 60 * 24 * 8)
 
     async def answer(settings, payload):
         return "Both pumps look normal."
@@ -297,7 +297,7 @@ async def test_a_scheduled_one_is_emailed_and_not_texted(pool, store, monkeypatc
     await _site(store)
     await store.put(
         SummarySettings(
-            api_key="sk-test", model="m", schedule="daily", schedule_at="07:00", notify=True
+            api_key="sk-test", model="m", schedule="weekly", schedule_at="07:00", notify=True
         )
     )
     await pool.execute(
@@ -432,7 +432,7 @@ async def test_the_schedule_reads_the_window_it_was_given(pool, store, monkeypat
     await _site(store)
     await store.put(
         SummarySettings(
-            api_key="k", model="m", schedule="daily", schedule_at="07:00", schedule_window="30d"
+            api_key="k", model="m", schedule="weekly", schedule_at="07:00", schedule_window="30d"
         )
     )
 
@@ -453,3 +453,34 @@ def test_a_week_read_weekly_is_where_the_settings_start():
     assert fresh.schedule_window == "7d"
     assert fresh.every_days == 0, "off is not a cadence"
     assert SummarySettings(schedule="weekly").every_days == 7
+
+
+def test_a_day_is_not_a_window_a_summary_reads_or_a_cadence_it_runs_on():
+    """One day of a pit that calls every twenty minutes is a page of numbers
+    with no shape in it. The history page keeps its day, because a chart of
+    today is a thing somebody watches while a pump is running."""
+    from pitwatch.domain.series import WINDOWS
+    from pitwatch.schemas import SCHEDULE_CHOICES, SCHEDULE_DAYS, SUMMARY_WINDOWS
+
+    assert SUMMARY_WINDOWS == ("7d", "30d")
+    assert "daily" not in SCHEDULE_DAYS
+    assert [value for value, _ in SCHEDULE_CHOICES] == ["off", "weekly", "monthly"]
+
+    # Still on the page that draws charts.
+    assert "today" in WINDOWS
+
+    for gone in ("today", "daily"):
+        with pytest.raises(ValueError):
+            SummarySettings(schedule_window=gone)
+        with pytest.raises(ValueError):
+            SummarySettings(schedule=gone)
+
+
+def test_the_prompt_is_not_cut_off_mid_sentence():
+    """Four thousand characters is about a page: enough for a paragraph about a
+    pit and not enough for somebody describing a building, its history and the
+    last three repairs."""
+    long_one = "The pit is under the sidewalk. " * 400
+
+    assert len(long_one) > 4000
+    assert SummarySettings(description=long_one).description == long_one

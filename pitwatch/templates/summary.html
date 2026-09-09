@@ -1,16 +1,14 @@
 {% extends "base.html" %}
 {% set active = 'summary' %}
-{% block title %}AI Health Check{% endblock %}
+{% block title %}AI Health Summary{% endblock %}
 
 {% block content %}
-{% include "_summary_tabs.html" %}
 
-{# A model reading the week and saying how the pumps are doing.
+{# A model reading the pit and saying how the pumps are doing.
 
-   The context prompt used to be edited here. It went back to the settings page:
-   it is a description of the building, set once and revisited when something
-   about the building changes, and having it under the reading made a page about
-   the pumps into a page about the prompt. #}
+   One summary, not a shelf of them. Every check written used to be kept, and
+   the way to answer a question about last month turned out to be asking about
+   last month, which the window picker does. #}
 <div class="charts">
 
   {% if error %}
@@ -19,13 +17,18 @@
 
   <section class="card chart-card">
     <div class="card-head">
-      <h2 class="section-heading">AI Health Check
+      <h2 class="section-heading">AI Health Summary
         <button type="button" class="info-mark" data-info="summary" aria-label="What this is">i</button>
       </h2>
       {% if ready %}
-      <form method="post" action="/summary" data-summary-form>
+      <form method="post" action="/summary" class="summary-ask" data-summary-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="button" data-summary-button>Run a check</button>
+        <select id="summary_window" name="window" aria-label="How much to read">
+          {% for key, title in windows %}
+          <option value="{{ key }}" {% if key == chosen %}selected{% endif %}>{{ title }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="button" data-summary-button>Create new summary</button>
       </form>
       {% endif %}
     </div>
@@ -34,33 +37,38 @@
     <p class="hint">
       Nothing to ask with yet. The key and the model live
       {% if user and user.is_admin %}on the <a href="/settings">settings page</a>,
-      under AI Health Check{% else %}in the settings, which an administrator can
-      fill in{% endif %}.
+      under AI Health Summary{% else %}in the settings, which an administrator
+      can fill in{% endif %}.
     </p>
     {% endif %}
 
     {% if last %}
+    {# Two lines rather than one. On a phone the whole provenance ran to three
+       ragged lines and the model name broke across two of them, which is the
+       part somebody scans for. When and over what on the first, what wrote it
+       on the second. #}
     <p class="summary-when">
-      {{ age }} by {{ last.written_by or 'somebody' }}, from
-      {{ last.window_key }} of readings, using {{ last.model }}.
+      {{ age }} by {{ last.written_by or 'somebody' }}, from {{ read_over }}.<br>
+      <span class="summary-model">Generated using {{ last.model }}.</span>
     </p>
     {# Whitespace kept, and nothing rendered as markup. This is text from a
        model, and text from a model goes on the page as text. #}
     <p class="summary-body">{{ last.body }}</p>
     {% elif ready %}
-    <p class="hint">Nothing checked yet. The button reads the last week and asks.</p>
+    <p class="hint">Nothing yet. Pick how much to read and press the button.</p>
     {% endif %}
 
     <dialog class="note" id="note-summary">
-      <h3 class="note-title">AI Health Check</h3>
+      <h3 class="note-title">AI Health Summary</h3>
       <div class="hint">
-        <p>The last week of daily figures, plus what has been written about the
-          building on the settings page, read by a model and answered as a few
-          paragraphs on how the pumps are doing. No address and no account
-          names go with it.</p>
-        <p>It is not a measurement. Everything else on this application is
-          something the panel or the meter said; this is an opinion about those
-          numbers, and the numbers it read are kept beside it.</p>
+        <p>Today, a week or a month of daily figures, plus what has been written
+          about the building on the settings page, read by a model and answered
+          as a few paragraphs on how the pumps are doing. No address and no
+          account names go with it.</p>
+        <p>It is not a measurement. Everything else here is something the panel
+          or the meter said; this is an opinion about those numbers. Only the
+          most recent one is kept, because asking again over a different window
+          is cheaper than reading an old answer to a different question.</p>
       </div>
       <p class="note-close">Click anywhere to close</p>
     </dialog>

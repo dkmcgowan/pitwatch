@@ -23,7 +23,7 @@ from pitwatch import auth, clock
 from pitwatch import summary as summaries
 from pitwatch.api import forms
 from pitwatch.domain import alerts as alert_specs
-from pitwatch.domain import diagnostics
+from pitwatch.domain import diagnostics, series
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
 from pitwatch.schemas import DASHBOARD_ROLES
@@ -279,8 +279,7 @@ async def history_page(request: Request, user: auth.SignedIn):
 
 # Not an administrator's page. It was one because every run spends money on an
 # OpenAI account, and that stopped being the deciding fact once this could be
-# pointed at a model running on the same network: the base URL is a setting, and
-# an installation answering itself has no per call cost to ration.
+# pointed at a model running on the same network.
 @router.get("/summary", include_in_schema=False)
 async def summary_page(request: Request, user: auth.SignedIn, error: str | None = None):
     store: SettingsStore = request.app.state.settings
@@ -290,49 +289,43 @@ async def summary_page(request: Request, user: auth.SignedIn, error: str | None 
         "summary.html",
         _context(
             request,
-            tab="latest",
             last=last,
             age=summaries.age(last["created_at"]) if last else "",
+            # The window it read, in words. The key is what is stored, because
+            # a stored label is a label that goes stale the day one is renamed.
+            read_over=_read_over(last["window_key"]) if last else "",
+            windows=[(key, window.title) for key, window in series.WINDOWS.items()],
+            # The one it last read, so pressing again repeats rather than
+            # silently going back to a week.
+            chosen=(last["window_key"] if last else summaries.WINDOW.key),
             ready=store.summary.ready,
             error=error,
         ),
     )
 
 
-@router.get("/summary/history", include_in_schema=False)
-async def summary_history(request: Request, user: auth.SignedIn):
-    """Every check that has been run, newest first.
+def _read_over(key: str) -> str:
+    """What the summary read, as the end of "written from ...".
 
-    What each was told is stored with it and is not printed. It is the same
-    paragraph on every row until somebody changes the description, and a page
-    repeating it twenty times would bury the twenty readings under it.
+    "7 days of readings" and "30 days of readings" both work off the title;
+    "today of readings" does not, which is what comes out of assuming the three
+    labels are the same part of speech.
     """
-    zone = request.app.state.settings.site.timezone
-    rows = await summaries.every(request.app.state.pool)
-    return _templates(request).TemplateResponse(
-        request,
-        "summary_history.html",
-        _context(
-            request,
-            tab="history",
-            checks=[
-                {
-                    "when_local": _local(row["created_at"], zone),
-                    "who": row["written_by"] or "somebody",
-                    "model": row["model"],
-                    "window_key": row["window_key"],
-                    "body": row["body"],
-                }
-                for row in rows
-            ],
-        ),
-    )
+    window = series.WINDOWS.get(key)
+    if window is None:
+        return key
+    return "today's readings" if window.from_midnight else f"{window.title} of readings"
 
 
 @router.post("/summary", include_in_schema=False)
 async def summary_write(request: Request, user: auth.SignedIn):
+    form = await request.form()
+    store: SettingsStore = request.app.state.settings
+    # Today is resolved against the building's clock here, the same as it is for
+    # the history page, so the two mean the same day.
+    window = series.window_for(str(form.get("window") or ""), store.site.timezone)
     try:
-        await summaries.write(request.app, user.username)
+        await summaries.write(request.app, user.username, window)
     except summaries.SummaryError as error:
         # Straight back to the page with what went wrong on it. The one thing
         # somebody needs after a failed call is the reason, and the model's own

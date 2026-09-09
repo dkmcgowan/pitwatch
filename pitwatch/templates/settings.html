@@ -210,28 +210,27 @@
   </details>
 </section>
 
-{# What the health check needs. The description is the half a model cannot work
-   out from the readings, and the key and base URL say what is being asked.
+{# What the health summary needs. The description is the half a model cannot
+   work out from the readings, and the key and base URL say what is being asked.
 
-   Named for what it is. It was "Summary", which undersold it: what comes back
-   is an opinion about whether the system is well, not a restatement of the
-   figures. "AI" stays in the name because a paragraph written by a model is
-   read differently from one written by the panel, and because where the base
-   URL points decides whether anything leaves the building at all. #}
+   "AI" stays in the name because a paragraph written by a model is read
+   differently from one written by the panel, and because where the base URL
+   points decides whether anything leaves the building at all. #}
 <section class="card settings-section">
   <details name="settings">
-    <summary><h2>AI Health Check</h2></summary>
+    <summary><h2>AI Health Summary</h2></summary>
   <form method="post" action="/settings/summary" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-    <p class="hint"><strong>Sent:</strong> your description below, and a week
-      of numbers. Per pump per day, the runs, the mean and longest run, the
-      peak and running amps, and this week's typical load against four weeks
-      earlier. The week's calls for water, how many brought on both pumps or
-      reached the high float, and the typical gap between them. Rain per day,
-      as a total in your units. How often each panel contact closed and when it
-      last did. Whether each device is online. Pump and contact names go
-      too, so the reply can name them.</p>
+    <p class="hint"><strong>Sent:</strong> your description below, and the
+      numbers over whichever window was picked on the summary page: today, a
+      week or a month. Per pump per day, the runs, the mean and longest run,
+      the peak and running amps, and the typical load against four weeks
+      earlier. The calls for water, how many brought on both pumps or reached
+      the high float, and the typical gap between them. Rain per day, as a
+      total in your units. How often each panel contact closed and when it last
+      did. Whether each device is online. Pump and contact names go too, so the
+      reply can name them.</p>
 
     <p class="hint"><strong>Not sent:</strong> the address, the site name, the
       coordinates, account names, phone numbers, email addresses, error text
@@ -251,7 +250,7 @@
       <label>
         <input type="checkbox" name="summary_daily"
                {% if summary.daily %}checked{% endif %}>
-        Run one every day
+        Write one every day, over a week
       </label>
       <label>
         <input type="checkbox" name="summary_notify"

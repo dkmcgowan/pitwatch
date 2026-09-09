@@ -180,16 +180,23 @@ async def _write(pool, body: str, context: str, minutes_ago: int) -> int:
     )
 
 
-async def test_the_history_lists_every_check_including_the_latest(pool):
-    """The two tabs are read at different moments, and a history missing its own
-    most recent entry is a history somebody has to reconcile in their head."""
-    await _write(pool, "Oldest.", "First words.", 300)
-    await _write(pool, "Middle.", "Second words.", 200)
-    await _write(pool, "Newest.", "Third words.", 10)
+async def test_writing_one_clears_out_the_ones_before_it(pool, store, monkeypatch):
+    """One summary, not a shelf of them. The readings it was built from are
+    still in em_sample and pump_run, which is where a question about last month
+    is answered from anyway."""
+    await _site(store)
+    await store.put(SummarySettings(api_key="k", model="m"))
+    await _write(pool, "Older.", "Some words.", 300)
+    await _write(pool, "Old.", "Some words.", 200)
 
-    rows = await summary.every(pool)
+    async def answer(settings, payload):
+        return "The newest one."
 
-    assert [row["body"] for row in rows] == ["Newest.", "Middle.", "Oldest."]
+    monkeypatch.setattr(summary, "ask", answer)
+    await summary.write(_App(pool, store), "david")
+
+    rows = await pool.fetch("SELECT body FROM summary")
+    assert [row["body"] for row in rows] == ["The newest one."]
 
 
 async def test_what_a_check_was_told_is_still_kept_even_though_no_page_shows_it(pool):
@@ -356,3 +363,28 @@ def test_a_fresh_install_is_not_ready():
     thing nobody has typed."""
     assert not SummarySettings().ready
     assert SummarySettings().model and SummarySettings().base_url
+
+
+def test_the_window_is_named_as_the_end_of_the_sentence_it_lands_in():
+    """ "7 days of readings" and "30 days of readings" both work off the title.
+    "today of readings" does not, which is what comes out of assuming the three
+    labels are the same part of speech."""
+    from pitwatch.api.pages import _read_over
+
+    assert _read_over("today") == "today's readings"
+    assert _read_over("7d") == "7 days of readings"
+    assert _read_over("30d") == "30 days of readings"
+    # A key from a version that had a window this one does not.
+    assert _read_over("24h") == "24h"
+
+
+def test_the_instruction_says_which_window_it_is_reading():
+    """It said "a week" while the payload said today, and the model did what a
+    careful reader does with a contradiction: it spent its first paragraph
+    explaining that it had been asked for a week and given a day."""
+    for window in ("Today", "7 days", "30 days"):
+        assert f"reading {window} of monitoring data" in summary.instructions(window)
+
+    payload = summary.messages(SummarySettings(), {"window": "Today", "pumps": []})
+    assert "reading Today of monitoring data" in payload[0]["content"]
+    assert "over the week" not in payload[0]["content"]

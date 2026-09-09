@@ -1082,66 +1082,27 @@ table.diagnostic .note {
 /* When the summary was written and who by. Above the summary rather than under
    it: a paragraph about a pump means something different if it is a week
    old. */
-/* When it was written, under whatever the page said about the button. Both
-   are small and gray, so without the gap they read as one paragraph and the
-   line about the button appears to be part of the provenance. */
+/* When it was written and what read it, on two lines. On a phone the whole of
+   it ran to three ragged lines with the model name broken across two of them,
+   which is the part somebody scans for. */
 .summary-when {
   margin: 0 0 0.75rem;
   color: var(--text-muted);
   font-size: 0.8rem;
 }
 
-.hint + .summary-when { margin-top: 0.9rem; }
+.summary-model { white-space: nowrap; }
 
-/* One earlier summary, folded shut. Eight paragraphs stacked under the one
-   somebody came to read is a page nobody scrolls to the bottom of, and the
-   thing being looked for in this list is usually a description rather than a
-   paragraph: the date and who asked are enough to find it by. */
-.earlier {
-  border-top: 1px solid var(--border);
-  padding: 0.6rem 0;
-}
-
-.earlier:first-of-type { border-top: none; }
-
-.earlier > summary {
+/* The picker and the button, which are one control: how much to read and then
+   read it. They stay on one line and wrap together when there is no room. */
+.summary-ask {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.5rem;
-  cursor: pointer;
-  list-style: none;
-  padding: 0.2rem 0;
+  flex-wrap: wrap;
 }
 
-.earlier > summary::-webkit-details-marker { display: none; }
-
-/* The same drawn arrow the settings sections use, so an accordion opens the
-   same way wherever somebody meets one. */
-.earlier > summary::before {
-  content: "";
-  flex: none;
-  width: 0.45rem;
-  height: 0.45rem;
-  border-right: 2px solid var(--text-muted);
-  border-bottom: 2px solid var(--text-muted);
-  transform: rotate(-45deg);
-  transition: transform 0.15s ease;
-}
-
-.earlier[open] > summary::before { transform: rotate(45deg); }
-
-.earlier-when { font-weight: 550; }
-.earlier-who { color: var(--text-muted); font-size: 0.85rem; }
-
-.earlier > .summary-body { margin: 0.6rem 0 0; }
-
-/* What it was told, quoted rather than run in with the paragraph it produced,
-   because the two are read against each other. */
-.earlier-told {
-  margin: 0.7rem 0;
-  padding-left: 0.7rem;
-  border-left: 2px solid var(--border);
-}
+.summary-ask select { width: auto; }
 
 /* Paragraphs as they were written. Rendered as text and nothing else: this
    came from a model, and a model's output is not markup. */

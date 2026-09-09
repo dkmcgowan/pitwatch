@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import asyncpg
 import httpx2
@@ -36,7 +36,16 @@ log = logging.getLogger(__name__)
 # waiting on it has not given up first.
 TIMEOUT_S = 90.0
 
+# The window a check reads when nobody has chosen one. A week is long enough to
+# have a shape and short enough that a change in it is recent.
 WINDOW = series.WINDOWS["7d"]
+
+# How many are kept. One. Every check used to be, on the reasoning that what it
+# said in August is the interesting question later; in practice the way to
+# answer a question about August is to ask for August, which the window picker
+# now does, and a stack of paragraphs nobody opened was a page and a table
+# earning nothing.
+KEEP = 1
 
 # Said in one place, because the page draws it and the post refuses with it.
 NOT_READY = "Add an API key and a model on the settings page first."
@@ -96,22 +105,32 @@ FROM (
 ) spaced
 """
 
-INSTRUCTIONS = (
-    "You are reading a week of monitoring data from a duplex ejector pump "
-    "panel in a building, for the person responsible for keeping it running. "
-    "Say whether the system looks healthy, what changed over the week, and "
-    "anything worth watching or acting on. Be specific and use the numbers. "
-    "Where the data is too thin to support a conclusion, say so plainly "
-    "rather than hedging. Never invent a reading that is not in the data. "
-    "Where rainfall is given, read the pit against it: a busy week in two "
-    "inches of rain and a busy week in a dry one are different findings. "
-    "Four short paragraphs at most, plain text, no headings and no bullet "
-    "points."
-)
+
+def instructions(window: str) -> str:
+    """What to do with the numbers, and over what.
+
+    The window is written into the sentence rather than assumed. It said "a
+    week" while the payload said today, and the model did what a careful reader
+    does with a contradiction: it spent its first paragraph explaining that it
+    had been asked for a week and given a day. The instruction and the data have
+    to agree about what is being read.
+    """
+    return (
+        f"You are reading {window} of monitoring data from a duplex ejector "
+        "pump panel in a building, for the person responsible for keeping it "
+        "running. Say whether the system looks healthy, what changed over that "
+        "period, and anything worth watching or acting on. Be specific and use "
+        "the numbers. Where the data is too thin to support a conclusion, say "
+        "so plainly rather than hedging. Never invent a reading that is not in "
+        "the data. Where rainfall is given, read the pit against it: a busy "
+        "spell in two inches of rain and a busy spell in a dry one are "
+        "different findings. Four short paragraphs at most, plain text, no "
+        "headings and no bullet points."
+    )
 
 
 async def rainfall(pool, store: SettingsStore, window: series.Window, zone: str) -> dict | None:
-    """The week's rain, by day, in whatever unit the site reads.
+    """The window's rain, by day, in whatever unit the site reads.
 
     The one thing in here from outside the building, and the reason a busy week
     is worth anything: a pit that called forty times in a dry week and a pit
@@ -125,7 +144,10 @@ async def rainfall(pool, store: SettingsStore, window: series.Window, zone: str)
     """
     if not store.weather.enabled or not store.site.has_coordinates:
         return None
-    daily = await weather_domain.rain_series(pool, window.span, window.count_bucket, zone)
+    # A day at a time whatever the window is. The window's own bucket is an hour
+    # on today, which would put twenty four rows on the page under the same date
+    # and hand the model a column it cannot read.
+    daily = await weather_domain.rain_series(pool, window.span, timedelta(days=1), zone)
     if not daily:
         return None
     units = store.weather.units
@@ -283,7 +305,7 @@ def messages(settings: SummarySettings, numbers: dict) -> list[dict]:
         "No description of the system has been written on the settings page."
     )
     return [
-        {"role": "system", "content": INSTRUCTIONS},
+        {"role": "system", "content": instructions(numbers.get("window") or "a week")},
         {
             "role": "user",
             "content": (
@@ -344,11 +366,12 @@ async def ask(settings: SummarySettings, payload: list[dict]) -> str:
     return written
 
 
-async def write(app, username: str) -> dict:
+async def write(app, username: str, window: series.Window | None = None) -> dict:
     """Build the numbers, ask, and keep both."""
     store: SettingsStore = app.state.settings
     settings = store.summary
-    numbers = await facts(app)
+    window = window or WINDOW
+    numbers = await facts(app, window)
     body = await ask(settings, messages(settings, numbers))
 
     row = await app.state.pool.fetchrow(
@@ -357,39 +380,20 @@ async def write(app, username: str) -> dict:
         VALUES ($1, $2, $3, $4::jsonb, $5, $6)
         RETURNING id, created_at, window_key, model, body, context, written_by
         """,
-        WINDOW.key,
+        window.key,
         settings.model,
         body,
         json.dumps(numbers),
         settings.description.strip(),
         username,
     )
-    log.info("%s wrote a summary with %s", username, settings.model)
+    # Everything before this one goes. There is one summary and it is the one on
+    # the page, so a row nothing can reach is a row nothing should keep: the
+    # readings it was built from are still in em_sample and pump_run, which is
+    # where a question about last month is answered from anyway.
+    await app.state.pool.execute("DELETE FROM summary WHERE id <> $1", row["id"])
+    log.info("%s wrote a summary over %s with %s", username, window.title, settings.model)
     return dict(row)
-
-
-# How many the history tab lists. Every check is kept forever, and a page that
-# printed all of them would be a wall of paragraphs by the second month.
-KEEP_ON_THE_PAGE = 60
-
-
-async def every(pool: asyncpg.Pool, limit: int = KEEP_ON_THE_PAGE) -> list[dict]:
-    """The checks that have been run, newest first, for the history tab.
-
-    Including the latest, which the other tab also shows. The two tabs are read
-    at different moments and a history missing its own most recent entry is a
-    history somebody has to reconcile in their head.
-    """
-    rows = await pool.fetch(
-        """
-        SELECT id, created_at, window_key, model, body, context, written_by
-        FROM summary
-        ORDER BY created_at DESC
-        LIMIT $1
-        """,
-        limit,
-    )
-    return [dict(row) for row in rows]
 
 
 async def latest(pool: asyncpg.Pool) -> dict | None:
@@ -419,13 +423,13 @@ def age(created_at: datetime | None) -> str:
 
 
 __all__ = [
-    "KEEP_ON_THE_PAGE",
+    "KEEP",
     "NOT_READY",
     "SummaryError",
     "age",
     "ask",
-    "every",
     "facts",
+    "instructions",
     "latest",
     "messages",
     "rainfall",

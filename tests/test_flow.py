@@ -984,7 +984,7 @@ def test_the_history_page_is_in_the_header_for_everybody(client):
 
     page = client.get("/history").text
     assert 'aria-label="History"' in page
-    assert 'aria-label="AI Health Check"' in page, "a reading of the same pumps"
+    assert 'aria-label="AI Health Summary"' in page, "a reading of the same pumps"
     assert 'aria-label="Settings"' not in page
     assert 'aria-label="Users"' not in page
 
@@ -1068,19 +1068,18 @@ def test_a_summary_without_a_key_says_so_rather_than_failing(client):
     assert "settings" in response.headers["location"]
 
 
-def test_the_check_can_be_read_and_run_by_anybody_signed_in(client):
-    """Both tabs, and the button. The prompt is not on either of them: it is a
-    description of the building and lives with the key that asks."""
+def test_the_summary_can_be_read_and_run_by_anybody_signed_in(client):
+    """One page. The prompt is not on it: that is a description of the building
+    and lives with the key that asks."""
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
     become_a_watcher(client)
 
     assert client.get("/summary").status_code == 200
-    assert client.get("/summary/history").status_code == 200
     assert "summary_description" not in client.get("/summary").text
-    # The routes that edited it from here are gone with the box.
-    assert client.post("/summary/context", data={"summary_description": "x"}).status_code == 404
-    assert client.post("/summary/restore", data={"id": "1"}).status_code == 404
+    # The pages and routes that came and went in the two days before this.
+    for gone in ("/summary/history", "/summary/context", "/summary/restore"):
+        assert client.get(gone, follow_redirects=False).status_code == 404, gone
 
 
 def test_the_summary_settings_survive_a_save(client):

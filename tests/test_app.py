@@ -1986,14 +1986,15 @@ def test_the_charts_are_drawn_here_and_not_fetched_from_anywhere():
 def test_the_summary_page_says_what_it_needs_before_it_offers_the_button():
     """A button that fails at the far end of a request is worse than no button,
     whether or not the call costs anything."""
-    nothing = render_page("summary.html", last=None, age="", ready=False, error=None)
+    picker = {"windows": [("7d", "7 days")], "chosen": "7d", "read_over": ""}
+    nothing = render_page("summary.html", last=None, age="", ready=False, error=None, **picker)
 
-    assert "Run a check" not in nothing
+    assert "Create new summary" not in nothing
     assert "settings" in nothing
 
-    ready = render_page("summary.html", last=None, age="", ready=True, error=None)
+    ready = render_page("summary.html", last=None, age="", ready=True, error=None, **picker)
 
-    assert "Run a check" in ready
+    assert "Create new summary" in ready
     # And the prompt is not on this page. It is a description of the building,
     # set once and revisited when the building changes, so it lives with the
     # key that asks and not under the reading it produced.
@@ -2219,16 +2220,25 @@ def test_every_window_carries_the_english_it_is_read_in():
 
 
 def test_the_page_is_named_for_what_it_answers():
-    """It was "Summary", which undersold it: what comes back is an opinion on
-    whether the system is well, not a restatement of the figures. "AI" stays in
-    the name, because a paragraph written by a model is read differently from
-    one written by the panel."""
-    page = render_page("summary.html", ready=True, last=None, age="", error=None)
+    """It was "Summary", which undersold it, and then "Health Check", which
+    made a reading sound like a test with a pass and a fail. "AI" stays in the
+    name, because a paragraph written by a model is read differently from one
+    written by the panel."""
+    page = render_page(
+        "summary.html",
+        ready=True,
+        last=None,
+        age="",
+        read_over="",
+        windows=[("7d", "7 days")],
+        chosen="7d",
+        error=None,
+    )
     settings = render_settings()
 
-    assert "AI Health Check" in page
-    assert ">Run a check<" in page
-    assert "AI Health Check" in settings, "the section that configures it agrees"
+    assert "AI Health Summary" in page
+    assert ">Create new summary<" in page
+    assert "AI Health Summary" in settings, "the section that configures it agrees"
 
     # The note says it is an opinion rather than a measurement, which is the
     # one thing separating it from every other number on this application.
@@ -2237,50 +2247,51 @@ def test_the_page_is_named_for_what_it_answers():
     assert "No address" in note
 
 
-def test_the_check_has_two_tabs_the_way_the_alerts_page_does():
-    """One header icon for two faces of one thing. The latest first here, and
-    not the history: the question somebody opens this with is what the pumps
-    look like now."""
-    latest = render_page("summary.html", ready=True, last=None, age="", error=None)
-    history = render_page("summary_history.html", checks=[])
+def test_how_much_to_read_is_picked_beside_the_button():
+    """The same three windows the history page offers, so "a week" means one
+    thing in this application."""
+    from pitwatch.domain.series import WINDOWS
 
-    for page in (latest, history):
-        assert 'href="/summary"' in page and 'href="/summary/history"' in page
-        assert "subtabs" in page
-
-    assert latest.index('href="/summary"') < latest.index('href="/summary/history"')
-    assert "Nothing has been checked yet" in history
-
-
-def test_the_history_tab_lists_the_checks_without_repeating_the_prompt():
-    """What each was told is stored with it and is not printed. It is the same
-    paragraph on every row until somebody changes it, and a page repeating it
-    twenty times would bury the twenty readings under it."""
     page = render_page(
-        "summary_history.html",
-        checks=[
-            {
-                "when_local": "8 Sep 9:14 AM",
-                "who": "david",
-                "model": "gpt-4o-mini",
-                "window_key": "7d",
-                "body": "Both pumps look normal.",
-            },
-            {
-                "when_local": "1 Sep 8:02 AM",
-                "who": "alex",
-                "model": "gpt-4o-mini",
-                "window_key": "7d",
-                "body": "A quiet week.",
-            },
-        ],
+        "summary.html",
+        ready=True,
+        last=None,
+        age="",
+        read_over="",
+        windows=[(key, window.title) for key, window in WINDOWS.items()],
+        chosen="7d",
+        error=None,
     )
 
-    assert page.count("<details") == 2
-    assert "8 Sep 9:14 AM" in page and "A quiet week." in page
-    # Folded shut, and no prompt anywhere on it.
-    assert "[open]" not in page and "<details open" not in page
-    assert "Told:" not in page and "Use these words" not in page
+    for key, window in WINDOWS.items():
+        assert 'value="' + key + '"' in page, key
+        assert ">" + window.title + "<" in page, key
+    assert 'value="7d" selected' in page, "a week unless somebody says otherwise"
+
+
+def test_the_provenance_is_two_lines_and_not_three_ragged_ones():
+    """On a phone the whole of it ran to three lines with the model name broken
+    across two of them, which is the part somebody scans for."""
+    page = render_page(
+        "summary.html",
+        ready=True,
+        last={
+            "body": "Both pumps look normal.",
+            "model": "/models/Qwen3.6-27B-Q6_K.gguf",
+            "window_key": "7d",
+            "written_by": "admin",
+        },
+        age="1 min ago",
+        read_over="7 days of readings",
+        windows=[("7d", "7 days")],
+        chosen="7d",
+        error=None,
+    )
+
+    when = page.split('class="summary-when"', 1)[1].split("</p>", 1)[0]
+    assert "1 min ago by admin, from 7 days of readings." in when
+    assert when.count("<br>") == 1
+    assert "Generated using /models/Qwen3.6-27B-Q6_K.gguf." in when
 
 
 def test_the_history_page_is_charts_and_not_a_list_of_runs():

@@ -2336,3 +2336,23 @@ def test_the_words_already_in_the_box_are_not_offered_back():
 
     assert 'action="/summary/restore"' not in page
     assert "the words in the box now" in page
+
+
+def test_the_history_page_is_charts_and_not_a_list_of_runs():
+    """There was a table of the last twenty runs under the charts. The charts
+    above it already draw every run in the window, so the table was the same
+    information at a resolution nobody reads, and it was the longest thing on
+    the page. The one run somebody looks up by name is an alert, and the alert
+    history has it."""
+    page = render_page("history.html")
+    js = Path("pitwatch/static/history.js").read_text(encoding="utf-8")
+
+    assert "data-runs-body" not in page and "data-runs-title" not in page
+    assert "runs-table" not in page
+    assert "renderTable" not in js
+    # And the helpers only it used went with it.
+    assert "function cell(" not in js and "function stamp(" not in js
+
+    # The charts that draw the same runs are still there.
+    for chart in ("runs", "load"):
+        assert 'data-chart="' + chart + '"' in page, chart

@@ -1305,11 +1305,6 @@ td.center, th.center { text-align: center; }
    which is the only reason to put them in a column. */
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
-/* Narrower than the settings tables: four short columns, and it has to be
-   readable on a phone held in one hand at a pit. It was six, and on a phone
-   every one of them wrapped. */
-table.runs-table { min-width: 19rem; font-size: 0.85rem; }
-
 /* A cell that would rather scroll than wrap. A timestamp broken across two
    lines makes every row in the table a different height. */
 td.nowrap, th.nowrap { white-space: nowrap; }

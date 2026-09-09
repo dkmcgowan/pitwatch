@@ -1,6 +1,6 @@
 // The history page.
 //
-// Four charts and a table, drawn as SVG by hand. A charting library would be a
+// Four charts, drawn as SVG by hand. A charting library would be a
 // build step and a megabyte to render what is, in the end, some rectangles and
 // some dots, and the content security policy on this application does not let
 // a page fetch one anyway. It also does not allow an inline style attribute,
@@ -29,7 +29,7 @@
   // counting water use the accent, because there is one thing being counted.
   const SERIES = ["var(--series-1)", "var(--series-2)"];
 
-  // The columns of the runs table, by their place in a row from the API.
+  // The columns of a run, by their place in a row from the API.
   const STARTED = 0;
   const PUMP = 1;
   const DURATION = 2;
@@ -798,68 +798,6 @@
     }
   }
 
-  // -- the table ------------------------------------------------------------
-
-  function cell(row, value, className) {
-    const node = document.createElement("td");
-    node.textContent = value;
-    if (className) {
-      node.className = className;
-    }
-    row.appendChild(node);
-    return node;
-  }
-
-  // Short enough not to wrap in a narrow column: no weekday, and the hour
-  // without a leading zero. "9/6 2:14 PM" rather than "Sat, 9/6 02:14 PM".
-  function stamp(ms) {
-    const when = new Date(ms);
-    return (
-      when.toLocaleDateString([], { month: "numeric", day: "numeric" }) +
-      " " +
-      when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
-    );
-  }
-
-  function renderTable(data) {
-    const body = document.querySelector("[data-runs-body]");
-    const empty = document.querySelector('[data-empty="table"]');
-    if (!body) {
-      return;
-    }
-    body.textContent = "";
-    const all = data.runs || [];
-    const runs = all.slice(-(data.recent || 20)).reverse();
-    if (empty) {
-      empty.hidden = runs.length > 0;
-    }
-    // The heading says which runs these are. The charts above draw every run in
-    // the window and this table draws the last twenty of them, so on a busy day
-    // the two disagree by design, and a heading that said only "the last runs"
-    // left somebody to work that out by counting rows.
-    const title = document.querySelector("[data-runs-title]");
-    if (title) {
-      title.textContent =
-        runs.length < all.length
-          ? "The last " + runs.length + " runs of " + all.length
-          : "Every run " + data.within;
-    }
-    runs.forEach(function (run) {
-      const row = document.createElement("tr");
-      cell(row, stamp(at(run[STARTED])), "nowrap");
-      // The number on its own under a heading that already says Pump. Lead is
-      // said by not saying it: on a duplex panel answering one call with one
-      // pump every run is the lead one, and the word repeated two hundred
-      // times down a column says nothing. Lag is rare and is worth the space.
-      cell(row, String(run[PUMP]) + (run[ROLE] === "lag" ? " lag" : ""), "nowrap");
-      cell(row, run[DURATION] === null ? "running" : spoken(run[DURATION]), "num");
-      // Steady current, and nothing about the starting surge. The column was
-      // "15.4 / 39.1" and the second number was the inrush every time.
-      cell(row, run[STEADY] === null ? "--" : run[STEADY].toFixed(1), "num");
-      body.appendChild(row);
-    });
-  }
-
   // -- the page -------------------------------------------------------------
 
   // The key dot is an SVG square rather than a colored span. The content
@@ -925,7 +863,6 @@
       }
     });
     renderFigures(data);
-    renderTable(data);
     key(data, "runs");
     key(data, "load", function (number) {
       return data.pumps[number].clamp;

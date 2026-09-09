@@ -147,24 +147,11 @@
     </dialog>
   </section>
 
-  {# The last of it line by line, for after something happened. #}
-  <section class="card">
-    <h2 class="section-heading" data-runs-title>The last runs</h2>
-    <div class="table-scroll">
-      <table class="runs-table" data-runs-table>
-        <thead>
-          <tr>
-            <th scope="col">When</th>
-            <th scope="col">Pump</th>
-            <th scope="col" class="num">Run time</th>
-            <th scope="col" class="num">Amps</th>
-          </tr>
-        </thead>
-        <tbody data-runs-body></tbody>
-      </table>
-    </div>
-    <p class="chart-empty" data-empty="table" hidden>No runs in this window.</p>
-  </section>
+  {# There was a table of the last twenty runs here, line by line. It went on
+     2026-09-09: the charts above already draw every run in the window, so a
+     list of twenty of them was the same information at the wrong resolution,
+     and it was the longest thing on the page. The one run somebody wants to
+     look up by name is an alert, and the alert history has it. #}
 </div>
 
 {% endblock %}

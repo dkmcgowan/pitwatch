@@ -27,11 +27,6 @@ router = APIRouter(prefix="/api")
 
 CACHE_FOR = timedelta(seconds=60)
 
-# How many runs the table under the charts lists. The charts draw every run in
-# the window; this is the part somebody reads line by line, and past twenty
-# lines nobody does.
-RECENT_RUNS = 20
-
 
 def _seconds(span: timedelta) -> int:
     return int(span.total_seconds())
@@ -129,7 +124,6 @@ async def build_history(app, window: series.Window) -> dict:
         # Twenty four entries whether or not anything ran in any of them. An
         # hour with no water coming in is part of the shape rather than a hole.
         "hours": [[hour, hours.get(hour, 0)] for hour in range(24)],
-        "recent": RECENT_RUNS,
     }
 
 

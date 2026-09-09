@@ -336,39 +336,23 @@ def test_the_time_of_day_has_to_be_a_time_of_day():
 # -- what it takes to be ready ------------------------------------------------
 
 
-def test_a_model_on_this_network_is_asked_without_a_key():
-    """Requiring one meant an installation pointed at its own hardware saw a
-    page saying "add an OpenAI key" and a button that never appeared."""
-    for address in (
-        "http://127.0.0.1:11434/v1",
-        "http://localhost:8080/v1",
-        "http://192.168.1.40:1234/v1",
-        "http://10.136.1.36:8000/v1",
-        "http://172.16.4.4/v1",
-        "http://workstation/v1",
-        "http://tower.local:5000/v1",
-    ):
-        settings = SummarySettings(model="llama3", base_url=address, api_key="")
-        assert settings.asks_this_network, address
-        assert settings.ready, address
+def test_a_key_is_needed_wherever_the_model_is():
+    """Including on this network. llama.cpp speaks the OpenAI protocol and that
+    includes the bearer token, so deciding that a private address needs no
+    credential decides something about somebody's setup from the wrong side of
+    it."""
+    on_this_network = SummarySettings(
+        model="llama3", base_url="http://127.0.0.1:8080/v1", api_key=""
+    )
+    assert not on_this_network.ready
+
+    assert SummarySettings(
+        model="llama3", base_url="http://127.0.0.1:8080/v1", api_key="a-key"
+    ).ready
 
 
-def test_anything_out_on_the_internet_still_needs_one():
-    """Including a fresh install, where the model and the address are filled in
-    by default and the key is the one thing nobody has typed yet."""
-    assert not SummarySettings().api_key
-    assert not SummarySettings().ready, "the defaults point at OpenAI"
-
-    for address in ("https://api.openai.com/v1", "https://models.example.com/v1"):
-        settings = SummarySettings(model="gpt-4o-mini", base_url=address, api_key="")
-        assert not settings.asks_this_network, address
-        assert not settings.ready, address
-        assert SummarySettings(model="gpt-4o-mini", base_url=address, api_key="sk-x").ready
-
-
-def test_an_address_it_cannot_place_is_treated_as_the_internet():
-    """The safe way round. Being wrong here costs a page asking for a key that
-    was not needed; the other way round is a button that fails at the far end of
-    a request."""
-    assert not SummarySettings(model="m", base_url="nonsense", api_key="").ready
-    assert not SummarySettings(model="m", base_url="", api_key="").ready
+def test_a_fresh_install_is_not_ready():
+    """The model and the address are filled in by default and the key is the one
+    thing nobody has typed."""
+    assert not SummarySettings().ready
+    assert SummarySettings().model and SummarySettings().base_url

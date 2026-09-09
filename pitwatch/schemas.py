@@ -15,9 +15,7 @@ wrong". Add them when the shape settles, not before.
 from __future__ import annotations
 
 from enum import StrEnum
-from ipaddress import ip_address
 from typing import ClassVar, Literal
-from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -99,10 +97,13 @@ class SummarySettings(BaseModel):
     hand when it storms: none of that is in a current reading, and all of it
     changes what the readings mean.
 
-    The key, where there is one, is somebody's account and this is the only
-    place it is stored. It is never rendered back to the browser, the same as
-    every other secret here. There need not be one: the base URL can point at a
-    model on this network, and then nothing leaves the building at all.
+    The key is somebody's account and this is the only place it is stored. It is
+    never rendered back to the browser, the same as every other secret here.
+
+    Where it is asked is the base URL, and that can be a model on this network:
+    llama.cpp and the rest speak the same protocol, key included, so pointing
+    this at your own hardware changes where the readings go and not what has to
+    be filled in.
     """
 
     KEY: ClassVar[str] = "summary"
@@ -151,40 +152,16 @@ class SummarySettings(BaseModel):
 
     @property
     def ready(self) -> bool:
-        """Enough to ask.
+        """Enough to ask: a key, a model, and somewhere to ask.
 
-        A model, somewhere to ask it, and a key **unless the somewhere is on
-        this network**. A model running beside this usually wants no key, and
-        requiring one meant an installation pointed at its own hardware saw a
-        page saying "add an OpenAI key" and a button that never appeared.
-
-        The address is what decides it, not a checkbox, because the address is
-        the fact: everything out on the internet wants to know who is asking and
-        nothing on a private network here does. It also keeps a fresh install
-        honest, where the model and the address are filled in by default and the
-        key is the one thing nobody has typed yet.
+        The key is not optional and is not conditional on where the address
+        points. A server on this network can want one exactly as much as a
+        server on the internet does, which is the case here: llama.cpp speaks
+        the OpenAI protocol and that includes the bearer token. Deciding for
+        somebody that their own hardware needs no credential is deciding
+        something about their setup from the wrong side of it.
         """
-        return bool(self.model and self.base_url and (self.api_key or self.asks_this_network))
-
-    @property
-    def asks_this_network(self) -> bool:
-        """Whether the API address is somewhere on this side of the router.
-
-        Loopback, the three private ranges, and a name with no dots in it or a
-        local suffix, which is what a machine on a LAN is called. Anything this
-        cannot place is treated as the internet, which is the safe way round:
-        the cost of being wrong here is a page asking for a key that was not
-        needed, and the other way round is a button that fails at the far end of
-        a request.
-        """
-        host = (urlsplit(self.base_url).hostname or "").strip().lower()
-        if not host:
-            return False
-        try:
-            return ip_address(host).is_private or ip_address(host).is_loopback
-        except ValueError:
-            pass
-        return host == "localhost" or "." not in host or host.endswith((".local", ".lan", ".home"))
+        return bool(self.api_key and self.model and self.base_url)
 
 
 class SmsSettings(BaseModel):

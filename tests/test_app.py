@@ -2057,35 +2057,22 @@ def test_the_summary_sends_the_description_and_the_numbers_and_nothing_else():
         assert leaked not in body, leaked
 
 
-def test_a_check_needs_a_model_and_an_address_but_not_a_key():
-    """A model running on the same network as this usually wants no key, and
-    requiring one meant an installation pointed at its own hardware saw a page
-    saying "add an OpenAI key" and a button that never appeared. A key nobody
-    needs is not a safety check, it is a locked door in front of an open one."""
+def test_a_check_needs_a_key_before_it_asks_anything():
+    """And says so in a sentence somebody can act on rather than failing at the
+    far end of a request. Wherever the model is: a server on this network wants
+    a key exactly as much as one on the internet, because it is the same
+    protocol."""
     import asyncio
 
     from pitwatch.schemas import SummarySettings
     from pitwatch.summary import SummaryError, ask
 
-    # Nothing named to ask, which is the case worth refusing before the request.
     with pytest.raises(SummaryError) as raised:
-        asyncio.run(ask(SummarySettings(model=""), [{"role": "user", "content": "hello"}]))
+        asyncio.run(ask(SummarySettings(), [{"role": "user", "content": "hello"}]))
     assert "settings page" in str(raised.value)
 
-    # A model on this network, no key. Ready.
-    local = SummarySettings(model="llama3", base_url="http://127.0.0.1:11434/v1")
-    assert local.ready
-    assert not local.api_key
-
-
-def test_the_key_is_only_sent_when_there_is_one():
-    """An empty bearer token is a header that says "I have a credential" and
-    then does not, which some servers reject and none are helped by."""
-    source = Path("pitwatch/summary.py").read_text(encoding="utf-8")
-    ask_body = source.split("async def ask(", 1)[1].split("async def write(", 1)[0]
-
-    assert "if settings.api_key else {}" in ask_body
-    assert "headers=headers" in ask_body
+    on_this_network = SummarySettings(model="llama3", base_url="http://127.0.0.1:8080/v1")
+    assert not on_this_network.ready, "no key is no key, whatever the address"
 
 
 def test_the_notes_are_wired_from_one_file_for_every_page():

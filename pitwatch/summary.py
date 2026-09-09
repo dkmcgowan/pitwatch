@@ -39,7 +39,7 @@ TIMEOUT_S = 90.0
 WINDOW = series.WINDOWS["7d"]
 
 # Said in one place, because the page draws it and the post refuses with it.
-NOT_READY = "Name a model and an API address on the settings page first."
+NOT_READY = "Add an API key and a model on the settings page first."
 
 # There was a gate here, holding the button until a week had passed or the
 # description had changed, on the reasoning that the same readings and the same
@@ -312,15 +312,11 @@ async def ask(settings: SummarySettings, payload: list[dict]) -> str:
         raise SummaryError(NOT_READY)
 
     url = settings.base_url.rstrip("/") + "/chat/completions"
-    # Sent only when there is one. A model on this network usually wants no key,
-    # and an empty bearer token is a header that says "I have a credential" and
-    # then does not, which some servers reject and none are helped by.
-    headers = {"Authorization": f"Bearer {settings.api_key}"} if settings.api_key else {}
     try:
         async with httpx2.AsyncClient(timeout=TIMEOUT_S) as client:
             response = await client.post(
                 url,
-                headers=headers,
+                headers={"Authorization": f"Bearer {settings.api_key}"},
                 json={"model": settings.model, "messages": payload},
             )
     except httpx2.HTTPError as error:

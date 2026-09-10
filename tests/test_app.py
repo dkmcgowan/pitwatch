@@ -2312,3 +2312,22 @@ def test_the_history_page_is_charts_and_not_a_list_of_runs():
     # The charts that draw the same runs are still there.
     for chart in ("runs", "load"):
         assert 'data-chart="' + chart + '"' in page, chart
+
+
+def test_a_settings_section_pads_whatever_it_holds():
+    """The rule named the two tags the sections had happened to use, form and p,
+    and Diagnostics is neither: it is a div, so its tables ran to both edges of
+    the card while every other section stood off them. A rule that lists the
+    shapes it has met is wrong the next time somebody adds one."""
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+    page = render_settings()
+
+    assert ".settings-section > details > *:not(summary)" in css
+    assert ".settings-section > details > form," not in css
+
+    # On the phone too, which is its own block and was its own copy of the bug.
+    phone = css.rsplit("@media (max-width: 30rem) {", 1)[1]
+    assert ".settings-section > details > *:not(summary)" in phone
+
+    # The section that found it: a div rather than a form, still the only one.
+    assert '<div class="diagnostics">' in page

@@ -61,6 +61,27 @@ SWEEP_S = 30.0
 # thing is turning. This only has to outlast that.
 SETTLE_S = 6.0
 
+# How long the panel's alarm has to be quiet before the hold gives up on it.
+#
+# The alarm output is not a level, it pulses. On 2026-09-12 an overload was
+# tripped by hand and the contact came back a one hertz square wave, half a
+# second up and half a second down, holding to within five milliseconds for
+# three and a half seconds until the silence button was pressed. That is a
+# panel driving a flashing beacon, not a contact bouncing.
+#
+# The hold was written as an unbroken stretch, so every gap put it back to
+# zero and it could never reach two seconds against a signal like that. The
+# alarm that afternoon was only ever reported because somebody was standing in
+# front of the panel and silenced it, which turned the pulse steady. Nobody is
+# standing there at three in the morning, and that is the alarm this exists
+# for.
+#
+# So a gap shorter than this does not end the hold, and does not clear an
+# alarm that is already up. It has to outlast the dark half of the pulse by
+# enough that a slower flash is still caught, and it is the price paid in how
+# late a genuine clear is reported.
+PULSE_GAP_S = 5.0
+
 
 @dataclass(frozen=True, slots=True)
 class Finding:
@@ -85,8 +106,11 @@ class AlertEngine:
         self._history = history
         self._recent = recent_runs
         # When the panel's own alarm was first seen up, so it can be held back
-        # briefly to see whether something that carries detail explains it.
+        # briefly to see whether something that carries detail explains it,
+        # and when it was last seen to drop, so the gaps in a pulsing alarm
+        # are not each read as the alarm ending. See PULSE_GAP_S.
         self._panel_alert_since: datetime | None = None
+        self._panel_alert_quiet_since: datetime | None = None
         self._wake = asyncio.Event()
         # When a rule that deferred wants looking at again.
         #
@@ -282,23 +306,45 @@ class AlertEngine:
         return {None: Finding() if (one and two) else None}
 
     async def _check_panel_alert(self, rule) -> dict | None:
-        """The controller's own alarm, held briefly.
+        """The controller's own alarm, held briefly, through the gaps.
 
         It carries no detail -- a power cut, an open door and half a dozen
         faults all raise the same contact -- so it waits to see whether
         something that does carry detail explains it. Two alerts for one event
         means the vaguer one is read first.
+
+        The hold counts from the first time the alarm was seen up and keeps
+        counting through a gap shorter than PULSE_GAP_S, because the panel
+        pulses this output rather than holding it. A single blip and then
+        nothing is still filtered: the gap runs out before the hold does, and
+        the hold is thrown away without ever having been reached.
         """
         raised = self._contact("system_alert")
         if raised is None:
             return None
-        if not raised:
-            self._panel_alert_since = None
-            return {None: None}
 
         now = datetime.now(UTC)
-        if self._panel_alert_since is None:
-            self._panel_alert_since = now
+
+        if raised:
+            self._panel_alert_quiet_since = None
+            if self._panel_alert_since is None:
+                self._panel_alert_since = now
+        elif self._panel_alert_since is None:
+            return {None: None}
+        else:
+            if self._panel_alert_quiet_since is None:
+                self._panel_alert_quiet_since = now
+            quiet = (now - self._panel_alert_quiet_since).total_seconds()
+            if quiet < PULSE_GAP_S:
+                # Might be the dark half of a pulse rather than the end of the
+                # alarm. Say nothing either way and come back when the gap has
+                # gone on long enough to mean something.
+                self._ask_again_in(PULSE_GAP_S - quiet)
+                return None
+            self._panel_alert_since = None
+            self._panel_alert_quiet_since = None
+            return {None: None}
+
         held = (now - self._panel_alert_since).total_seconds()
         if held < rule.hold_s:
             # Ask to be looked at again when the hold is up. Without this the

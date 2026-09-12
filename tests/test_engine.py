@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from pitwatch.domain.engine import AlertEngine
+from pitwatch.domain.engine import PULSE_GAP_S, AlertEngine
 from pitwatch.schemas import (
     AlertsSettings,
     ClampSource,
@@ -389,6 +389,89 @@ async def test_a_panel_alarm_shorter_than_a_sweep_is_still_raised(pool, sent):
 
     raised = [row["rule"] for row in await pool.fetch("SELECT rule FROM alert")]
     assert "panel_alert" in raised
+
+
+async def test_a_pulsing_panel_alarm_is_raised_rather_than_filtered_out(pool, sent):
+    """The alarm output pulses. The hold used to require an unbroken stretch,
+    so it could never reach the end against a signal that keeps stopping.
+
+    An overload was tripped by hand on 2026-09-12 and the contact came back a
+    one hertz square wave: up for half a second, down for half a second, for
+    three and a half seconds, until the silence button was pressed and it went
+    steady. The alarm was reported ten seconds late and only because somebody
+    was standing in front of the panel. Left alone it would have pulsed all
+    night and said nothing.
+    """
+    await _a_person(pool)
+    store = _store()
+    contacts = _wire(_Contacts(), system_alert=True)
+    engine = _engine(pool, store, contacts)
+
+    # Up, and the hold starts.
+    await engine.sweep()
+    started = engine._panel_alert_since
+    assert started is not None
+
+    # The dark half of the pulse. It is not the alarm ending, so the hold is
+    # not thrown away and nothing is reported either way.
+    contacts.by_channel[2] = False
+    await engine.sweep()
+    assert engine._panel_alert_since == started, "the gap did not restart the hold"
+    assert engine._recheck_at is not None, "and it asked to be looked at again"
+    assert not await pool.fetch("SELECT 1 FROM alert")
+
+    # Up again, and the hold is now old enough to mean something.
+    contacts.by_channel[2] = True
+    engine._panel_alert_since -= timedelta(seconds=store.alerts.panel_alert.hold_s + 1)
+    await engine.sweep()
+
+    raised = [row["rule"] for row in await pool.fetch("SELECT rule FROM alert")]
+    assert "panel_alert" in raised
+
+
+async def test_one_blip_and_nothing_after_it_is_still_filtered(pool, sent):
+    """The other half of the same change. Tolerating the gaps in a pulse must
+    not turn into raising a critical alert for a single flicker, which is what
+    the hold was there to stop."""
+    await _a_person(pool)
+    store = _store()
+    contacts = _wire(_Contacts(), system_alert=True)
+    engine = _engine(pool, store, contacts)
+
+    await engine.sweep()
+    contacts.by_channel[2] = False
+    await engine.sweep()
+
+    # The gap outlasting a pulse, without the contact ever coming back up.
+    engine._panel_alert_quiet_since -= timedelta(seconds=PULSE_GAP_S + 1)
+    await engine.sweep()
+
+    assert not await pool.fetch("SELECT 1 FROM alert"), "one flicker is not an alarm"
+    assert engine._panel_alert_since is None, "and the hold was thrown away"
+
+
+async def test_a_panel_alarm_clears_once_the_quiet_outlasts_a_pulse(pool, sent):
+    """Raised, and then genuinely over. The gap costs a few seconds on the
+    clear, which is the price of not reading every pulse as the end."""
+    await _a_person(pool)
+    store = _store()
+    contacts = _wire(_Contacts(), system_alert=True)
+    engine = _engine(pool, store, contacts)
+
+    await engine.sweep()
+    engine._panel_alert_since -= timedelta(seconds=store.alerts.panel_alert.hold_s + 1)
+    await engine.sweep()
+    assert await pool.fetchval("SELECT count(*) FROM alert WHERE cleared_at IS NULL") == 1
+
+    contacts.by_channel[2] = False
+    await engine.sweep()
+    assert await pool.fetchval(
+        "SELECT count(*) FROM alert WHERE cleared_at IS NULL"
+    ) == 1, "a gap this short might still be a pulse"
+
+    engine._panel_alert_quiet_since -= timedelta(seconds=PULSE_GAP_S + 1)
+    await engine.sweep()
+    assert await pool.fetchval("SELECT count(*) FROM alert WHERE cleared_at IS NULL") == 0
 
 
 async def test_a_pump_with_no_runs_on_record_is_not_reported_idle(pool, sent):

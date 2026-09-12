@@ -465,9 +465,8 @@ async def test_a_panel_alarm_clears_once_the_quiet_outlasts_a_pulse(pool, sent):
 
     contacts.by_channel[2] = False
     await engine.sweep()
-    assert await pool.fetchval(
-        "SELECT count(*) FROM alert WHERE cleared_at IS NULL"
-    ) == 1, "a gap this short might still be a pulse"
+    still_open = await pool.fetchval("SELECT count(*) FROM alert WHERE cleared_at IS NULL")
+    assert still_open == 1, "a gap this short might still be a pulse"
 
     engine._panel_alert_quiet_since -= timedelta(seconds=PULSE_GAP_S + 1)
     await engine.sweep()

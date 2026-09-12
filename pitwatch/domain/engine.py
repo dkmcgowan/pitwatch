@@ -67,7 +67,14 @@ SETTLE_S = 6.0
 # tripped by hand and the contact came back a one hertz square wave, half a
 # second up and half a second down, holding to within five milliseconds for
 # three and a half seconds until the silence button was pressed. That is a
-# panel driving a flashing beacon, not a contact bouncing.
+# beacon being flashed, not a contact bouncing.
+#
+# The controller behind the panel is a Unitronics Jazz JZ20-J-R31, whose SB 3
+# is a free running one second pulse oscillator. So this is not an accident of
+# timing to be measured and tracked, it is a system bit gated into the alarm
+# output by the ladder, and it will be exactly this shape every time. The first
+# half cycle we saw was a short 0.248 s, which is what a free running
+# oscillator looks like when the alarm arrives partway through one.
 #
 # The hold was written as an unbroken stretch, so every gap put it back to
 # zero and it could never reach two seconds against a signal like that. The

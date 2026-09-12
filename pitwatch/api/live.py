@@ -78,10 +78,15 @@ def lead_and_lag(inputs: MqttSettings, live_io: LiveIo) -> tuple[str, str]:
     of them lead would be describing a rotation that has been overtaken by
     events.
 
-    **An overload outranks all of it.** A tripped pump reads FAIL and the other
-    is lead, whether or not the rotation said so, because it is the only one
-    left. Both tripped is the display in the photograph that nobody wants to be
-    looking at.
+    **An overload outranks all of it.** A tripped pump reads ERROR and the
+    other is lead, whether or not the rotation said so, because it is the only
+    one left. Both tripped is the display in the photograph that nobody wants
+    to be looking at.
+
+    ERROR rather than FAIL because ERROR is the word on the controller's own
+    screen, checked against the panel on 2026-09-12. These are its words, not
+    ours, and the whole reason for using them is that somebody who has stood in
+    front of that display can read this one without being taught.
     """
     fault_1 = inputs.channel_for("pump1_fault")
     fault_2 = inputs.channel_for("pump2_fault")
@@ -91,15 +96,15 @@ def lead_and_lag(inputs: MqttSettings, live_io: LiveIo) -> tuple[str, str]:
     faulted_1 = live_io.state_of(fault_1) if fault_1 else None
     faulted_2 = live_io.state_of(fault_2) if fault_2 else None
     if faulted_1 and faulted_2:
-        return ("FAIL", "FAIL")
+        return ("ERROR", "ERROR")
 
     running_1 = live_io.state_of(run_1) if run_1 else None
     running_2 = live_io.state_of(run_2) if run_2 else None
 
     if faulted_1:
-        return ("FAIL", "LEAD")
+        return ("ERROR", "LEAD")
     if faulted_2:
-        return ("LEAD", "FAIL")
+        return ("LEAD", "ERROR")
 
     if running_1 and running_2:
         return ("ON", "ON")

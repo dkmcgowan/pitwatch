@@ -534,14 +534,14 @@ def test_an_overload_outranks_everything_else():
     """A tripped pump is not lag waiting its turn, it is out. The other one is
     lead because it is the only one left, whatever the rotation said."""
     # Pump 2 ran last, so pump 1 would be lead. Its overload says otherwise.
-    assert words(io((P2, True), (P2, False), (F1, True))) == ("FAIL", "LEAD")
-    assert words(io((P1, True), (P1, False), (F2, True))) == ("LEAD", "FAIL")
+    assert words(io((P2, True), (P2, False), (F1, True))) == ("ERROR", "LEAD")
+    assert words(io((P1, True), (P1, False), (F2, True))) == ("LEAD", "ERROR")
     # Even mid run, which is exactly when an overload trips.
-    assert words(io((P1, True), (F1, True))) == ("FAIL", "LEAD")
+    assert words(io((P1, True), (F1, True))) == ("ERROR", "LEAD")
 
 
 def test_both_overloads_tripped_is_its_own_display():
-    assert words(io((F1, True), (F2, True))) == ("FAIL", "FAIL")
+    assert words(io((F1, True), (F2, True))) == ("ERROR", "ERROR")
 
 
 def test_unassigned_run_inputs_answer_nothing():
@@ -718,7 +718,7 @@ def test_the_box_says_everything_in_three_words_or_less():
     for it.
 
     The line naming the pump an overload has stopped went with the rest. OL1
-    and OL2 already say which pump, and the screen says FAIL beside its name.
+    and OL2 already say which pump, and the screen says ERROR beside its name.
     """
     import re
 
@@ -777,7 +777,7 @@ def test_the_board_reads_top_to_bottom():
 
     The overloads are the last two rows of Alerts rather than a section of
     their own. They are the worst of the four, and the panel's own word for
-    that pump already says FAIL beside its name.
+    that pump already says ERROR beside its name.
     """
     page = render_dashboard()
 
@@ -1073,7 +1073,7 @@ def test_the_run_contacts_have_no_lamp_on_the_panel():
 
 
 def test_the_panels_word_sits_beside_the_pump_it_is_about():
-    """LEAD, LAG, ON and FAIL are the controller's own words, and somebody who
+    """LEAD, LAG, ON and ERROR are the controller's own words, and somebody who
     has stood in front of that panel already knows how to read them.
 
     They used to be a green screen across the middle of the page reading
@@ -1100,9 +1100,9 @@ def test_the_panels_word_sits_beside_the_pump_it_is_about():
     # keeps the plain badge, and every one of them is a word as well, which is
     # the rule the rest of this page follows.
     #
-    # Matched without the brace: fail shares its rule with the alerts summary's
-    # own red, and a selector in a list is still a selector.
-    for word in ("lead", "on", "fail"):
+    # Matched without the brace: error shares its rule with the alerts
+    # summary's own red, and a selector in a list is still a selector.
+    for word in ("lead", "on", "error"):
         assert ".status-" + word in css, word
     assert "MEANS = {" in js and '"status-" + word.toLowerCase()' in js
 
@@ -1277,6 +1277,51 @@ def test_a_running_pump_is_shown_by_the_whole_section():
     # the resting one or leave the tint behind it the wrong hue.
     assert "--icon: var(--ok);" in css.split(".pump-card.running {", 1)[1].split("}", 1)[0]
     assert "var(--icon" in css.split(".card-icon {", 1)[1].split("}", 1)[0]
+
+
+def test_a_pump_that_is_out_is_shown_by_the_whole_section_too():
+    """Running reddens nothing and greens everything; being out has to be the
+    other half of that sentence.
+
+    An overload was tripped on the real panel on 2026-09-12 and the pump sat
+    out of service for fifty five seconds. The page said so in a pill beside
+    the name, which is a word you find by reading the card you were hoping
+    would tell you, while the card around it stayed the same color it is on a
+    quiet Tuesday. The two states worth seeing from the door now look like each
+    other's opposite from the door.
+    """
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+
+    assert ".pump-card.faulted {" in css
+    assert ".pump-card.faulted .amps" in css
+    block = css.split(".pump-card.faulted {", 1)[1].split("}", 1)[0]
+    assert "--icon: var(--crit);" in block
+
+    # After running in the file, so red wins if a contact and its partner
+    # disagree for a frame.
+    assert css.index(".pump-card.running {") < css.index(".pump-card.faulted {")
+
+    # And something has to put the class there.
+    assert 'classList.toggle("faulted", word === "ERROR")' in js
+
+
+def test_the_word_beside_the_pump_is_the_one_on_the_panel():
+    """ERROR, not Fail.
+
+    These are the controller's words rather than ours, on the argument that
+    somebody who has stood in front of that display can read this one without
+    being taught, and the argument only holds while the words match. The panel
+    was read on 2026-09-12 and it says ERROR.
+    """
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+
+    assert '"Error"' in js
+    assert '"Fail"' not in js
+    # The class comes from the word, lowercased, so the two cannot drift.
+    assert ".status-error" in css
+    assert ".status-fail" not in css
 
 
 def test_every_long_note_is_a_dialog_opened_from_beside_its_heading():

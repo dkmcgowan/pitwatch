@@ -342,7 +342,7 @@
         : "Nothing raised on the " + watched.length + " assigned. The rest have no input.";
   }
 
-  // The controller's word for a pump: LEAD, LAG, ON or FAIL, beside the name
+  // The controller's word for a pump: LEAD, LAG, ON or ERROR, beside the name
   // it is about.
   //
   // It was a green screen across the middle of the page reading "P1:LEAD
@@ -357,15 +357,25 @@
     LEAD: "Answers the next call, and running while it runs",
     LAG: "Sitting this one out",
     ON: "Running: the controller has called both pumps",
-    FAIL: "Overload tripped. This pump is off and staying off"
+    ERROR: "Overload tripped. This pump is off and staying off"
   };
 
   // Written the way the rest of the page is written. The panel's own display
   // has one case available to it and shouts; a web page does not have to.
-  const SHOWN = { LEAD: "Lead", LAG: "Lag", ON: "On", FAIL: "Fail" };
+  const SHOWN = { LEAD: "Lead", LAG: "Lag", ON: "On", ERROR: "Error" };
 
   function renderStatus(number, word) {
     const card = document.querySelector('[data-pump="' + number + '"]');
+
+    // A pump that is out reddens its whole section, the way a running one
+    // greens its whole section. Those were the only two states on this page
+    // worth seeing from across a boiler room, and until now only one of them
+    // was: the other was a word in a pill beside the name, which is a thing
+    // you find by reading the card you were trying to be told about.
+    if (card) {
+      card.classList.toggle("faulted", word === "ERROR");
+    }
+
     const badge = card && card.querySelector("[data-status]");
     if (!badge) {
       return;

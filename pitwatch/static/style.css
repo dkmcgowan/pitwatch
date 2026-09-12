@@ -364,7 +364,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .card-top .info-mark { margin-left: 0.1rem; }
 
 /* The word off the controller's screen, beside the pump it is about: LEAD,
-   LAG, ON or FAIL. Pushed to the end of the line, so the four of them line up
+   LAG, ON or ERROR. Pushed to the end of the line, so the four of them line up
    down the right hand edge of the two pump sections however long the names
    are.
 
@@ -421,7 +421,7 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 /* Off and staying off, and the alerts section with something raised. Two
    different sentences and the same news: a red word where a quiet one usually
    is. */
-.status-fail,
+.status-error,
 .status-alarm {
   color: var(--crit);
   border-color: color-mix(in srgb, var(--crit) 55%, transparent);
@@ -539,6 +539,24 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 }
 
 .pump-card.running .amps { color: var(--ok); }
+
+/* A pump that is out, said the same three ways for the same reason. Running
+   was the only state on this card that carried across a room, and being out of
+   service is the other one worth seeing from the door. It was a word in a pill
+   beside the name, which is something you find by reading the card you were
+   hoping would tell you.
+
+   Listed after running rather than before it so that red wins if both are
+   somehow set at once. That should not happen, because a tripped pump is not
+   turning, but the frame where a contact has changed and its partner has not
+   is the wrong place to be showing green. */
+.pump-card.faulted {
+  --icon: var(--crit);
+  border-color: color-mix(in srgb, var(--crit) 45%, transparent);
+  background: color-mix(in srgb, var(--crit) 8%, transparent);
+}
+
+.pump-card.faulted .amps { color: var(--crit); }
 
 /* Alerts and floats. Two sections of the same shape, four contacts and two, so
    the six rows read the same way one under the other.

@@ -50,6 +50,70 @@
    scrolling is a thing a thumb does without looking. #}
 <div class="board">
 
+  {# The panel's own button, for somebody who is not standing at the panel.
+
+     First on the page and only for administrators. It is here rather than on
+     the settings page because this is the page somebody opens when their phone
+     has just gone off, and the walk to the basement is the thing it exists to
+     save.
+
+     The lamp is the panel's lamp: green while all is well, red when the alarm
+     is up, and blinking when it is blinking, because a pulsing alarm is one
+     nobody has acknowledged and a steady one means somebody is already
+     standing there. It reads the same contact the alarm lamp below it does.
+
+     Neither button asks first. They are pressed on purpose by somebody who has
+     just been told what is wrong, and a confirm box in front of that is a
+     second press with extra steps. The button on the door does not ask. #}
+  {% if user and user.is_admin and panel_button.ready %}
+  <section class="board-card panel-card" data-panel-button aria-label="Panel button">
+    <div class="card-top">
+      <span class="panel-lamp" data-panel-lamp aria-hidden="true">
+        <svg viewBox="0 0 24 24"><use href="#icon-touch"/></svg>
+      </span>
+      <h2 class="card-title">Panel<span class="panel-state" data-panel-state></span></h2>
+      <button type="button" class="info-mark" data-info="panel-button"
+              aria-label="What these do">i</button>
+    </div>
+    {# A form for the token and nothing else. It never submits: both buttons
+       are type=button and the work is a fetch. The one script that handles
+       these lives on every page and finds the token the same way on both, so
+       the markup has to be the same shape here as it is on the settings
+       page. #}
+    <form autocomplete="off" onsubmit="return false">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <p class="press-buttons">
+        <button type="button" class="button" data-press="silence">Silence</button>
+        <button type="button" class="button" data-press="reset">Reset</button>
+      </p>
+      <div class="test-result" data-press-result hidden></div>
+    </form>
+
+    <dialog class="note" id="note-panel-button">
+      <h3 class="note-title">Panel button</h3>
+      <div class="hint">
+        <p>These close a contact across the button on the panel door, so
+          pressing one here is the same as pressing that one. The panel reads
+          how long it is held and nothing else.</p>
+        <p><strong>Silence</strong> stops the horn. The alarm is still up and
+          the pump is still out; nothing has been dealt with.</p>
+        <p><strong>Reset</strong> clears the alarm, which is what puts a pump
+          that has tripped back into the rotation. Until somebody does it the
+          building runs on one pump, and nobody inside can tell.</p>
+        <p><strong>Neither resets an overload.</strong> That is a separate
+          button inside the enclosure, and it is separate on purpose: something
+          is wrong with a motor that has overloaded. Read the amps on this page
+          before you press anything.</p>
+        <p>The lamp is the one on the door. Green is quiet. Red and steady is
+          an alarm somebody has already silenced. Red and blinking is an alarm
+          nobody has touched, because this controller flashes that output once
+          a second until it is acknowledged.</p>
+      </div>
+      <button type="button" class="button secondary" data-note-close>Close</button>
+    </dialog>
+  </section>
+  {% endif %}
+
   {% for number in [1, 2] %}
   {# One pump, everything about it, full width.
 

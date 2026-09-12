@@ -104,8 +104,9 @@ function csrfHeader(form) {
 // saved: pressing a real button because of a number somebody was halfway
 // through typing is not a thing this should be able to do.
 //
-// Reset asks first. Silence does not: silencing an alarm by accident costs
-// nothing, and the horn is still the smallest part of what is wrong.
+// Neither asks first. A confirm box in front of a button somebody pressed on
+// purpose, to deal with an alarm they were already told about, is a second
+// press with extra steps. The panel's own button does not ask either.
 
 (function () {
   "use strict";
@@ -130,13 +131,6 @@ function csrfHeader(form) {
       if (!form) {
         return;
       }
-      if (action === "reset" && !window.confirm(
-        "Hold the panel button for the full reset? This clears the alarm on the "
-        + "real panel."
-      )) {
-        return;
-      }
-
       buttons.forEach(function (one) { one.disabled = true; });
       show("Holding the button...", "");
 

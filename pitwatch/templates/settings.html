@@ -347,13 +347,18 @@
 
     <button type="submit" class="button">Save</button>
 
-    <p>
-      <button type="button" class="button secondary" data-press="silence">Press silence</button>
-      <button type="button" class="button secondary" data-press="reset">Press reset</button>
-      <span class="hint">Saved settings, not what is typed above. These press
-        the real button on the real panel.</span>
-    </p>
-    <div class="test-result" data-press-result hidden></div>
+    {# Set apart from Save on purpose. Save writes a setting; these two close a
+       contact on a live panel, and a row of identical buttons in a row invites
+       the wrong one. #}
+    <div class="press-row">
+      <p class="hint">These press the real button on the real panel, using what
+        is saved rather than what is typed above.</p>
+      <p class="press-buttons">
+        <button type="button" class="button" data-press="silence">Silence</button>
+        <button type="button" class="button" data-press="reset">Reset</button>
+      </p>
+      <div class="test-result" data-press-result hidden></div>
+    </div>
   </form>
   </details>
 </section>

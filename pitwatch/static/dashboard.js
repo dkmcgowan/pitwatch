@@ -280,10 +280,58 @@
     });
 
     renderAlertSummary(lamps);
+    renderPanelButton(lamps.system_alert);
 
     const display = lamps.display || { 1: "--", 2: "--" };
     renderStatus(1, display["1"]);
     renderStatus(2, display["2"]);
+  }
+
+  // The panel's own lamp, on the card that presses the panel's own button.
+  //
+  // Three states, the same three the lamp on the door has. Green is quiet. Red
+  // and steady is an alarm somebody has silenced and not yet cleared. Red and
+  // blinking is one nobody has touched, because this controller pulses that
+  // output at one hertz until it is acknowledged.
+  //
+  // Blinking is worked out from how often the contact has changed rather than
+  // read off it, and the flash itself is a CSS animation on its own clock. The
+  // state arrives over a socket: following the contact directly would show a
+  // dropped frame as an alarm that stopped pulsing, which is the one thing
+  // this lamp is here to distinguish.
+  const FLIPS = [];
+  const FLIPPING_WITHIN_MS = 3000;
+
+  function renderPanelButton(alarm) {
+    const card = document.querySelector("[data-panel-button]");
+    if (!card || !alarm) {
+      return;
+    }
+    const now = Date.now();
+    const raised = alarm.state === true;
+
+    if (raised !== card.classList.contains("raised")) {
+      card.classList.toggle("raised", raised);
+      FLIPS.push(now);
+    }
+    while (FLIPS.length && now - FLIPS[0] > FLIPPING_WITHIN_MS) {
+      FLIPS.shift();
+    }
+    // Two changes inside three seconds is a square wave, not somebody at the
+    // panel. One is an alarm arriving or going away.
+    const pulsing = raised && FLIPS.length >= 2;
+
+    card.classList.toggle("alarm", raised && !pulsing);
+    card.classList.toggle("pulsing", pulsing);
+
+    const said = card.querySelector("[data-panel-state]");
+    if (said) {
+      said.textContent = pulsing
+        ? "alarm, nobody has acknowledged it"
+        : raised
+          ? "alarm, silenced"
+          : "quiet";
+    }
   }
 
   // The four alert rows added up, beside the heading.

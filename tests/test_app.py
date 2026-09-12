@@ -718,15 +718,81 @@ def test_the_history_query_only_counts_readings_taken_while_running():
 # down the page is a claim, so it gets checked like one.
 
 
-def render_dashboard() -> str:
+def render_dashboard(**overrides) -> str:
     from jinja2 import Environment, FileSystemLoader
 
-    from pitwatch.schemas import SiteSettings
+    from pitwatch.schemas import PanelButtonSettings, SiteSettings
 
     env = Environment(loader=FileSystemLoader("pitwatch/templates"), autoescape=True)
     env.globals["csrf_token"] = lambda: "token"
     env.globals["version"] = "test"
-    return env.get_template("dashboard.html").render(site=SiteSettings(name="A pit"), user=None)
+    context = {
+        "site": SiteSettings(name="A pit"),
+        "user": None,
+        "panel_button": PanelButtonSettings(),
+    }
+    context.update(overrides)
+    return env.get_template("dashboard.html").render(**context)
+
+
+class _Admin:
+    is_admin = True
+
+
+class _Ordinary:
+    is_admin = False
+
+
+def test_the_panel_button_is_on_the_dashboard_only_for_an_admin_who_wired_it():
+    """Three things have to be true before a control that reaches into a live
+    panel appears on the page somebody opens at two in the morning: it is
+    configured, it is turned on, and the person looking is an administrator.
+
+    The recipient list is about to be longer than the list of people who should
+    be pressing things because of what it sends.
+    """
+    from pitwatch.schemas import PanelButtonSettings
+
+    wired = PanelButtonSettings(enabled=True, topic="shellyemg3/rpc")
+
+    shown = render_dashboard(user=_Admin(), panel_button=wired)
+    assert "data-panel-button" in shown
+    assert 'data-press="silence"' in shown and 'data-press="reset"' in shown
+    # The token has to be there or the post is refused, and the one script that
+    # handles these finds it inside a form.
+    assert 'name="csrf_token"' in shown
+
+    for hidden, why in (
+        ({"user": _Ordinary(), "panel_button": wired}, "not an admin"),
+        ({"user": _Admin(), "panel_button": PanelButtonSettings(topic="x/rpc")}, "not enabled"),
+        ({"user": _Admin(), "panel_button": PanelButtonSettings(enabled=True)}, "no topic"),
+        ({"user": None, "panel_button": wired}, "signed out"),
+    ):
+        assert "data-panel-button" not in render_dashboard(**hidden), why
+
+
+def test_the_panel_lamp_tells_a_pulsing_alarm_from_a_silenced_one():
+    """The one place on this page where blinking is information rather than
+    decoration.
+
+    This controller flashes its alarm output at one hertz until somebody
+    acknowledges it, so a blinking lamp means nobody is standing at the panel
+    and a steady one means somebody already is. The flash is a CSS animation on
+    its own clock rather than the contact itself: the state arrives over a
+    socket, and a dropped frame would otherwise show as an alarm that stopped
+    pulsing.
+    """
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+
+    assert ".panel-card.pulsing .panel-lamp" in css
+    assert "@keyframes panel-flash" in css
+    assert ".panel-card.alarm" in css
+
+    # Worked out from how often it changed, not read off the contact.
+    assert "FLIPPING_WITHIN_MS" in js
+    assert 'classList.toggle("pulsing"' in js
+    assert 'classList.toggle("alarm"' in js
 
 
 def test_the_dashboard_is_six_sections():

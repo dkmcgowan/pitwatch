@@ -233,6 +233,23 @@ main {
   font-weight: 500;
 }
 
+/* The two that press the panel's own button.
+
+   Ruled off and pushed down the page away from Save, because Save writes a
+   setting and these close a contact on a panel in a basement. Two buttons of
+   the same weight side by side is a thing somebody hits the wrong half of. */
+.press-row {
+  margin-top: 2rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--border);
+}
+
+.press-buttons {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 .button.secondary {
   background: var(--surface-2);
   color: var(--text);
@@ -524,6 +541,62 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 }
 
 .unit { color: var(--text-muted); margin-left: 0.15rem; }
+
+/* The panel's own button, brought up to the top of the board.
+
+   The lamp is the point. It reads the same contact the alarm row does and
+   wears the same three states the one on the door wears: green while all is
+   well, red and steady when somebody has silenced an alarm that is still up,
+   and red and blinking when nobody has. Blinking is not decoration here. On
+   this panel a pulsing alarm is one nobody has acknowledged, so a blinking
+   lamp on a phone means nobody is standing in front of the real one. */
+.panel-card { --icon: var(--ok); }
+
+.panel-lamp {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 2.3rem;
+  height: 2.3rem;
+  padding: 0.3rem;
+  border-radius: 50%;
+  color: var(--icon);
+  background: color-mix(in srgb, var(--icon) 13%, transparent);
+}
+
+.panel-lamp svg { width: 100%; height: 100%; }
+
+.panel-card.alarm { --icon: var(--crit); }
+
+.panel-card.alarm .panel-lamp { animation: none; }
+
+/* Unacknowledged, and flashing the way the beacon in the basement is. The
+   animation runs on a timer of its own rather than following the contact,
+   because the contact arrives over a socket and a dropped frame would show as
+   a lamp that stopped rather than an alarm that did. */
+.panel-card.pulsing .panel-lamp {
+  animation: panel-flash 1s steps(1, end) infinite;
+}
+
+@keyframes panel-flash {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0.22; }
+}
+
+/* What the lamp means, in a word, for anybody who is not going to learn a
+   color. Beside the heading rather than under the lamp: the heading is where
+   the eye already is. */
+.panel-state {
+  margin-left: 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.panel-card.alarm .panel-state,
+.panel-card.pulsing .panel-state { color: var(--crit); }
 
 /* A running pump, said three times over: the section is outlined and tinted,
    its icon goes green, and the amps do too. That is not repetition for its own

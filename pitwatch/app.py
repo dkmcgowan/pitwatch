@@ -367,7 +367,9 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
                 request, "index.html", {"site": store.site, "user": user, "setup_complete": False}
             )
         return templates.TemplateResponse(
-            request, "dashboard.html", {"site": store.site, "user": user}
+            request,
+            "dashboard.html",
+            {"site": store.site, "user": user, "panel_button": store.panel_button},
         )
 
     return app

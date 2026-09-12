@@ -1942,8 +1942,10 @@ def test_a_lamp_with_nothing_behind_it_still_has_two_lines():
     history = js.split("function renderHistory", 1)[1].split("function renderLinks", 1)[0]
 
     # Both lines go through setFact, which is the one place that writes n/a.
-    assert history.count("setFact(") == 3
-    assert 'count.textContent = ""' not in history
+    # Four calls: three branches for when it last closed, one for the count.
+    assert history.count("setFact(") == 4
+    assert "last.textContent" not in history
+    assert "count.textContent" not in history
 
 
 def test_the_history_page_draws_every_chart_over_one_window():

@@ -254,10 +254,25 @@ class AlertEngine:
             return
         site = self._store.site.where or "the pit"
         spec = specs.BY_KEY[key]
-        said = f"Cleared at {site}: {spec.title}."
-        # Some rules going away is not the same as them being over.
-        if spec.cleared_note:
-            said = f"{said} {spec.cleared_note}"
+        if spec.cleared_message:
+            # Some rules going away is not the same as them being over, and
+            # for those the generic sentence opens with a word that is not
+            # true. An overload resetting is the case: the relay is fine and
+            # the pump is still out of the rotation.
+            values: dict[str, object] = {
+                "site": site,
+                "time": clock.at(datetime.now(UTC), self._store.site.timezone),
+            }
+            if pump:
+                values["pump"] = self._store.pumps.by_number[pump].name
+                values["cover"] = self._cover(pump)
+            # A value that came back empty leaves a gap where it was, and a
+            # message with two spaces in the middle looks like a bug to the
+            # person reading it, which for a message about a pump being out of
+            # service is exactly the wrong impression.
+            said = " ".join(specs.fill(spec.cleared_message, values).split())
+        else:
+            said = f"Cleared at {site}: {spec.title}."
         await self._notify(row["id"], "cleared", rule, said)
 
     # -- telling somebody ---------------------------------------------------
@@ -305,6 +320,19 @@ class AlertEngine:
             return f"only {running[0]} is running"
         return "neither pump is running"
 
+    def _cover(self, pump: int) -> str:
+        """What is left while this pump is out, for the message that says it
+        is not back yet. The reassuring half and the frightening half are the
+        same sentence with a different other pump behind it."""
+        other = 2 if pump == 1 else 1
+        name = self._store.pumps.by_number[other].name
+        tripped = self._contact(f"pump{other}_fault")
+        if tripped is None:
+            return ""
+        if tripped:
+            return f"{name} is out as well, so nothing is pumping at all."
+        return f"{name} is covering on its own until then."
+
     def _overload_label(self, pump: int) -> str:
         """What the overload relay is called on the panel, for somebody
         standing in front of it looking for the right one to reset."""
@@ -330,6 +358,20 @@ class AlertEngine:
                 else None
             )
         return found or None
+
+    async def _check_both_overloads(self, rule) -> dict | None:
+        """Nothing left to pump with.
+
+        Not two overloads. The per pump alerts already say which relay to go
+        and reset; this one says there is no spare left and the pit fills from
+        here. It is the only state on this panel where doing nothing has a
+        deadline.
+        """
+        one = self._contact("pump1_fault")
+        two = self._contact("pump2_fault")
+        if one is None or two is None:
+            return None
+        return {None: Finding() if (one and two) else None}
 
     async def _check_both_pumps(self, rule) -> dict | None:
         one, two = self._contact("pump1_run"), self._contact("pump2_run")

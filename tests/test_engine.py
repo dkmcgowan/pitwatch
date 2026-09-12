@@ -638,7 +638,7 @@ async def test_clearing_an_overload_says_the_pump_is_not_back_yet(pool, sent):
     await _a_person(pool)
     store = _store()
     store.alerts.overload.tell_when_it_clears = True
-    contacts = _wire(_Contacts(), pump1_fault=True)
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False)
     engine = _engine(pool, store, contacts)
     await engine.sweep()
 
@@ -646,8 +646,53 @@ async def test_clearing_an_overload_says_the_pump_is_not_back_yet(pool, sent):
     await engine.sweep()
 
     body = [body for _, _, body in sent][-1]
+    assert not body.startswith("Cleared"), "it is not cleared, the pump is out"
+    assert "NOT back in service" in body
     assert "red button" in body
-    assert "one pump" in body
+    assert "Pump 2 is covering on its own" in body
+    assert "  " not in body, "an empty value left a gap in the sentence"
+
+
+async def test_an_overload_clearing_while_the_other_is_out_says_so(pool, sent):
+    """The same sentence with the frightening half. One pump back from an
+    overload while the other is still tripped is not cover, it is nothing."""
+    await _a_person(pool)
+    store = _store()
+    store.alerts.overload.tell_when_it_clears = True
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=True)
+    engine = _engine(pool, store, contacts)
+    await engine.sweep()
+
+    contacts.by_channel[5] = False
+    await engine.sweep()
+
+    # Both rules clear on the same sweep, so look for the one under test
+    # rather than whichever went out last.
+    assert any("nothing is pumping at all" in body for _, _, body in sent)
+
+
+async def test_both_overloads_out_is_its_own_alert(pool, sent):
+    """Two pumps out is not two faults, it is no pumping."""
+    await _a_person(pool)
+    store = _store()
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=True)
+    engine = _engine(pool, store, contacts)
+
+    await engine.sweep()
+
+    raised = [row["rule"] for row in await pool.fetch("SELECT rule FROM alert")]
+    assert "both_overloads" in raised
+    assert raised.count("overload") == 2, "and each relay still says which one it is"
+
+    detail = await pool.fetchval("SELECT detail FROM alert WHERE rule = 'both_overloads'")
+    assert "{" not in detail
+    assert "Nothing is pumping" in detail
+
+    # One coming back ends it, and the other pump's own alert stays open.
+    contacts.by_channel[5] = False
+    await engine.sweep()
+    assert await _open(pool, "both_overloads") == 0
+    assert await _open(pool, "overload") == 1
 
 
 async def test_a_pump_with_no_runs_on_record_is_not_reported_idle(pool, sent):

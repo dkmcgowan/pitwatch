@@ -431,7 +431,14 @@
       // arrived, when, and on which topic.
       const times = history[window_];
 
-      if (history.last_on) {
+      if (lamp && lamp.state === true) {
+        // It is closed right now, and when it last closed is not the answer to
+        // that. A wet float reading "2 min ago" beside a lit lamp reads as
+        // something that already happened and is over, which is the opposite
+        // of what the lamp is saying. The pump cards have said "running now"
+        // for the same reason since they were written; the lamps never did.
+        setFact(last, "active now");
+      } else if (history.last_on) {
         // How long it stayed closed, beside when it closed. A float that is
         // wet for sixteen seconds and one wet for six minutes are the same
         // row without it, and they are not the same news.

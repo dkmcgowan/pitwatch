@@ -37,10 +37,12 @@ class Spec:
     # I/O module is wired, and a rule that silently never runs looks exactly
     # like a rule that never found anything.
     needs: str
-    # Added to the message sent when this rule clears, for the rules where
-    # going away is not the same as being over. An overload resetting is the
-    # obvious one: the fault is gone and the pump is still not running.
-    cleared_note: str = ""
+    # What to say when this rule clears, for the rules where going away is not
+    # the same as being over. Left empty the generic sentence is used, which
+    # opens with the word Cleared, and for an overload that is a lie somebody
+    # could act on: the relay has reset and the pump is still out of service.
+    # Filled the same way a raised message is, so it can name the pump.
+    cleared_message: str = ""
     placeholders: tuple[str, ...] = ()
     thresholds: tuple[Threshold, ...] = ()
     clears: str = ""
@@ -113,11 +115,30 @@ SPECS: tuple[Spec, ...] = (
         needs=CONTACTS,
         placeholders=(*COMMON, "{pump}", "{overload}"),
         clears="it is reset",
-        cleared_note=(
-            "The relay has reset. The pump does not come back on its own: "
-            "somebody has to clear the alarm at the panel by holding the red "
-            "button for three seconds, and until they do you are running on "
-            "one pump."
+        cleared_message=(
+            "{pump} overload has reset at {site}, but the pump is NOT back in "
+            "service. Somebody still has to clear the alarm at the panel by "
+            "holding the red button for three seconds. {cover} Time {time}."
+        ),
+    ),
+    Spec(
+        key="both_overloads",
+        title="Both pumps out",
+        what=(
+            "Both motor overloads are tripped at once, which is not two faults "
+            "so much as one much worse one: there is nothing left to pump with "
+            "and the pit fills from now on. It is its own rule rather than a "
+            "harder wording on the overload alert because it is a different "
+            "event, and because the two per pump alerts say which relay to "
+            "reset while this one says how much time there is to do it in."
+        ),
+        needs=CONTACTS,
+        placeholders=COMMON,
+        clears="either pump is back",
+        cleared_message=(
+            "A pump is back at {site}, so something is pumping again. Check "
+            "the panel: the other one may still be out, and neither rejoins "
+            "the rotation until the alarm is cleared by hand. Time {time}."
         ),
     ),
     Spec(

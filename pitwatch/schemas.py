@@ -807,6 +807,17 @@ class AlertsSettings(BaseModel):
             ),
         )
     )
+    both_overloads: AlertRule = Field(
+        default_factory=lambda: AlertRule(
+            severity=Severity.CRITICAL,
+            message=(
+                "BOTH pumps at {site} are out on overload. Nothing is pumping "
+                "and the pit is filling from now on. Somebody has to get to "
+                "the panel: reset both relays, then hold the red button for "
+                "three seconds to clear the alarm. Time {time}."
+            ),
+        )
+    )
     contactor_no_current: AlertRule = Field(
         default_factory=lambda: AlertRule(
             severity=Severity.CRITICAL,
@@ -923,6 +934,7 @@ ALERT_ORDER: tuple[str, ...] = (
     "high_water",
     "panel_alert",
     "overload",
+    "both_overloads",
     "contactor_no_current",
     "over_current",
     "run_too_long",

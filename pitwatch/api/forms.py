@@ -27,6 +27,7 @@ from pitwatch.schemas import (
     SmsSettings,
     SmtpSettings,
     SummarySettings,
+    TideSettings,
     WeatherSettings,
 )
 
@@ -117,6 +118,15 @@ def weather_from(form: FormData) -> WeatherSettings:
     return WeatherSettings(
         enabled=checkbox(form, "weather_enabled"),
         units=text(form, "weather_units", "in") or "in",
+    )
+
+
+def tide_from(form: FormData) -> TideSettings:
+    return TideSettings(
+        enabled=checkbox(form, "tide_enabled"),
+        station=text(form, "tide_station"),
+        station_name=text(form, "tide_station_name"),
+        units=text(form, "tide_units", "ft") or "ft",
     )
 
 

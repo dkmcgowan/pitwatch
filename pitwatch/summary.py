@@ -25,6 +25,7 @@ import httpx2
 
 from pitwatch import domain
 from pitwatch.domain import series
+from pitwatch.domain import tides as tide_domain
 from pitwatch.domain import weather as weather_domain
 from pitwatch.domain.history import CurrentHistory
 from pitwatch.schemas import SummarySettings
@@ -124,8 +125,11 @@ def instructions(window: str) -> str:
         "so plainly rather than hedging. Never invent a reading that is not in "
         "the data. Where rainfall is given, read the pit against it: a busy "
         "spell in two inches of rain and a busy spell in a dry one are "
-        "different findings. Four short paragraphs at most, plain text, no "
-        "headings and no bullet points."
+        "different findings. Where tide is given, read it against that too: a "
+        "pit near tidal water fills with the water table, so a rise in calls "
+        "that tracks high water is groundwater rather than anything in the "
+        "building. Four short paragraphs at most, plain text, no headings and "
+        "no bullet points."
     )
 
 
@@ -159,6 +163,41 @@ async def rainfall(pool, store: SettingsStore, window: series.Window, zone: str)
         "days": [
             {"day": when.date().isoformat(), "rain": weather_domain.as_read(mm, units)}
             for when, mm in daily
+        ],
+    }
+
+
+async def tide(pool, store: SettingsStore, window: series.Window, zone: str) -> dict | None:
+    """High and low water per day, in whatever unit the site reads.
+
+    The other half of what is outside the building. Rain is the water that fell
+    on it; this is the water table it sits in, and on tidal ground the second
+    one moves the pit far more than the first. A model handed a busy week with
+    no tide column will attribute it to the building.
+
+    None when there is no station, which is most installations: a pit in the
+    middle of a county has no tide and should not be sent a column of nulls.
+    """
+    if not store.tide.ready:
+        return None
+    days = await tide_domain.daily(pool, window.span, zone)
+    if not days:
+        return None
+    units = store.tide.units
+    return {
+        "units": units,
+        "station": store.tide.station_name or store.tide.station,
+        # Said out loud, because a model handed feet of water will otherwise
+        # write about it as though somebody measured a level in the pit.
+        "source": "the published tide gauge for this location, not a level in the pit",
+        "days": [
+            {
+                "day": day["day"],
+                "high_water": tide_domain.as_read(day["high_water"], units),
+                "low_water": tide_domain.as_read(day["low_water"], units),
+                "most_above_prediction": tide_domain.as_read(day["most_above_prediction"], units),
+            }
+            for day in days
         ],
     }
 
@@ -290,6 +329,7 @@ async def facts(app, window: series.Window = WINDOW) -> dict:
         "generated_at": datetime.now(UTC).isoformat(),
         "running_threshold_amps": domain.RUNNING_AMPS,
         "rain": await rainfall(pool, store, window, zone),
+        "tide": await tide(pool, store, window, zone),
         "calls_for_water": calls,
         "pumps": pumps,
         "panel_contacts": contacts,
@@ -433,5 +473,6 @@ __all__ = [
     "latest",
     "messages",
     "rainfall",
+    "tide",
     "write",
 ]

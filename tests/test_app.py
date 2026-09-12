@@ -293,6 +293,7 @@ def render_settings(**overrides) -> str:
         SmsSettings,
         SmtpSettings,
         SummarySettings,
+        TideSettings,
         WeatherSettings,
     )
 
@@ -306,6 +307,7 @@ def render_settings(**overrides) -> str:
     context = {
         "site": SiteSettings(),
         "weather": WeatherSettings(),
+        "tide": TideSettings(),
         "mqtt": MqttSettings(),
         "pumps": PumpsSettings(),
         "smtp": SmtpSettings(),
@@ -663,8 +665,8 @@ def render_dashboard() -> str:
     return env.get_template("dashboard.html").render(site=SiteSettings(name="A pit"), user=None)
 
 
-def test_the_dashboard_is_five_sections():
-    """A pump, the other pump, then alerts, floats and rain.
+def test_the_dashboard_is_six_sections():
+    """A pump, the other pump, then alerts, floats, rain and tide.
 
     It was six boxes once, then one box holding everything at a size that fit a
     phone without scrolling. The one box fit and could not be read: two pump
@@ -677,8 +679,14 @@ def test_the_dashboard_is_five_sections():
     Alerts, which is what they are: an alarm, counted by the month, read by
     somebody looking for the one thing that is lit rather than for a heading.
 
-    Rain came last and sits under the floats, because it is the cause and they
-    are the effect. It is also the only card that looks forward.
+    Rain came next and sits under the floats, because it is the cause and they
+    are the effect. Tide came after it, in the same place in the argument and
+    one step further out: the rain is the water that falls on the building, the
+    tide is the water table it stands in. Both look forward, which nothing
+    above them does.
+
+    Tide is the only card that can be absent. Most pits are nowhere near tidal
+    water, so it renders hidden and the script shows it when a station is set.
 
     Layout is normally not worth a test. This is, because it has been described
     in prose and built from that description more than once, and shipped wrong
@@ -686,12 +694,15 @@ def test_the_dashboard_is_five_sections():
     """
     page = render_dashboard()
 
-    assert page.count("<section") == 5
+    assert page.count("<section") == 6
     # The banner and the two device indicators sit outside them, and nothing
     # else does.
-    assert page.count('class="board-card') == 5
-    # Rain is last, under the water it explains.
+    assert page.count('class="board-card') == 6
+    # Rain sits under the water it explains, and tide under the rain.
     assert page.index("rain-card") > page.index("water-card")
+    assert page.index("tide-card") > page.index("rain-card")
+    # And tide starts hidden, because most pits have no station.
+    assert 'data-tide aria-label="Tide" hidden' in page
     assert "history-row" not in page and "history-table" not in page
     # And nothing left of the section that went, in the markup or the
     # stylesheet, so it cannot come back by halves.
@@ -1274,11 +1285,11 @@ def test_every_long_note_is_a_dialog_opened_from_beside_its_heading():
     looks like, and Escape closes it without being told to."""
     page = render_dashboard()
 
-    # Five buttons and five notes: the two groups of lamps, the rain, and the
-    # two pump columns, the column being written once in a loop.
-    assert page.count("data-info=") == 5
-    assert page.count("<dialog") == 5
-    assert page.count("</dialog>") == 5
+    # Six buttons and six notes: the two groups of lamps, the rain, the tide,
+    # and the two pump columns, the column being written once in a loop.
+    assert page.count("data-info=") == 6
+    assert page.count("<dialog") == 6
+    assert page.count("</dialog>") == 6
 
     # Each button names a note that exists.
     import re
@@ -1313,7 +1324,7 @@ def test_the_dashboard_calls_nothing_it_does_not_define():
     called = set(re.findall(r"(?<![.\w$])([a-z][\w$]*)\s*\(", code))
     defined = set(re.findall(r"function\s+([\w$]+)\s*\(", code))
     keywords = {"catch", "for", "function", "if", "return", "switch", "while"}
-    globals_ = {"fetch"}
+    globals_ = {"fetch", "isFinite", "isNaN"}
 
     assert called - defined - keywords - globals_ == set()
 
@@ -1362,8 +1373,8 @@ def test_the_note_does_not_sit_in_the_flow_of_the_page():
 
     assert "card-note" not in css and "card-note" not in page
     assert "dialog.note::backdrop" in css
-    # The handle sits beside the heading it belongs to, on each of the five.
-    assert page.count('class="info-mark"') == 5
+    # The handle sits beside the heading it belongs to, on each of the six.
+    assert page.count('class="info-mark"') == 6
 
 
 def test_the_live_reading_is_labelled_and_no_bigger_than_anything_else():

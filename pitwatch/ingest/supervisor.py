@@ -23,8 +23,15 @@ from pitwatch.domain.engine import AlertEngine
 from pitwatch.domain.runs import RunRecorder
 from pitwatch.ingest.mqtt import MqttReader
 from pitwatch.ingest.sink import IoSink, LiveIo, LiveState, SampleSink, record_device_status
+from pitwatch.ingest.tides import TideReader
 from pitwatch.ingest.weather import WeatherReader
-from pitwatch.schemas import MqttSettings, SiteSettings, SummarySettings, WeatherSettings
+from pitwatch.schemas import (
+    MqttSettings,
+    SiteSettings,
+    SummarySettings,
+    TideSettings,
+    WeatherSettings,
+)
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -40,6 +47,9 @@ WEATHER_KEYS = {WeatherSettings.KEY, SiteSettings.KEY}
 # Two again, and for the same reason: the schedule is on the summary settings
 # and the clock it runs on is the site's.
 CHECKUP_KEYS = {SummarySettings.KEY, SiteSettings.KEY}
+# One key. The tide needs a station rather than the site's coordinates, so
+# moving the pit does not change where the water is measured.
+TIDE_KEYS = {TideSettings.KEY}
 
 
 class Supervisor:
@@ -85,6 +95,7 @@ class Supervisor:
             self._spawn("alerts", self._engine.run)
         await self._start_mqtt()
         await self._start_weather()
+        await self._start_tide()
         await self._start_checkup()
 
         self._queue = self._store.subscribe()
@@ -224,6 +235,30 @@ class Supervisor:
             settings.schedule_window,
         )
 
+    async def _start_tide(self) -> None:
+        """The water table under the pit, on a timer.
+
+        The same shape as the weather poller and reported the same way, because
+        it is the same kind of thing: not a device on the panel, but something
+        outside that decides what the panel will have to do.
+        """
+        settings = self._store.tide
+
+        async def on_status(online: bool, error: str | None) -> None:
+            await record_device_status(self._pool, "tide", online, error)
+
+        if not settings.enabled:
+            log.info("Tides are off")
+            await record_device_status(self._pool, "tide", False, "Turned off")
+            return
+        if not settings.station:
+            log.info("Tides have nowhere to look: no station chosen")
+            await record_device_status(self._pool, "tide", False, "No station chosen")
+            return
+
+        self._spawn("tide", TideReader(settings, self._pool, on_status).run)
+        log.info("Tide reading from station %s", settings.station_name or settings.station)
+
     def _watch_the_clamps(self) -> None:
         """Tell the meter to look closely while a pump is turning.
 
@@ -293,6 +328,10 @@ class Supervisor:
                 log.info("Broker settings changed, restarting ingest")
                 await self._kill("mqtt")
                 await self._start_mqtt()
+            if keys & TIDE_KEYS:
+                log.info("Tide settings changed, restarting the poller")
+                await self._kill("tide")
+                await self._start_tide()
             if keys & CHECKUP_KEYS:
                 log.info("Health summary settings changed, restarting the schedule")
                 await self._kill("checkup")

@@ -1109,6 +1109,22 @@ table.diagnostic .note {
 
 .summary-ask select { width: auto; }
 
+/* The tide card borrows the rain card's furniture, because they answer the
+   same shape of question and two different layouts for "water, before and
+   after now" would be two things to learn. Only the trace is its own. */
+.tide-line {
+  fill: none;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+/* What the gauge measured, and what the moon said. The prediction is drawn
+   fainter for the same reason the rain forecast is: a measurement and a
+   calculation are different kinds of claim and should not look identical. */
+.tide-line-observed { stroke: var(--water); }
+.tide-line-predicted { stroke: var(--text-muted); opacity: 0.45; stroke-dasharray: 3 3; }
+
 /* Paragraphs as they were written. Rendered as text and nothing else: this
    came from a model, and a model's output is not markup. */
 .summary-body {

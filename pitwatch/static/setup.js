@@ -328,3 +328,67 @@ function csrfHeader(form) {
     }
   });
 })();
+
+// The nearest tide gauge, on the tide section.
+//
+// Same arrangement as the address lookup above and for the same reason: it
+// fills the boxes and prints the name, and a person reads it before saving. The
+// nearest gauge by distance is not always the same water as the pit, so the
+// name is the thing to check, not the number.
+
+(function () {
+  "use strict";
+
+  const button = document.querySelector("[data-tide-find]");
+  const note = document.querySelector("[data-tide-note]");
+  const station = document.querySelector("#tide_station");
+  const name = document.querySelector("#tide_station_name");
+  if (!button || !station || !name) {
+    return;
+  }
+
+  function say(text) {
+    if (note) {
+      note.textContent = text;
+    }
+  }
+
+  button.addEventListener("click", async function () {
+    const form = button.closest("form");
+    if (!form) {
+      return;
+    }
+    button.disabled = true;
+    say("Looking...");
+
+    try {
+      const response = await fetch("/api/tide/nearest", {
+        method: "POST",
+        body: new FormData(),
+        headers: csrfHeader(form),
+      });
+      let result;
+      try {
+        result = JSON.parse(await response.text());
+      } catch (error) {
+        say(
+          response.status === 401
+            ? "Sign in first."
+            : "The server returned something unexpected (" + response.status + ")."
+        );
+        return;
+      }
+      if (!result.ok) {
+        say(result.error || "Nothing found.");
+        return;
+      }
+      station.value = result.station || "";
+      name.value = result.name || "";
+      say((result.note || "Found it.") + " Not saved yet, press Save to keep it.");
+    } catch (error) {
+      say("The request failed: " + error.message);
+    } finally {
+      button.disabled = false;
+    }
+  });
+})();

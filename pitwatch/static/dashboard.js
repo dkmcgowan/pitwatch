@@ -758,6 +758,168 @@
     }
   }
 
+  // -- the tide ---------------------------------------------------------------
+
+  // The hour a turning point lands on, in the reader's own clock. Everything
+  // else on this card is a number; this is the one thing somebody plans around.
+  function clockAt(iso) {
+    const when = new Date(iso);
+    if (isNaN(when.getTime())) {
+      return "";
+    }
+    return when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
+  function tideLevel(value, units) {
+    if (value === null || value === undefined) {
+      return "--";
+    }
+    return units === "m" ? value.toFixed(2) + " m" : value.toFixed(1) + " ft";
+  }
+
+  // The predicted curve, with the observed one over it and a line at now. A
+  // line rather than bars because a tide is a continuous thing and drawing it
+  // as columns would say it arrived in lumps.
+  function drawTideStrip(holder, tide) {
+    holder.textContent = "";
+    const hours = tide.hours || [];
+    if (hours.length < 2) {
+      return;
+    }
+
+    const width = Math.max(200, Math.round(holder.clientWidth));
+    const height = 54;
+    const canvas = rainSvg("svg", {
+      width: width,
+      height: height,
+      role: "img",
+      "aria-label": "Water level either side of now",
+    });
+
+    let low = Infinity;
+    let high = -Infinity;
+    hours.forEach(function (hour) {
+      [hour[1], hour[2]].forEach(function (value) {
+        if (value !== null && value !== undefined) {
+          low = Math.min(low, value);
+          high = Math.max(high, value);
+        }
+      });
+    });
+    if (!isFinite(low) || high <= low) {
+      return;
+    }
+
+    const pad = 6;
+    const step = width / (hours.length - 1);
+    function y(value) {
+      return (pad + (height - 2 * pad) * (1 - (value - low) / (high - low))).toFixed(1);
+    }
+
+    function trace(index, className) {
+      const points = [];
+      hours.forEach(function (hour, at) {
+        const value = hour[index];
+        if (value !== null && value !== undefined) {
+          points.push((at * step).toFixed(1) + "," + y(value));
+        }
+      });
+      if (points.length > 1) {
+        canvas.appendChild(rainSvg("polyline", { points: points.join(" "), class: className }));
+      }
+    }
+
+    trace(2, "tide-line tide-line-predicted");
+    trace(1, "tide-line tide-line-observed");
+
+    // Now, which is where the observed trace stops. Without it there is no
+    // telling which half of the curve already happened.
+    //
+    // The last reading rather than the first gap: a gauge that dropped a
+    // six minute sample mid afternoon would otherwise put the line there and
+    // draw an hour of measurement as though it were forecast.
+    let split = -1;
+    hours.forEach(function (hour, at) {
+      if (hour[1] !== null && hour[1] !== undefined) {
+        split = at + 1;
+      }
+    });
+    if (split > 0 && split < hours.length) {
+      const x = (split * step).toFixed(1);
+      canvas.appendChild(
+        rainSvg("line", { x1: x, y1: 0, x2: x, y2: height, class: "rain-now" })
+      );
+    }
+    holder.appendChild(canvas);
+  }
+
+  function renderTide(tide) {
+    const card = document.querySelector("[data-tide]");
+    if (!card) {
+      return;
+    }
+    // No station means no card. Most pits are nowhere near tidal water, and a
+    // panel that says "not set up" forever is furniture.
+    card.hidden = !tide;
+    if (!tide) {
+      return;
+    }
+
+    const state = card.querySelector("[data-tide-state]");
+    const now = card.querySelector("[data-tide-now]");
+    const next = card.querySelector("[data-tide-next]");
+    const nextLabel = card.querySelector("[data-tide-next-label]");
+    const strip = card.querySelector("[data-tide-strip]");
+    const surge = card.querySelector("[data-tide-surge]");
+    const age = card.querySelector("[data-tide-age]");
+
+    if (state) {
+      const going = tide.rising === true ? "rising" : tide.rising === false ? "falling" : "";
+      const turn = tide.next;
+      if (turn) {
+        state.textContent =
+          (going ? going + ", " : "") +
+          (turn.high ? "high" : "low") +
+          " " +
+          tideLevel(turn.level, tide.units) +
+          " at " +
+          clockAt(turn.at);
+      } else {
+        state.textContent = going;
+      }
+      state.className = "rain-state";
+    }
+
+    if (now) {
+      now.textContent = tideLevel(tide.now, tide.units);
+    }
+    if (next && tide.next) {
+      next.textContent = tideLevel(tide.next.level, tide.units);
+    } else if (next) {
+      next.textContent = "--";
+    }
+    if (nextLabel) {
+      nextLabel.textContent = tide.next && !tide.next.high ? "next low" : "next high";
+    }
+    if (strip) {
+      drawTideStrip(strip, tide);
+    }
+    if (surge) {
+      // Only worth printing when it is worth reading. A couple of inches
+      // either way is the gauge and the model disagreeing about nothing.
+      const value = tide.surge;
+      const big = value !== null && value !== undefined && Math.abs(value) >= 0.3;
+      surge.textContent = big
+        ? (value > 0 ? "running " : "sitting ") +
+          tideLevel(Math.abs(value), tide.units) +
+          (value > 0 ? " above prediction" : " below prediction")
+        : "";
+    }
+    if (age) {
+      age.textContent = tide.fetched_at ? "checked " + since(tide.fetched_at) : "";
+    }
+  }
+
   function renderBanner(state) {
     const banner = document.querySelector("[data-banner]");
     if (!banner) {
@@ -791,6 +953,7 @@
     renderHistory(state.panel);
     renderLinks(state.devices);
     renderRain(state.rain);
+    renderTide(state.tide);
     renderBanner(state);
     document.body.classList.remove("stale");
   }

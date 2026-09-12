@@ -1052,9 +1052,55 @@ class WeatherSettings(BaseModel):
     units: str = Field(default="in", pattern="^(in|mm)$")
 
 
+class TideSettings(BaseModel):
+    """The tide over the pit, from NOAA.
+
+    The same shape as the rain and for the same reason: NOAA's Center for
+    Operational Oceanographic Products publishes water level and harmonic
+    predictions for three hundred stations with no key and no account. It costs
+    a station id.
+
+    Why a pump monitor cares. A pit below the water table is a hole in the
+    ground with the water table in it, and near tidal water the water table
+    moves with the tide. On the reference installation the pit's call rate rose
+    sevenfold within half an hour of the highest tide in nine days and has
+    followed high and low water since. Nothing inside the building could have
+    told anybody that.
+
+    Off by default. Most pits are nowhere near tidal water, and a station id
+    somebody has not chosen is a wrong answer rather than a missing one.
+    """
+
+    KEY: ClassVar[str] = "tide"
+
+    enabled: bool = False
+    # The NOAA station, as its numeric id. Found by the button on the settings
+    # page, which picks the nearest one to the site's coordinates, or typed in
+    # from tidesandcurrents.noaa.gov.
+    station: str = Field(default="", max_length=20)
+    # What that station is called, kept so the page can say "The Battery"
+    # rather than "8518750". Cosmetic, and never used to look anything up.
+    station_name: str = Field(default="", max_length=120)
+    # Feet or meters. Stored in feet either way, because feet above MLLW is
+    # what NOAA publishes and what every tide table in the country agrees on;
+    # this decides only what the pages print.
+    units: str = Field(default="ft", pattern="^(ft|m)$")
+
+    @field_validator("station", "station_name")
+    @classmethod
+    def trimmed(cls, value: str) -> str:
+        return value.strip()
+
+    @property
+    def ready(self) -> bool:
+        """Enough to ask. A station and permission."""
+        return bool(self.enabled and self.station)
+
+
 SETTING_MODELS: tuple[type[BaseModel], ...] = (
     SiteSettings,
     WeatherSettings,
+    TideSettings,
     MqttSettings,
     AlertsSettings,
     PumpsSettings,

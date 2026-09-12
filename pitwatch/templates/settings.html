@@ -210,6 +210,73 @@
   </details>
 </section>
 
+{# The water table the pit sits in, which near tidal ground moves it more than
+   the rain does. Same door as the rain: NOAA publishes water level and harmonic
+   predictions for three hundred stations with no key and no account.
+
+   Off by default, because most pits are nowhere near tidal water and a station
+   somebody has not chosen is a wrong answer rather than a missing one. #}
+<section class="card settings-section">
+  <details name="settings">
+    <summary><h2>Tide</h2></summary>
+  <form method="post" action="/settings/tide" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <p class="hint">A pit below the water table is a hole with the water table
+      in it, and near tidal water the water table moves with the tide. If the
+      pit is within a mile or so of a tidal river, bay or harbor, this is worth
+      having: a rise in calls that follows high water is groundwater rather than
+      anything in the building.</p>
+
+    <div class="field">
+      <label class="check">
+        <input type="checkbox" name="tide_enabled"
+               {% if tide.enabled %}checked{% endif %}>
+        Look up the tide over the pit
+      </label>
+    </div>
+
+    <div class="grid">
+      <div class="field">
+        <label for="tide_station">NOAA station</label>
+        <input type="text" id="tide_station" name="tide_station"
+               value="{{ tide.station }}" placeholder="8518750">
+        <p class="hint">The numeric id of a water level gauge. Press Find
+          nearest, or look one up at tidesandcurrents.noaa.gov.</p>
+      </div>
+      <div class="field">
+        <label for="tide_station_name">Called</label>
+        <input type="text" id="tide_station_name" name="tide_station_name"
+               value="{{ tide.station_name }}" placeholder="The Battery, NY">
+        <p class="hint">Only so the pages can name it. Nothing is looked up
+          with this.</p>
+      </div>
+      <div class="field">
+        <label for="tide_units">Measured in</label>
+        <select id="tide_units" name="tide_units">
+          <option value="ft" {% if tide.units == 'ft' %}selected{% endif %}>Feet</option>
+          <option value="m" {% if tide.units == 'm' %}selected{% endif %}>Meters</option>
+        </select>
+        <p class="hint">Stored in feet above MLLW either way, which is the datum
+          every tide table is published against.</p>
+      </div>
+    </div>
+
+    <p>
+      <button type="button" class="button secondary" data-tide-find>Find nearest</button>
+      <span class="hint" data-tide-note></span>
+    </p>
+
+    {% if not site.has_coordinates %}
+    <p class="hint"><strong>Nothing to find yet.</strong> Set the address or the
+      coordinates in "This site" above and save that first.</p>
+    {% endif %}
+
+    <button type="submit" class="button">Save</button>
+  </form>
+  </details>
+</section>
+
 {# What the health summary needs. The description is the half a model cannot
    work out from the readings, and the key and base URL say what is being asked.
 

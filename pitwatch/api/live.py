@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from pitwatch import auth, domain
 from pitwatch.api import forms
+from pitwatch.domain import tides as tide_domain
 from pitwatch.domain import weather as weather_domain
 from pitwatch.domain.history import (
     Closings,
@@ -24,6 +25,7 @@ from pitwatch.domain.history import (
     SignalHistory,
     Typical,
 )
+from pitwatch.ingest import tides as tide_ingest
 from pitwatch.ingest import weather as weather_ingest
 from pitwatch.ingest.sink import LiveIo, LiveState
 from pitwatch.notify import email as email_sender
@@ -40,6 +42,13 @@ router = APIRouter(prefix="/api")
 # this before bed". Further either way is the history page's job.
 RAIN_BACK = timedelta(hours=24)
 RAIN_AHEAD = timedelta(hours=24)
+
+# The same for the tide, and for the same reason: a card that shows the last
+# high and the next one is a card somebody can read a pump record against. The
+# window is wider than the rain's because a tide cycle is twelve and a half
+# hours and half of one on screen says nothing.
+TIDE_BACK = timedelta(hours=18)
+TIDE_AHEAD = timedelta(hours=18)
 
 
 # What the pill reads when an input is on and when it is off.
@@ -333,9 +342,15 @@ async def build_state(app) -> dict:
     units = store.weather.units
     rain = await weather_domain.read(pool, RAIN_BACK, RAIN_AHEAD)
 
+    # The tide, which on a pit near tidal water is the other half of the same
+    # cause. Same rule as the rain: None means nobody has looked, which the card
+    # draws differently from a low tide.
+    tide = await tide_domain.read(pool, TIDE_BACK, TIDE_AHEAD) if store.tide.ready else None
+
     return {
         "site": store.site.model_dump(mode="json"),
         "rain": None if rain is None else rain.as_json(units),
+        "tide": None if tide is None else tide.as_json(store.tide.units),
         "pumps": {"1": pump_state(1), "2": pump_state(2)},
         "panel": panel_state(inputs, live_io, closings, both_ran),
         # No list of inputs carrying nothing. The panel brings out eight
@@ -388,6 +403,41 @@ async def geocode(request: Request, user: auth.SignedIn) -> JSONResponse:
                 f"Rounded to {place.latitude}, {place.longitude}, which is about a "
                 f"kilometer. That is finer than any rainfall model in use and is "
                 f"what gets sent from now on."
+            ),
+        }
+    )
+
+
+@router.post("/tide/nearest", include_in_schema=False)
+async def tide_nearest(request: Request, user: auth.SignedIn) -> JSONResponse:
+    """The closest NOAA gauge to the site, without saving anything.
+
+    Same arrangement as the geocoder: signed in because it makes the server
+    fetch a URL on somebody's behalf, and nothing is written. The answer goes
+    into the boxes and saving the form is what commits it, so a gauge forty
+    miles up the wrong estuary is caught by a person reading the name.
+    """
+    store: SettingsStore = request.app.state.settings
+    site = store.site
+    if not site.has_coordinates:
+        return JSONResponse(
+            {"ok": False, "error": "Set the site coordinates first, under Site."},
+            status_code=200,
+        )
+
+    try:
+        station = await tide_ingest.nearest(site.latitude, site.longitude)
+    except tide_ingest.TideError as error:
+        return JSONResponse({"ok": False, "error": str(error)}, status_code=200)
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "station": station.id,
+            "name": station.where,
+            "note": (
+                f"{station.where} is the nearest gauge, about {station.miles:.0f} "
+                f"miles away. Check that is the same water as the pit before saving."
             ),
         }
     )

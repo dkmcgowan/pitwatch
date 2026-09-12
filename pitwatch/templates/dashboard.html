@@ -370,6 +370,50 @@
       <p class="note-close">Click anywhere to close</p>
     </dialog>
   </section>
+
+  {# The water table the pit sits in. Hidden entirely unless a station is set,
+     because most pits are nowhere near tidal water and an empty card that says
+     "not set up" forever is furniture. #}
+  <section class="board-card tide-card" data-tide aria-label="Tide" hidden>
+    <div class="card-top">
+      <svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-tide"/></svg>
+      <h2 class="card-title">Tide</h2>
+      <button type="button" class="info-mark" data-info="tide" aria-label="What this shows">i</button>
+    </div>
+
+    <p class="rain-state" data-tide-state>&nbsp;</p>
+
+    <div class="rain-figures">
+      <div class="rain-figure">
+        <span class="rain-value" data-tide-now>--</span>
+        <span class="rain-label">now</span>
+      </div>
+      <div class="rain-figure">
+        <span class="rain-value" data-tide-next>--</span>
+        <span class="rain-label" data-tide-next-label>next high</span>
+      </div>
+    </div>
+
+    <div class="rain-strip" data-tide-strip></div>
+    <p class="rain-foot"><span data-tide-surge></span><span data-tide-age></span></p>
+
+    <dialog class="note" id="note-tide">
+      <h3 class="note-title">Tide</h3>
+      <div class="hint">
+        <p>Water level at the nearest NOAA gauge, most of a day either side of
+          now, with the line marking now. The solid trace is what the gauge
+          measured, the faint one is the harmonic prediction.</p>
+        <p>A pit below the water table is a hole with the water table in it. On
+          tidal ground that table moves with the tide, so a pit near the water
+          fills faster at high water, and a rise in calls that tracks the tide
+          is groundwater rather than anything in the building.</p>
+        <p>The surge is how far the water is above or below prediction. A foot
+          the moon did not put there is wind or weather pushing water inshore,
+          and it is what floods a cellar.</p>
+      </div>
+      <p class="note-close">Click anywhere to close</p>
+    </dialog>
+  </section>
 </div>
 
 {% endblock %}

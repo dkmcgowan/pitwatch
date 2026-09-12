@@ -27,6 +27,7 @@ from pitwatch.schemas import (
     SmsSettings,
     SmtpSettings,
     SummarySettings,
+    TideSettings,
     WeatherSettings,
 )
 
@@ -160,6 +161,10 @@ class SettingsStore:
     @property
     def weather(self) -> WeatherSettings:
         return self.get(WeatherSettings)
+
+    @property
+    def tide(self) -> TideSettings:
+        return self.get(TideSettings)
 
     async def is_setup_complete(self) -> bool:
         return bool(await self.get_raw(SETUP_COMPLETE_SETTING, False))

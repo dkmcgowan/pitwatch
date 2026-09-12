@@ -565,6 +565,91 @@ async def test_the_explanation_is_decided_again_for_the_next_alarm(pool, sent):
     assert await _open(pool, "panel_alert") == 1
 
 
+async def test_no_alert_goes_out_with_its_placeholders_still_in_it(pool, sent):
+    """The one that should have existed from the start.
+
+    Every rule advertises the placeholders its message can use, and for four of
+    them nothing ever supplied the value. `fill` leaves what it does not know
+    alone, on the argument that a slightly odd alert beats a silent one, so it
+    failed quietly: the high water rule, which is the most important sentence
+    this thing can send, went out reading "The top float is wet,
+    {pumps_state}." Nothing noticed because nothing asserted on the finished
+    sentence, only on which rule fired.
+
+    Found on 2026-09-12 by reading a real overload text.
+    """
+    await _a_person(pool)
+    alerts = AlertsSettings()
+    # Built off the defaults rather than a bare rule, because the point of this
+    # test is the wording the defaults carry.
+    alerts.run_too_long.longer_than_ms = 1000
+    alerts.run_too_long.enabled = True
+    store = _store(alerts)
+    contacts = _wire(
+        _Contacts(),
+        high_water=True,
+        pump1_fault=True,
+        pump2_run=True,
+    )
+    engine = _engine(pool, store, contacts)
+    # An open run, so the rule that talks about a duration has one to talk about.
+    await pool.execute(
+        "INSERT INTO pump_run (pump, started_at, started_by) "
+        "VALUES (2, now() - interval '90 seconds', 'contact')"
+    )
+
+    await engine.sweep()
+
+    rows = await pool.fetch("SELECT rule, detail FROM alert")
+    assert rows, "nothing fired, so this proved nothing"
+    for row in rows:
+        assert "{" not in row["detail"], f"{row['rule']} sent a raw placeholder: {row['detail']}"
+        assert "}" not in row["detail"], row["rule"]
+
+    said = {row["rule"]: row["detail"] for row in rows}
+    assert "high_water" in said and "neither pump is running" not in said["high_water"]
+    assert "run_too_long" in said and "1 min 30 s" in said["run_too_long"]
+
+
+async def test_an_overload_names_the_relay_to_go_and_reset(pool, sent):
+    """Anybody writing their own wording can ask which relay it was, and used
+    to get the braces back."""
+    await _a_person(pool)
+    alerts = AlertsSettings()
+    alerts.overload.message = "Go and reset {overload} at {site}."
+    store = _store(alerts)
+    engine = _engine(pool, store, _wire(_Contacts(), pump1_fault=True))
+
+    await engine.sweep()
+
+    detail = await pool.fetchval("SELECT detail FROM alert WHERE rule = 'overload'")
+    assert "{overload}" not in detail
+    assert "Pump 1 overload" in detail
+
+
+async def test_clearing_an_overload_says_the_pump_is_not_back_yet(pool, sent):
+    """The fault going away is not the pump coming back.
+
+    Measured on 2026-09-12: the relay was reset at 17:18:52 and the pump did
+    not run again until 17:29:56, through five calls on the other one, because
+    the controller holds it out until the panel alarm is cleared by hand. An
+    all clear that does not say so reads as "nothing to do".
+    """
+    await _a_person(pool)
+    store = _store()
+    store.alerts.overload.tell_when_it_clears = True
+    contacts = _wire(_Contacts(), pump1_fault=True)
+    engine = _engine(pool, store, contacts)
+    await engine.sweep()
+
+    contacts.by_channel[5] = False
+    await engine.sweep()
+
+    body = [body for _, _, body in sent][-1]
+    assert "red button" in body
+    assert "one pump" in body
+
+
 async def test_a_pump_with_no_runs_on_record_is_not_reported_idle(pool, sent):
     """This one shipped and sent a text at three in the morning.
 

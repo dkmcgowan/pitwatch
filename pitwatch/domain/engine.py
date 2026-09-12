@@ -62,6 +62,20 @@ SWEEP_S = 30.0
 SETTLE_S = 6.0
 
 
+def _spell(seconds: float) -> str:
+    """A number of seconds as somebody would say it out loud.
+
+    Messages ask for a duration and the engine had only ever supplied a bare
+    count of seconds under a different name, so the placeholder went out with
+    its braces still on.
+    """
+    total = int(seconds)
+    if total < 60:
+        return f"{total} s"
+    minutes, rest = divmod(total, 60)
+    return f"{minutes} min {rest} s" if rest else f"{minutes} min"
+
+
 @dataclass(frozen=True, slots=True)
 class Finding:
     """A rule that has something to say, and what to say about it."""
@@ -239,9 +253,12 @@ class AlertEngine:
         if not rule.tell_when_it_clears:
             return
         site = self._store.site.where or "the pit"
-        await self._notify(
-            row["id"], "cleared", rule, f"Cleared at {site}: {specs.BY_KEY[key].title}."
-        )
+        spec = specs.BY_KEY[key]
+        said = f"Cleared at {site}: {spec.title}."
+        # Some rules going away is not the same as them being over.
+        if spec.cleared_note:
+            said = f"{said} {spec.cleared_note}"
+        await self._notify(row["id"], "cleared", rule, said)
 
     # -- telling somebody ---------------------------------------------------
 
@@ -266,11 +283,40 @@ class AlertEngine:
             return None
         return self._live_io.state_of(channel)
 
+    # -- filling in a message -----------------------------------------------
+    #
+    # Every placeholder a rule offers has to be supplied by somebody, and for
+    # four of them nobody was. `fill` leaves what it does not know alone, on
+    # the argument that a slightly odd alert beats a silent one, so the
+    # failure was quiet: high water sent "The top float is wet,
+    # {pumps_state}." to a phone, and nothing in any test noticed because
+    # nothing asserted on the finished sentence.
+
+    def _pumps_state(self) -> str:
+        """Which pumps are turning, for the high water message."""
+        one, two = self._contact("pump1_run"), self._contact("pump2_run")
+        if one is None and two is None:
+            return "the run contacts are not wired"
+        names = self._store.pumps.by_number
+        running = [names[number].name for number, on in ((1, one), (2, two)) if on]
+        if len(running) == 2:
+            return "both pumps are running"
+        if running:
+            return f"only {running[0]} is running"
+        return "neither pump is running"
+
+    def _overload_label(self, pump: int) -> str:
+        """What the overload relay is called on the panel, for somebody
+        standing in front of it looking for the right one to reset."""
+        channel = self._store.mqtt.channel_for(f"pump{pump}_fault")
+        label = self._store.mqtt.label_for(channel) if channel else None
+        return label or "the overload relay"
+
     async def _check_high_water(self, rule) -> dict | None:
         wet = self._contact("high_water")
         if wet is None:
             return None
-        return {None: Finding() if wet else None}
+        return {None: Finding(values={"pumps_state": self._pumps_state()}) if wet else None}
 
     async def _check_overload(self, rule) -> dict | None:
         found = {}
@@ -278,7 +324,11 @@ class AlertEngine:
             tripped = self._contact(f"pump{pump}_fault")
             if tripped is None:
                 continue
-            found[pump] = Finding(pump=pump) if tripped else None
+            found[pump] = (
+                Finding(pump=pump, values={"overload": self._overload_label(pump)})
+                if tripped
+                else None
+            )
         return found or None
 
     async def _check_both_pumps(self, rule) -> dict | None:
@@ -442,7 +492,15 @@ class AlertEngine:
             seconds = running.get(pump)
             over = seconds is not None and seconds * 1000 >= rule.longer_than_ms
             found[pump] = (
-                Finding(pump=pump, values={"seconds": int(seconds or 0)}) if over else None
+                Finding(
+                    pump=pump,
+                    values={
+                        "seconds": int(seconds or 0),
+                        "duration": _spell(seconds or 0),
+                    },
+                )
+                if over
+                else None
             )
         return found
 
@@ -529,7 +587,17 @@ class AlertEngine:
             tight = len(measured) >= rule.times_in_a_row and all(
                 gap * 1000 <= rule.restart_within_ms for gap in measured
             )
-            found[pump] = Finding(pump=pump) if tight else None
+            found[pump] = (
+                Finding(
+                    pump=pump,
+                    values={
+                        "gap": _spell(max(measured)),
+                        "times": rule.times_in_a_row,
+                    },
+                )
+                if tight
+                else None
+            )
         return found
 
     # -- what the clamps say ------------------------------------------------

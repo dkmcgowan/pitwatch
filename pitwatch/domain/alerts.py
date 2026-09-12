@@ -37,6 +37,10 @@ class Spec:
     # I/O module is wired, and a rule that silently never runs looks exactly
     # like a rule that never found anything.
     needs: str
+    # Added to the message sent when this rule clears, for the rules where
+    # going away is not the same as being over. An overload resetting is the
+    # obvious one: the fault is gone and the pump is still not running.
+    cleared_note: str = ""
     placeholders: tuple[str, ...] = ()
     thresholds: tuple[Threshold, ...] = ()
     clears: str = ""
@@ -88,9 +92,9 @@ SPECS: tuple[Spec, ...] = (
                 "The alarm output pulses, half a second on and half a second "
                 "off, so a gap is not the end of it. Anything closer together "
                 "than this is one alarm, here and in the counts on the "
-                "dashboard.",
+                "dashboard. Zero means no tolerance at all.",
                 step="0.5",
-                minimum="0.1",
+                minimum="0",
             ),
         ),
         clears="the alarm goes out",
@@ -100,13 +104,21 @@ SPECS: tuple[Spec, ...] = (
         title="Overload tripped",
         what=(
             "A motor overload has cut a pump, and it will not run again until "
-            "somebody does something about it. The default message assumes the "
-            "overload is set to hand reset, which is what the red button is "
-            "for; change the wording if yours is on auto."
+            "somebody does something about it. That holds whether the relay is "
+            "set to hand or auto reset: auto brings the relay back once the "
+            "bimetal has cooled, but the controller keeps the pump out of the "
+            "rotation until the panel alarm is cleared by hand. Measured on "
+            "2026-09-12: eleven minutes and five calls on one pump."
         ),
         needs=CONTACTS,
-        placeholders=(*COMMON, "{pump}", "{overload}", "{amps}", "{duration}"),
+        placeholders=(*COMMON, "{pump}", "{overload}"),
         clears="it is reset",
+        cleared_note=(
+            "The relay has reset. The pump does not come back on its own: "
+            "somebody has to clear the alarm at the panel by holding the red "
+            "button for three seconds, and until they do you are running on "
+            "one pump."
+        ),
     ),
     Spec(
         key="contactor_no_current",

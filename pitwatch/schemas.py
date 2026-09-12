@@ -650,7 +650,10 @@ class PanelAlertRule(AlertRule):
     # together than this is one event. It only has to outlast the dark half of
     # the pulse; the cost of setting it long is that a genuine clear is
     # reported that much later.
-    pulse_gap_s: float = Field(default=2.0, ge=0.1, le=60)
+    # Zero is allowed and means no tolerance at all, which is how this read
+    # before the pulse was measured: every gap ends the alarm. It is a
+    # legitimate thing to want on a panel whose alarm does not pulse.
+    pulse_gap_s: float = Field(default=2.0, ge=0, le=60)
 
 
 class OverCurrentRule(AlertRule):
@@ -795,9 +798,12 @@ class AlertsSettings(BaseModel):
         default_factory=lambda: AlertRule(
             severity=Severity.CRITICAL,
             message=(
-                "{pump} overload tripped at {site}. That pump is off and will "
-                "not run until somebody opens the panel and presses the red "
-                "button on {overload}. Time {time}."
+                "{pump} overload tripped at {site} and is out of service. The "
+                "other pump is covering, so there is no spare. Reset the "
+                "overload relay if it has not reset itself, then hold the red "
+                "button on the panel for three seconds to clear the alarm: "
+                "the pump does not rejoin the rotation until somebody does. "
+                "Time {time}."
             ),
         )
     )

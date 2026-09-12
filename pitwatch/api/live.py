@@ -457,7 +457,7 @@ async def tide_nearest(request: Request, user: auth.SignedIn) -> JSONResponse:
 
 
 @router.post("/panel/press", include_in_schema=False)
-async def panel_press(request: Request, user: auth.IsAdmin) -> JSONResponse:
+async def panel_press(request: Request, user: auth.SignedIn) -> JSONResponse:
     """Press the panel's own button, from wherever the person is.
 
     Two actions on one signal. The panel reads how long 24 V is held on its
@@ -465,9 +465,12 @@ async def panel_press(request: Request, user: auth.IsAdmin) -> JSONResponse:
     clears it. So this closes a contact for one of two lengths and the
     controller decides what that meant, exactly as it does for a finger.
 
-    Admins only. It reaches into a live panel, and the list of people who get
-    the alerts is going to be longer than the list of people who should be
-    pressing things because of them.
+    Anybody signed in, which was an argument and is settled. The button this
+    presses is on the front of a panel in an unlocked room: anybody in the
+    building can walk up and press it, there is no key and nothing is logged.
+    A copy of it that asks more of a person than the original does is not
+    safety, it is a locked door beside an open one. Everybody who has an
+    account here is somebody the building already trusts to be in that room.
 
     It does not, and must not, reset an overload relay. That is a separate
     device with its own button inside the enclosure, and the reason it is

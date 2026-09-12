@@ -52,10 +52,15 @@
 
   {# The panel's own button, for somebody who is not standing at the panel.
 
-     First on the page and only for administrators. It is here rather than on
-     the settings page because this is the page somebody opens when their phone
-     has just gone off, and the walk to the basement is the thing it exists to
+     First on the page, for anybody signed in. It is here rather than on the
+     settings page because this is the page somebody opens when their phone has
+     just gone off, and the walk to the basement is the thing it exists to
      save.
+
+     Not restricted, and that was an argument. The button it copies is on the
+     front of a panel in an unlocked room and anybody in the building can press
+     it. A copy that asks more of somebody than the original does is a locked
+     door beside an open one.
 
      The lamp is the panel's lamp: green while all is well, red when the alarm
      is up, and blinking when it is blinking, because a pulsing alarm is one
@@ -65,7 +70,7 @@
      Neither button asks first. They are pressed on purpose by somebody who has
      just been told what is wrong, and a confirm box in front of that is a
      second press with extra steps. The button on the door does not ask. #}
-  {% if user and user.is_admin and panel_button.ready %}
+  {% if user and panel_button.ready %}
   <section class="board-card panel-card" data-panel-button aria-label="Panel button">
     <div class="card-top">
       <span class="panel-lamp" data-panel-lamp aria-hidden="true">

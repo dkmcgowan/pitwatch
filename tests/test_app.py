@@ -743,27 +743,28 @@ class _Ordinary:
     is_admin = False
 
 
-def test_the_panel_button_is_on_the_dashboard_only_for_an_admin_who_wired_it():
-    """Three things have to be true before a control that reaches into a live
-    panel appears on the page somebody opens at two in the morning: it is
-    configured, it is turned on, and the person looking is an administrator.
+def test_the_panel_button_is_on_the_dashboard_for_anybody_who_wired_it():
+    """Two things have to be true: it is configured, and it is turned on.
 
-    The recipient list is about to be longer than the list of people who should
-    be pressing things because of what it sends.
+    Being an administrator is deliberately not one of them, and that was an
+    argument. The button this copies is on the front of a panel in an unlocked
+    room. Anybody in the building can walk up and press it, there is no key and
+    nothing is logged. A copy that asks more of somebody than the original does
+    is a locked door beside an open one.
     """
     from pitwatch.schemas import PanelButtonSettings
 
     wired = PanelButtonSettings(enabled=True, topic="shellyemg3/rpc")
 
-    shown = render_dashboard(user=_Admin(), panel_button=wired)
-    assert "data-panel-button" in shown
-    assert 'data-press="silence"' in shown and 'data-press="reset"' in shown
-    # The token has to be there or the post is refused, and the one script that
-    # handles these finds it inside a form.
-    assert 'name="csrf_token"' in shown
+    for who in (_Admin(), _Ordinary()):
+        shown = render_dashboard(user=who, panel_button=wired)
+        assert "data-panel-button" in shown
+        assert 'data-press="silence"' in shown and 'data-press="reset"' in shown
+        # The token has to be there or the post is refused, and the one script
+        # that handles these finds it inside a form.
+        assert 'name="csrf_token"' in shown
 
     for hidden, why in (
-        ({"user": _Ordinary(), "panel_button": wired}, "not an admin"),
         ({"user": _Admin(), "panel_button": PanelButtonSettings(topic="x/rpc")}, "not enabled"),
         ({"user": _Admin(), "panel_button": PanelButtonSettings(enabled=True)}, "no topic"),
         ({"user": None, "panel_button": wired}, "signed out"),

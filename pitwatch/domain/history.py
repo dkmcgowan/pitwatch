@@ -442,17 +442,46 @@ SIGNAL_MONTH = timedelta(days=30)
 SIGNAL_QUERY = """
 WITH edges AS (
     SELECT channel, ts, state,
+           lag(ts)     OVER (PARTITION BY channel ORDER BY ts) AS prev_ts,
            lead(ts)    OVER (PARTITION BY channel ORDER BY ts) AS next_ts,
            lead(state) OVER (PARTITION BY channel ORDER BY ts) AS next_state
     FROM io_event
     WHERE channel = ANY($1::smallint[])
+), rises AS (
+    -- Every closing, and whether it begins something or continues something.
+    --
+    -- The panel's alarm output pulses rather than holding: a real trip on
+    -- 2026-09-12 put a one hertz square wave on that contact and held it for
+    -- the fifty two seconds nobody attended to it. Counted an edge at a time
+    -- that is sixty one alarms in a month when five happened, on the one
+    -- number that is deliberately counted by the month because alarms are
+    -- supposed to be rare. A count that inflates twenty five fold per event
+    -- is worse than no count.
+    --
+    -- Every edge is still stored. This is only about what gets called an
+    -- event: anything closer together than the gap is one.
+    SELECT channel, ts, next_ts, next_state,
+           (prev_ts IS NULL OR ts - prev_ts >= $4::interval) AS starts
+    FROM edges WHERE state
+), grouped AS (
+    SELECT channel, ts, next_ts, next_state,
+           sum(CASE WHEN starts THEN 1 ELSE 0 END)
+               OVER (PARTITION BY channel ORDER BY ts) AS episode
+    FROM rises
 ), closures AS (
     -- One row per closing, carrying how long it stayed closed. Null while a
     -- contact is still held, which is the honest answer: a float that is wet
-    -- right now has no duration yet.
-    SELECT channel, ts,
-           CASE WHEN next_state IS FALSE THEN extract(epoch FROM next_ts - ts) END AS held_s
-    FROM edges WHERE state
+    -- right now has no duration yet. A pulsing signal is measured from the
+    -- first rise to the last fall, so the duration is the alarm rather than
+    -- half a flash of it.
+    SELECT channel, min(ts) AS ts,
+           CASE
+               WHEN (array_agg(next_state ORDER BY ts DESC))[1] IS FALSE
+               THEN extract(
+                   epoch FROM (array_agg(next_ts ORDER BY ts DESC))[1] - min(ts)
+               )
+           END AS held_s
+    FROM grouped GROUP BY channel, episode
 ), summed AS (
     SELECT channel,
            max(ts)                                           AS last_on,
@@ -548,6 +577,9 @@ class SignalHistory:
         # where the pit is, and a cache that ignored that would answer a
         # renamed timezone with yesterday's boundary.
         self._zone: str = ""
+        # Part of the cache key: change the gap on the settings page and the
+        # counts have to be recounted, not served from the last answer.
+        self._gap: timedelta | None = None
         self._by_channel: dict[int, Closings] = {}
         self._both_at: datetime | None = None
         self._both = Closings()
@@ -576,18 +608,33 @@ class SignalHistory:
         return self._both
 
     async def closings(
-        self, pool: asyncpg.Pool, channels: list[int], timezone: str = "UTC"
+        self,
+        pool: asyncpg.Pool,
+        channels: list[int],
+        timezone: str = "UTC",
+        gap_s: float = 2.0,
     ) -> dict[int, Closings]:
+        # gap_s is the panel alert rule's pulse gap, because the signal it was
+        # written for is the one that pulses. It costs nothing on the others:
+        # a float or a run signal is separated from the next one by minutes,
+        # and the only thing a gap this short ever merges elsewhere is a pump
+        # that stuttered and carried on, which was one call for water.
         now = datetime.now(UTC)
-        if self._at is not None and now - self._at < REFRESH_RUNS and self._zone == timezone:
+        gap = timedelta(seconds=max(0.0, gap_s))
+        if (
+            self._at is not None
+            and now - self._at < REFRESH_RUNS
+            and self._zone == timezone
+            and self._gap == gap
+        ):
             return self._by_channel
         if not channels:
-            self._at, self._zone, self._by_channel = now, timezone, {}
+            self._at, self._zone, self._gap, self._by_channel = now, timezone, gap, {}
             return self._by_channel
 
-        self._at, self._zone = now, timezone
+        self._at, self._zone, self._gap = now, timezone, gap
         try:
-            rows = await pool.fetch(SIGNAL_QUERY, channels, timezone, SIGNAL_MONTH)
+            rows = await pool.fetch(SIGNAL_QUERY, channels, timezone, SIGNAL_MONTH, gap)
         except (asyncpg.PostgresError, OSError) as error:
             log.warning("Could not read the contact history: %s", error)
             return self._by_channel

@@ -82,6 +82,16 @@ SPECS: tuple[Spec, ...] = (
                 "Long enough to cover the poll and the debounce, not long "
                 "enough to matter. The controller raises everything at once.",
             ),
+            Threshold(
+                "pulse_gap_s",
+                "Treat a gap shorter than this as still alarming (s)",
+                "The alarm output pulses, half a second on and half a second "
+                "off, so a gap is not the end of it. Anything closer together "
+                "than this is one alarm, here and in the counts on the "
+                "dashboard.",
+                step="0.5",
+                minimum="0.1",
+            ),
         ),
         clears="the alarm goes out",
     ),

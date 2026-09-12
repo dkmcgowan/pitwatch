@@ -336,7 +336,14 @@ async def build_state(app) -> dict:
     # about where the pit is, and two numbers on one screen counting from two
     # different midnights cannot be read against each other.
     closings = (
-        await signals.closings(pool, sorted(assigned), store.site.timezone) if signals else {}
+        await signals.closings(
+            pool,
+            sorted(assigned),
+            store.site.timezone,
+            store.alerts.panel_alert.pulse_gap_s,
+        )
+        if signals
+        else {}
     )
     both_ran = await signals.both_ran(pool) if signals else None
 

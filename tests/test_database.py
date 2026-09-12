@@ -496,6 +496,65 @@ async def test_counting_what_a_contact_has_done(pool):
     }
 
 
+async def test_a_pulsing_alarm_is_counted_as_one_alarm(pool):
+    """Sixty one alarms in a month, when five happened.
+
+    The panel's alarm output pulses rather than holding it. On 2026-09-12 a
+    real overload trip put a one hertz square wave on that contact and kept it
+    up for the fifty two seconds nobody attended to it: 106 transitions, 53
+    closings, one alarm. Counted an edge at a time that is the single number on
+    the page which is deliberately counted by the month, because alarms are
+    supposed to be rare, inflated twenty five fold by one event.
+
+    Every edge is still stored. This is only about what gets called an event.
+    """
+    from pitwatch.domain.history import SignalHistory
+
+    now = datetime.now(UTC)
+    rows = []
+
+    # A short, ordinary alarm first, so it is not the one reported last.
+    first = now - timedelta(minutes=20)
+    rows.append((first, 4, "System alert", True, False))
+    rows.append((first + timedelta(seconds=8), 4, "System alert", False, True))
+
+    # Then fifty two seconds of pulsing, half a second each way, as measured.
+    started = now - timedelta(minutes=10)
+    at = started
+    for _ in range(53):
+        rows.append((at, 4, "System alert", True, False))
+        rows.append((at + timedelta(seconds=0.5), 4, "System alert", False, True))
+        at += timedelta(seconds=1)
+    ended = at - timedelta(seconds=0.5)
+
+    await pool.executemany(
+        "INSERT INTO io_event (ts, channel, label, state, raw) VALUES ($1, $2, $3, $4, $5)",
+        rows,
+    )
+
+    closings = await SignalHistory().closings(pool, [4], "UTC", 2.0)
+
+    assert closings[4].month == 2, "two alarms, not fifty four"
+    assert closings[4].today == 2
+
+    # The pulsing one is reported as one alarm that lasted the whole time,
+    # timed from the first rise to the last fall rather than half a flash.
+    assert abs((closings[4].last_on - started).total_seconds()) < 1
+    assert closings[4].last_held_s == pytest.approx((ended - started).total_seconds(), abs=1)
+
+    # A gap shorter than the pulse puts every flash back, which is the proof
+    # that the collapsing is the setting's doing rather than an accident of
+    # the query.
+    every = await SignalHistory().closings(pool, [4], "UTC", 0.1)
+    assert every[4].month == 54
+    assert every[4].last_held_s == pytest.approx(0.5, abs=0.1)
+
+    # And a gap does not reach across two alarms that really were separate.
+    # These are eighteen minutes apart and stay two however wide it is set.
+    apart = await SignalHistory().closings(pool, [4], "UTC", 120.0)
+    assert apart[4].month == 2
+
+
 async def test_the_history_ignores_contacts_opening(pool):
     """Only closings count. A contact that opens is the end of something, and
     counting both would double every number on the card."""

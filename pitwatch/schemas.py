@@ -636,6 +636,22 @@ class PanelAlertRule(AlertRule):
     # debounce and a message hop, not a human's reaction.
     hold_s: int = Field(default=2, ge=0, le=300)
 
+    # How long the alarm has to stay quiet before it counts as over.
+    #
+    # The output pulses rather than holding: on 2026-09-12 a real trip put a
+    # one hertz square wave on the contact, half a second up and half a second
+    # down, and it kept that up for the fifty two seconds nobody attended to
+    # it. Read as a level that is an alarm ending twice a second, which is what
+    # the hold above used to think, so it could never reach the end and a
+    # pulsing alarm raised nothing at all.
+    #
+    # So a gap shorter than this is part of the alarm rather than the end of
+    # it, for the hold and for the closing counts alike, and everything closer
+    # together than this is one event. It only has to outlast the dark half of
+    # the pulse; the cost of setting it long is that a genuine clear is
+    # reported that much later.
+    pulse_gap_s: float = Field(default=2.0, ge=0.1, le=60)
+
 
 class OverCurrentRule(AlertRule):
     """A motor pulling more than it should, per motor.

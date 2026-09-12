@@ -61,34 +61,6 @@ SWEEP_S = 30.0
 # thing is turning. This only has to outlast that.
 SETTLE_S = 6.0
 
-# How long the panel's alarm has to be quiet before the hold gives up on it.
-#
-# The alarm output is not a level, it pulses. On 2026-09-12 an overload was
-# tripped by hand and the contact came back a one hertz square wave, half a
-# second up and half a second down, holding to within five milliseconds for
-# three and a half seconds until the silence button was pressed. That is a
-# beacon being flashed, not a contact bouncing.
-#
-# The controller behind the panel is a Unitronics Jazz JZ20-J-R31, whose SB 3
-# is a free running one second pulse oscillator. So this is not an accident of
-# timing to be measured and tracked, it is a system bit gated into the alarm
-# output by the ladder, and it will be exactly this shape every time. The first
-# half cycle we saw was a short 0.248 s, which is what a free running
-# oscillator looks like when the alarm arrives partway through one.
-#
-# The hold was written as an unbroken stretch, so every gap put it back to
-# zero and it could never reach two seconds against a signal like that. The
-# alarm that afternoon was only ever reported because somebody was standing in
-# front of the panel and silenced it, which turned the pulse steady. Nobody is
-# standing there at three in the morning, and that is the alarm this exists
-# for.
-#
-# So a gap shorter than this does not end the hold, and does not clear an
-# alarm that is already up. It has to outlast the dark half of the pulse by
-# enough that a slower flash is still caught, and it is the price paid in how
-# late a genuine clear is reported.
-PULSE_GAP_S = 5.0
-
 
 @dataclass(frozen=True, slots=True)
 class Finding:
@@ -115,9 +87,12 @@ class AlertEngine:
         # When the panel's own alarm was first seen up, so it can be held back
         # briefly to see whether something that carries detail explains it,
         # and when it was last seen to drop, so the gaps in a pulsing alarm
-        # are not each read as the alarm ending. See PULSE_GAP_S.
+        # are not each read as the alarm ending.
         self._panel_alert_since: datetime | None = None
         self._panel_alert_quiet_since: datetime | None = None
+        # Whether this alarm was explained by something else when it first
+        # came up, decided once and kept for as long as the alarm lasts.
+        self._panel_alert_explained: bool | None = None
         self._wake = asyncio.Event()
         # When a rule that deferred wants looking at again.
         #
@@ -321,10 +296,25 @@ class AlertEngine:
         means the vaguer one is read first.
 
         The hold counts from the first time the alarm was seen up and keeps
-        counting through a gap shorter than PULSE_GAP_S, because the panel
-        pulses this output rather than holding it. A single blip and then
+        counting through a gap shorter than the rule's pulse gap, because the
+        panel pulses this output rather than holding it. A single blip and then
         nothing is still filtered: the gap runs out before the hold does, and
         the hold is thrown away without ever having been reached.
+
+        **Explained once is explained for good.** Whether anything else
+        accounted for this alarm is decided when the hold completes and then
+        kept until the alarm itself ends. The alternative is re-asking every
+        sweep, which means the moment the overload is reset -- while the panel
+        alarm is still latched, because it is -- nothing explains it any more
+        and a second alert goes out saying so. That is the wrong message at the
+        wrong time: the overload did explain it, and the person reading it has
+        just finished dealing with the overload. On 2026-09-12 that window was
+        6.6 s and 8.4 s wide on two real trips, and it was missed both times
+        only because no sweep happened to land in it.
+
+        Something new raising its own alert is still heard, because that alert
+        speaks for itself. This only decides whether the vague one is worth
+        adding to it.
         """
         raised = self._contact("system_alert")
         if raised is None:
@@ -342,14 +332,15 @@ class AlertEngine:
             if self._panel_alert_quiet_since is None:
                 self._panel_alert_quiet_since = now
             quiet = (now - self._panel_alert_quiet_since).total_seconds()
-            if quiet < PULSE_GAP_S:
+            if quiet < rule.pulse_gap_s:
                 # Might be the dark half of a pulse rather than the end of the
                 # alarm. Say nothing either way and come back when the gap has
                 # gone on long enough to mean something.
-                self._ask_again_in(PULSE_GAP_S - quiet)
+                self._ask_again_in(rule.pulse_gap_s - quiet)
                 return None
             self._panel_alert_since = None
             self._panel_alert_quiet_since = None
+            self._panel_alert_explained = None
             return {None: None}
 
         held = (now - self._panel_alert_since).total_seconds()
@@ -360,16 +351,19 @@ class AlertEngine:
             self._ask_again_in(rule.hold_s - held)
             return None
 
-        explained = await self._pool.fetchval(
-            """
-            SELECT EXISTS (
-                SELECT 1 FROM alert
-                WHERE cleared_at IS NULL AND rule <> 'panel_alert'
-                  AND severity IN ('warning', 'critical')
+        if self._panel_alert_explained is None:
+            self._panel_alert_explained = bool(
+                await self._pool.fetchval(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1 FROM alert
+                        WHERE cleared_at IS NULL AND rule <> 'panel_alert'
+                          AND severity IN ('warning', 'critical')
+                    )
+                    """
+                )
             )
-            """
-        )
-        return {None: None if explained else Finding()}
+        return {None: None if self._panel_alert_explained else Finding()}
 
     # Float activity and a pump starting are not swept. They are moments, not
     # conditions: there is nothing to be true later and nothing to clear, so a

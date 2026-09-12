@@ -9,13 +9,13 @@ nothing for the six hours it stays wet.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from pitwatch.domain.engine import PULSE_GAP_S, AlertEngine
+from pitwatch.domain.engine import AlertEngine
 from pitwatch.schemas import (
     AlertsSettings,
     ClampSource,
@@ -443,7 +443,7 @@ async def test_one_blip_and_nothing_after_it_is_still_filtered(pool, sent):
     await engine.sweep()
 
     # The gap outlasting a pulse, without the contact ever coming back up.
-    engine._panel_alert_quiet_since -= timedelta(seconds=PULSE_GAP_S + 1)
+    engine._panel_alert_quiet_since -= timedelta(seconds=store.alerts.panel_alert.pulse_gap_s + 1)
     await engine.sweep()
 
     assert not await pool.fetch("SELECT 1 FROM alert"), "one flicker is not an alarm"
@@ -468,9 +468,101 @@ async def test_a_panel_alarm_clears_once_the_quiet_outlasts_a_pulse(pool, sent):
     still_open = await pool.fetchval("SELECT count(*) FROM alert WHERE cleared_at IS NULL")
     assert still_open == 1, "a gap this short might still be a pulse"
 
-    engine._panel_alert_quiet_since -= timedelta(seconds=PULSE_GAP_S + 1)
+    engine._panel_alert_quiet_since -= timedelta(seconds=store.alerts.panel_alert.pulse_gap_s + 1)
     await engine.sweep()
     assert await pool.fetchval("SELECT count(*) FROM alert WHERE cleared_at IS NULL") == 0
+
+
+async def _open(pool, rule: str) -> int:
+    """How many of one rule's alerts are open."""
+    return await pool.fetchval(
+        "SELECT count(*) FROM alert WHERE rule = $1 AND cleared_at IS NULL", rule
+    )
+
+
+async def test_an_explained_panel_alarm_stays_explained_after_it_is_explained_away(pool, sent):
+    """The overload is reset, the panel alarm is still latched, and nothing is
+    open to account for it any more. That must not become a second alert.
+
+    On 2026-09-12 two real trips left exactly this window open, 6.6 s and 8.4 s
+    wide: the overload contact went healthy and the controller held its alarm
+    until somebody pressed the button. Nothing raised, but only because no
+    sweep happened to land in either window. The message it would have sent is
+    "nothing here explains it", to somebody who had just finished dealing with
+    the overload that explained it.
+    """
+    await _a_person(pool)
+    store = _store()
+    contacts = _wire(_Contacts(), system_alert=True, pump1_fault=True)
+    engine = _engine(pool, store, contacts)
+
+    await engine.sweep()
+    engine._panel_alert_since -= timedelta(seconds=store.alerts.panel_alert.hold_s + 1)
+    await engine.sweep()
+
+    rules = [row["rule"] for row in await pool.fetch("SELECT rule FROM alert")]
+    assert "overload" in rules
+    assert "panel_alert" not in rules, "the overload explains it"
+
+    # The overload is reset. Its alert clears; the panel alarm does not, which
+    # is what the panel actually does.
+    contacts.by_channel[5] = False
+    await engine.sweep()
+    assert await _open(pool, "overload") == 0
+    await engine.sweep()
+
+    raised = [row["rule"] for row in await pool.fetch("SELECT rule FROM alert")]
+    assert "panel_alert" not in raised, "still the same alarm, still explained"
+
+
+async def test_an_unexplained_panel_alarm_is_not_silenced_by_a_later_alert(pool, sent):
+    """The other direction. Nothing explained it when it came up, so it was
+    raised, and something arriving afterwards does not retract that."""
+    await _a_person(pool)
+    store = _store()
+    contacts = _wire(_Contacts(), system_alert=True)
+    engine = _engine(pool, store, contacts)
+
+    await engine.sweep()
+    engine._panel_alert_since -= timedelta(seconds=store.alerts.panel_alert.hold_s + 1)
+    await engine.sweep()
+    assert await _open(pool, "panel_alert") == 1
+
+    contacts.by_channel[1] = True  # high water, which speaks for itself
+    await engine.sweep()
+
+    assert await _open(pool, "panel_alert") == 1, "one alarm, one alert"
+
+
+async def test_the_explanation_is_decided_again_for_the_next_alarm(pool, sent):
+    """Latched for the life of one alarm, not for the life of the process. The
+    alarm ending is what throws the answer away."""
+    await _a_person(pool)
+    store = _store()
+    contacts = _wire(_Contacts(), system_alert=True, pump1_fault=True)
+    engine = _engine(pool, store, contacts)
+
+    await engine.sweep()
+    engine._panel_alert_since -= timedelta(seconds=store.alerts.panel_alert.hold_s + 1)
+    await engine.sweep()
+    assert engine._panel_alert_explained is True
+
+    # Everything goes away.
+    contacts.by_channel[2] = False
+    contacts.by_channel[5] = False
+    engine._panel_alert_quiet_since = datetime.now(UTC) - timedelta(
+        seconds=store.alerts.panel_alert.pulse_gap_s + 1
+    )
+    await engine.sweep()
+    assert engine._panel_alert_explained is None
+
+    # A second alarm, this one with nothing behind it.
+    contacts.by_channel[2] = True
+    await engine.sweep()
+    engine._panel_alert_since -= timedelta(seconds=store.alerts.panel_alert.hold_s + 1)
+    await engine.sweep()
+    assert engine._panel_alert_explained is False
+    assert await _open(pool, "panel_alert") == 1
 
 
 async def test_a_pump_with_no_runs_on_record_is_not_reported_idle(pool, sent):

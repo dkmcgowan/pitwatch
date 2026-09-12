@@ -277,6 +277,87 @@
   </details>
 </section>
 
+{# Pressing the panel's own button from somewhere else.
+
+   One signal, two meanings. The reference panel reads how long 24 V is held on
+   the controller's reset input and nothing else: a tap silences, three seconds
+   clears. Measured at the panel on 2026-09-12 with a meter, which is why the
+   two durations are fields rather than constants: somebody else's panel will
+   want different ones.
+
+   Off until somebody has wired a contact across that button and watched it
+   move. #}
+<section class="card settings-section">
+  <details name="settings">
+    <summary><h2>Panel button</h2></summary>
+  <form method="post" action="/settings/panel_button" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <p class="hint">A pump that has tripped does not rejoin the rotation until
+      the panel alarm is cleared by hand, so the building runs on one pump until
+      somebody walks to the basement. This closes a contact across the button on
+      the panel door, so that walk can happen from a phone instead.</p>
+
+    <p class="hint"><strong>It does not reset the overload.</strong> That is a
+      separate button inside the enclosure, and it is separate on purpose:
+      something is wrong with a motor that has overloaded, and it should be
+      looked at before it runs again. Read the amps first.</p>
+
+    <div class="field">
+      <label class="check">
+        <input type="checkbox" name="panel_button_enabled"
+               {% if panel_button.enabled %}checked{% endif %}>
+        Allow the panel button to be pressed from here
+      </label>
+    </div>
+
+    <div class="grid">
+      <div class="field">
+        <label for="panel_button_topic">Contact topic</label>
+        <input type="text" id="panel_button_topic" name="panel_button_topic"
+               value="{{ panel_button.topic }}" placeholder="shellyemg3/rpc">
+        <p class="hint">A Shelly takes JSON-RPC on its device id with /rpc on
+          the end. Turn on RPC over MQTT on the device or it will publish its
+          readings and ignore anything sent to it.</p>
+      </div>
+      <div class="field">
+        <label for="panel_button_switch_id">Switch</label>
+        <input type="number" id="panel_button_switch_id" min="0" max="7"
+               name="panel_button_switch_id" value="{{ panel_button.switch_id }}">
+        <p class="hint">Which relay on it. Nearly always the only one.</p>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="field">
+        <label for="panel_button_silence_ms">Silence, held for (ms)</label>
+        <input type="number" id="panel_button_silence_ms" min="50" max="2000" step="50"
+               name="panel_button_silence_ms" value="{{ panel_button.silence_ms }}">
+        <p class="hint">A tap. Short enough that the panel does not read it as
+          the long press.</p>
+      </div>
+      <div class="field">
+        <label for="panel_button_reset_ms">Reset, held for (ms)</label>
+        <input type="number" id="panel_button_reset_ms" min="1000" max="10000" step="100"
+               name="panel_button_reset_ms" value="{{ panel_button.reset_ms }}">
+        <p class="hint">The long press that clears the alarm. Three seconds on
+          the reference panel, so this is a little over.</p>
+      </div>
+    </div>
+
+    <button type="submit" class="button">Save</button>
+
+    <p>
+      <button type="button" class="button secondary" data-press="silence">Press silence</button>
+      <button type="button" class="button secondary" data-press="reset">Press reset</button>
+      <span class="hint">Saved settings, not what is typed above. These press
+        the real button on the real panel.</span>
+    </p>
+    <div class="test-result" data-press-result hidden></div>
+  </form>
+  </details>
+</section>
+
 {# What the health summary needs. The description is the half a model cannot
    work out from the readings, and the key and base URL say what is being asked.
 

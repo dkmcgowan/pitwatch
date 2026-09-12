@@ -694,6 +694,13 @@ async def test_both_overloads_out_is_its_own_alert(pool, sent):
     assert await _open(pool, "both_overloads") == 0
     assert await _open(pool, "overload") == 1
 
+    # And the all clear names both of them rather than hedging. A text about a
+    # sewage ejector saying "the other one may still be out" is a text that
+    # makes somebody go and look at the thing we are already looking at.
+    said = [body for _, _, body in sent if "rejoins the rotation" in body][-1]
+    assert "Pump 1 is back and Pump 2 is still out" in said
+    assert "may still be out" not in said
+
 
 async def test_a_pump_with_no_runs_on_record_is_not_reported_idle(pool, sent):
     """This one shipped and sent a text at three in the morning.

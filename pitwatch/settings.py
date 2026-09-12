@@ -22,6 +22,7 @@ from pitwatch.config import Config
 from pitwatch.schemas import (
     AlertsSettings,
     MqttSettings,
+    PanelButtonSettings,
     PumpsSettings,
     SiteSettings,
     SmsSettings,
@@ -165,6 +166,10 @@ class SettingsStore:
     @property
     def tide(self) -> TideSettings:
         return self.get(TideSettings)
+
+    @property
+    def panel_button(self) -> PanelButtonSettings:
+        return self.get(PanelButtonSettings)
 
     async def is_setup_complete(self) -> bool:
         return bool(await self.get_raw(SETUP_COMPLETE_SETTING, False))

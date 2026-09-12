@@ -6,6 +6,7 @@ promise; it is the shape the pages in this repository happen to want.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 
@@ -450,6 +451,68 @@ async def tide_nearest(request: Request, user: auth.SignedIn) -> JSONResponse:
             "note": (
                 f"{station.where} is the nearest gauge, about {station.miles:.0f} "
                 f"miles away. Check that is the same water as the pit before saving."
+            ),
+        }
+    )
+
+
+@router.post("/panel/press", include_in_schema=False)
+async def panel_press(request: Request, user: auth.IsAdmin) -> JSONResponse:
+    """Press the panel's own button, from wherever the person is.
+
+    Two actions on one signal. The panel reads how long 24 V is held on its
+    reset input and nothing else: a tap silences the alarm, three seconds
+    clears it. So this closes a contact for one of two lengths and the
+    controller decides what that meant, exactly as it does for a finger.
+
+    Admins only. It reaches into a live panel, and the list of people who get
+    the alerts is going to be longer than the list of people who should be
+    pressing things because of them.
+
+    It does not, and must not, reset an overload relay. That is a separate
+    device with its own button inside the enclosure, and the reason it is
+    separate is that somebody should look at a motor that has overloaded before
+    it runs again.
+    """
+    store: SettingsStore = request.app.state.settings
+    settings = store.panel_button
+
+    action = forms.text(await request.form(), "action")
+    if action not in ("silence", "reset"):
+        return JSONResponse({"ok": False, "error": "Unknown action"}, status_code=400)
+    if not settings.ready:
+        return JSONResponse(
+            {"ok": False, "error": "No panel button is configured"}, status_code=400
+        )
+
+    supervisor = getattr(request.app.state, "supervisor", None)
+    if supervisor is None:
+        return JSONResponse({"ok": False, "error": "Not connected"}, status_code=503)
+
+    on, off, held_ms = settings.press(action)
+    failed = await supervisor.send(settings.topic, on)
+    if failed:
+        log.warning("%s could not %s the panel: %s", user.username, action, failed)
+        return JSONResponse({"ok": False, "error": failed})
+
+    # Held from here, then released. The Shelly releases it by itself anyway,
+    # a couple of seconds later, whatever happens to this process: that is the
+    # `toggle_after` on the message just sent. This is the tidy path, not the
+    # safe one, and the difference matters for a contact wired across a button
+    # on a live panel.
+    await asyncio.sleep(held_ms / 1000)
+    released = await supervisor.send(settings.topic, off)
+
+    log.info("%s pressed %s on the panel for %d ms", user.username, action, held_ms)
+    said = "Silenced" if action == "silence" else "Reset"
+    return JSONResponse(
+        {
+            "ok": True,
+            "detail": f"{said}: held the button for {held_ms / 1000:.1f} s.",
+            "note": (
+                "Watch the panel. This presses the button, it does not check "
+                "that the controller agreed."
+                + (f" Releasing it reported: {released}" if released else "")
             ),
         }
     )

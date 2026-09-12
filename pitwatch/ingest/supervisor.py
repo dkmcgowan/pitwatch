@@ -184,6 +184,13 @@ class Supervisor:
             len(settings.used_health),
         )
 
+    async def send(self, topic: str, payload: str) -> str | None:
+        """Put one message on the broker, or say why not."""
+        reader = self._reader
+        if reader is None:
+            return "The broker reader is not running"
+        return await reader.send(topic, payload)
+
     async def _start_weather(self) -> None:
         """The rain over the pit, on a timer.
 

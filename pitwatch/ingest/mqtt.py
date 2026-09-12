@@ -482,6 +482,25 @@ class MqttReader:
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(stop.wait(), timeout=delay)
 
+    async def send(self, topic: str, payload: str) -> str | None:
+        """Publish one message on behalf of somebody else, and say what went
+        wrong rather than raising.
+
+        The reader owns the only connection there is, so anything that wants to
+        put a message on the broker has to come through here. The error comes
+        back as a string because the caller is an HTTP handler that has to tell
+        a person standing at a panel why nothing happened.
+        """
+        client = self._client
+        if client is None:
+            return "Not connected to the broker"
+        try:
+            await client.publish(topic, payload)
+        except (aiomqtt.MqttError, OSError) as error:
+            log.warning("Could not publish to %s: %s", topic, error)
+            return str(error) or error.__class__.__name__
+        return None
+
     async def _ask(self, clamp: ClampSource) -> None:
         client = self._client
         if client is None:

@@ -266,6 +266,8 @@ class AlertEngine:
             if pump:
                 values["pump"] = self._store.pumps.by_number[pump].name
                 values["cover"] = self._cover(pump)
+            else:
+                values["state"] = self._who_is_out()
             # A value that came back empty leaves a gap where it was, and a
             # message with two spaces in the middle looks like a bug to the
             # person reading it, which for a message about a pump being out of
@@ -332,6 +334,23 @@ class AlertEngine:
         if tripped:
             return f"{name} is out as well, so nothing is pumping at all."
         return f"{name} is covering on its own until then."
+
+    def _who_is_out(self) -> str:
+        """Which pumps are out, said plainly.
+
+        The both out alert used to clear with "a pump is back... the other one
+        may still be out", which is a hedge in a text message about a sewage
+        ejector. We know which, so it says which.
+        """
+        names = self._store.pumps.by_number
+        out = [number for number in (1, 2) if self._contact(f"pump{number}_fault")]
+        if not out:
+            return "Both pumps are back"
+        # This rule only clears when one of the two is back, so there is
+        # exactly one left to name.
+        still = out[0]
+        back = 2 if still == 1 else 1
+        return f"{names[back].name} is back and {names[still].name} is still out"
 
     def _overload_label(self, pump: int) -> str:
         """What the overload relay is called on the panel, for somebody

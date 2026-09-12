@@ -288,6 +288,7 @@ def render_settings(**overrides) -> str:
     from pitwatch.schemas import (
         DASHBOARD_ROLES,
         MqttSettings,
+        PanelButtonSettings,
         PumpsSettings,
         SiteSettings,
         SmsSettings,
@@ -308,6 +309,7 @@ def render_settings(**overrides) -> str:
         "site": SiteSettings(),
         "weather": WeatherSettings(),
         "tide": TideSettings(),
+        "panel_button": PanelButtonSettings(),
         "mqtt": MqttSettings(),
         "pumps": PumpsSettings(),
         "smtp": SmtpSettings(),
@@ -323,6 +325,68 @@ def render_settings(**overrides) -> str:
     }
     context.update(overrides)
     return env.get_template("settings.html").render(**context)
+
+
+def test_the_panel_button_sends_two_messages_and_a_firmware_backstop():
+    """One press is a contact closed and then opened, and the closing message
+    carries its own release.
+
+    `toggle_after` is the whole safety argument. The Shelly opens the contact
+    itself, in firmware, whatever happens here: if this process dies mid press,
+    or the broker drops, or the network goes, the contact still releases.
+    Nothing outside the panel can hold that button down. PitWatch sending the
+    off is the tidy path, not the safe one.
+    """
+    import json
+
+    from pitwatch.schemas import PanelButtonSettings
+
+    settings = PanelButtonSettings(enabled=True, topic="shellyemg3/rpc")
+
+    on, off, held_ms = settings.press("reset")
+    assert held_ms == 3500
+    first = json.loads(on)
+    assert first["method"] == "Switch.Set"
+    assert first["params"]["on"] is True
+    # Longer than we intend to hold it, so the tidy release wins in the normal
+    # case and this only fires when nothing else did.
+    assert first["params"]["toggle_after"] * 1000 > held_ms
+    assert json.loads(off)["params"]["on"] is False
+
+    # A tap and a long press are the same signal at different lengths, which
+    # is the only thing the panel reads.
+    short_on, _, short_ms = settings.press("silence")
+    assert short_ms == 400
+    assert short_ms < held_ms
+    assert json.loads(short_on)["params"]["on"] is True
+
+
+def test_the_panel_button_is_off_and_incomplete_until_somebody_wires_it():
+    """It closes a contact on a live panel, so it stays off until a person has
+    turned it on and said where to send it. Enabled with no topic is not
+    configured, it is a button that does nothing and looks like it should."""
+    from pitwatch.schemas import PanelButtonSettings
+
+    assert PanelButtonSettings().enabled is False
+    assert PanelButtonSettings().ready is False
+    assert PanelButtonSettings(enabled=True).ready is False
+    assert PanelButtonSettings(topic="shellyemg3/rpc").ready is False
+    assert PanelButtonSettings(enabled=True, topic="shellyemg3/rpc").ready is True
+
+
+def test_the_panel_button_settings_make_the_round_trip():
+    """Every field the page renders comes back the way it went in, so saving a
+    page nobody edited cannot quietly change what the button does."""
+    from pitwatch.api import forms
+    from pitwatch.schemas import PanelButtonSettings
+
+    before = PanelButtonSettings(
+        enabled=True, topic="shellyemg3/rpc", switch_id=1, silence_ms=350, reset_ms=4000
+    )
+    page = render_settings(panel_button=before)
+    posted = dict(submitted(page))
+    after = forms.panel_button_from(posted)
+    assert after == before
 
 
 def submitted(html: str) -> list[tuple[str, str]]:

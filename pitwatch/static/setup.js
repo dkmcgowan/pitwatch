@@ -96,6 +96,91 @@ function csrfHeader(form) {
 })();
 
 
+// The two buttons that press the button on the panel door.
+//
+// Not the test-button pattern above, deliberately. Those post the form as it
+// stands, because the question a test button answers is "does what I just
+// typed work". This one closes a contact on a live panel, so it uses what is
+// saved: pressing a real button because of a number somebody was halfway
+// through typing is not a thing this should be able to do.
+//
+// Reset asks first. Silence does not: silencing an alarm by accident costs
+// nothing, and the horn is still the smallest part of what is wrong.
+
+(function () {
+  "use strict";
+
+  const output = document.querySelector("[data-press-result]");
+  const buttons = Array.prototype.slice.call(document.querySelectorAll("[data-press]"));
+  if (!output || !buttons.length) {
+    return;
+  }
+
+  function show(text, kind) {
+    output.hidden = false;
+    output.className = "test-result " + kind;
+    output.textContent = text;
+  }
+
+  buttons.forEach(function (button) {
+    const action = button.getAttribute("data-press");
+
+    button.addEventListener("click", async function () {
+      const form = button.closest("form");
+      if (!form) {
+        return;
+      }
+      if (action === "reset" && !window.confirm(
+        "Hold the panel button for the full reset? This clears the alarm on the "
+        + "real panel."
+      )) {
+        return;
+      }
+
+      buttons.forEach(function (one) { one.disabled = true; });
+      show("Holding the button...", "");
+
+      try {
+        const body = new FormData();
+        body.append("action", action);
+        const response = await fetch("/api/panel/press", {
+          method: "POST",
+          body: body,
+          headers: csrfHeader(form),
+        });
+        let result;
+        try {
+          result = JSON.parse(await response.text());
+        } catch (error) {
+          show(
+            response.status === 403
+              ? "Administrators only."
+              : "The server returned something unexpected (" + response.status + ").",
+            "bad"
+          );
+          return;
+        }
+        if (!result.ok) {
+          show(result.error || "It did not go.", "bad");
+          return;
+        }
+        show(result.detail || "Pressed.", "good");
+        if (result.note) {
+          const aside = document.createElement("p");
+          aside.className = "muted";
+          aside.textContent = result.note;
+          output.appendChild(aside);
+        }
+      } catch (error) {
+        show("The request failed: " + error.message, "bad");
+      } finally {
+        buttons.forEach(function (one) { one.disabled = false; });
+      }
+    });
+  });
+})();
+
+
 // A notification box is unavailable until there is somewhere to send it.
 //
 // An account with the email box ticked and no address is a setting that reads

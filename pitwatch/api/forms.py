@@ -21,6 +21,7 @@ from pitwatch.schemas import (
     ContactInput,
     HealthSource,
     MqttSettings,
+    PanelButtonSettings,
     PumpSettings,
     PumpsSettings,
     SiteSettings,
@@ -127,6 +128,16 @@ def tide_from(form: FormData) -> TideSettings:
         station=text(form, "tide_station"),
         station_name=text(form, "tide_station_name"),
         units=text(form, "tide_units", "ft") or "ft",
+    )
+
+
+def panel_button_from(form: FormData) -> PanelButtonSettings:
+    return PanelButtonSettings(
+        enabled=checkbox(form, "panel_button_enabled"),
+        topic=text(form, "panel_button_topic"),
+        switch_id=integer(form, "panel_button_switch_id", 0),
+        silence_ms=integer(form, "panel_button_silence_ms", 400),
+        reset_ms=integer(form, "panel_button_reset_ms", 3500),
     )
 
 

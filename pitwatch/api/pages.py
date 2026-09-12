@@ -129,6 +129,7 @@ async def settings_page(request: Request, admin: auth.IsAdmin, saved: str | None
             summary=store.summary,
             weather=store.weather,
             tide=store.tide,
+            panel_button=store.panel_button,
             diagnostics=await diagnostics.read(
                 request.app.state.pool, store.mqtt, store.pumps, store.site
             ),
@@ -365,6 +366,8 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
                 await store.put(forms.weather_from(form))
             case "tide":
                 await store.put(forms.tide_from(form))
+            case "panel_button":
+                await store.put(forms.panel_button_from(form))
             case _:
                 return RedirectResponse("/settings", status_code=303)
     except (ValueError, ValidationError) as error:
@@ -380,6 +383,7 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
                 summary=store.summary,
                 weather=store.weather,
                 tide=store.tide,
+                panel_button=store.panel_button,
                 diagnostics=await diagnostics.read(
                     request.app.state.pool, store.mqtt, store.pumps, store.site
                 ),

@@ -14,6 +14,7 @@ wrong". Add them when the shape settles, not before.
 
 from __future__ import annotations
 
+import json
 from enum import StrEnum
 from typing import ClassVar, Literal
 
@@ -1084,6 +1085,81 @@ class WeatherSettings(BaseModel):
     # this one are in New York, and a tenth of an inch of rain is a sentence
     # they already understand.
     units: str = Field(default="in", pattern="^(in|mm)$")
+
+
+class PanelButtonSettings(BaseModel):
+    """Pressing the panel's own button from somewhere else.
+
+    The reference panel has one pushbutton on the door that does two things
+    depending on how long it is held: a tap silences the alarm, three seconds
+    resets it. Measured on 2026-09-12, both are the same signal, 24 V on the
+    controller's I12, and only the duration tells them apart.
+
+    That matters because a pump that has tripped does not rejoin the rotation
+    until the alarm is reset by hand. The fault clears, the relay recovers, and
+    the building runs on one pump until somebody walks to the basement. On
+    2026-09-12 that was eleven minutes and five calls.
+
+    **This does not reset the overload and it must not.** A motor overloads
+    because something is wrong with it, and a reset that happens without
+    somebody looking turns one pump out of service into two burned out
+    overnight. This presses the button a person would press, from a person's
+    phone, after they have read the amps. The judgement stays where the panel
+    designers put it; what goes away is the trip to the basement.
+
+    Off by default, and it stays off until somebody has wired a contact across
+    that button and proved it moves.
+    """
+
+    KEY: ClassVar[str] = "panel_button"
+
+    enabled: bool = False
+    # The Shelly's RPC topic, which is its device id with /rpc on the end.
+    # Anything that takes the same JSON on a topic would work; this is written
+    # for the meter that is already on site because it has a spare dry contact
+    # and is already on the broker.
+    topic: str = Field(default="", max_length=300)
+    # Which switch on it. Nearly always the only one.
+    switch_id: int = Field(default=0, ge=0, le=7)
+    # How long to hold the contact closed for each. The panel reads the
+    # duration and nothing else, so these are the whole of the difference
+    # between silencing an alarm and clearing it.
+    silence_ms: int = Field(default=400, ge=50, le=2000)
+    reset_ms: int = Field(default=3500, ge=1000, le=10000)
+
+    @property
+    def ready(self) -> bool:
+        return bool(self.enabled and self.topic)
+
+    def press(self, action: str) -> tuple[str, str, int]:
+        """The two messages for one press, and how long to wait between them.
+
+        Returned rather than published here so the caller can be tested without
+        a broker. `toggle_after` is the point of the first one: the Shelly
+        opens the contact itself, in firmware, whatever happens to us. If this
+        process dies mid press, or the broker drops, or the network goes, the
+        contact still releases. Nothing outside the panel can hold that button
+        down.
+        """
+        held_ms = self.reset_ms if action == "reset" else self.silence_ms
+        backstop = int(held_ms / 1000) + 2
+        on = json.dumps(
+            {
+                "id": 1,
+                "src": "pitwatch",
+                "method": "Switch.Set",
+                "params": {"id": self.switch_id, "on": True, "toggle_after": backstop},
+            }
+        )
+        off = json.dumps(
+            {
+                "id": 2,
+                "src": "pitwatch",
+                "method": "Switch.Set",
+                "params": {"id": self.switch_id, "on": False},
+            }
+        )
+        return on, off, held_ms
 
 
 class TideSettings(BaseModel):

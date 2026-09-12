@@ -136,9 +136,9 @@ SPECS: tuple[Spec, ...] = (
         placeholders=COMMON,
         clears="either pump is back",
         cleared_message=(
-            "A pump is back at {site}, so something is pumping again. Check "
-            "the panel: the other one may still be out, and neither rejoins "
-            "the rotation until the alarm is cleared by hand. Time {time}."
+            "{state} at {site}. Neither pump rejoins the rotation until "
+            "somebody clears the alarm at the panel: hold the red button for "
+            "three seconds. Time {time}."
         ),
     ),
     Spec(

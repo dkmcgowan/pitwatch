@@ -1,0 +1,51 @@
+name: Release
+
+# A tag already builds the container. It did not also write down what changed,
+# so releases were made by hand until somebody forgot: v0.41.0 was the last one
+# for fifty eight tags. Anything that depends on remembering stops happening
+# the first busy afternoon.
+#
+# The notes are the commit's own message. Every release here is one commit with
+# the reasoning in it, so there is nothing to compose that is not already
+# written, and nothing to keep in step with a changelog file.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to write a release for
+        required: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Write the release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The tag alone carries no history, and the message is on the commit.
+          fetch-depth: 0
+
+      - name: Write it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "$TAG already has a release"
+            exit 0
+          fi
+          # Subject as the title, body as the notes. A release with no body is
+          # a version number, which the tag already was.
+          title=$(git log -1 --format=%s "$TAG")
+          git log -1 --format=%b "$TAG" > notes.md
+          gh release create "$TAG" --title "$title" --notes-file notes.md

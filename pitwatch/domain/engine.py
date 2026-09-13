@@ -460,6 +460,10 @@ class AlertEngine:
             )
         return "Clearing the panel alarm now to bring it back into rotation."
 
+    def _faults_out(self) -> int:
+        """How many pumps are out on their own overload right now."""
+        return sum(1 for pump in (1, 2) if self._contact(f"pump{pump}_fault"))
+
     def _silence_the_alarm(self) -> None:
         """Stop the horn, once per alarm.
 
@@ -489,7 +493,11 @@ class AlertEngine:
         # Counted off the contacts rather than the alerts, because the alert
         # for a trip is written after this runs on the same sweep and would
         # look like news about itself.
-        faults = sum(1 for pump in (1, 2) if self._contact(f"pump{pump}_fault"))
+        # One on its way already. Without this a run of sweeps while the first
+        # is still waiting would queue a press each time.
+        if self._hushing is not None and not self._hushing.done():
+            return
+        faults = self._faults_out()
         if self._silenced_faults is not None and faults == self._silenced_faults:
             return
         # A first silence answers an alarm that is already up, so it can go at
@@ -499,7 +507,6 @@ class AlertEngine:
         # 2026-09-13 at 17:56:37. The press was a second early and the alarm
         # it was meant for started afterwards.
         wait = ALARM_AFTER_S if self._silenced_faults is not None else 0
-        self._silenced_faults = faults
 
         async def hush() -> None:
             try:
@@ -518,6 +525,11 @@ class AlertEngine:
                     # would be pressing twice to do less.
                     return
                 await self._press("silence", "the panel")
+                # Recorded here rather than when this was scheduled, because
+                # the guards above can drop the press. Marking it silenced on
+                # the way in meant a skipped press still counted as done, and
+                # the alarm it was for was never silenced by anybody.
+                self._silenced_faults = self._faults_out()
             except asyncio.CancelledError:
                 raise
             except Exception:

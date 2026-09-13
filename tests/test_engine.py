@@ -999,13 +999,23 @@ async def test_a_second_pump_going_silences_the_alarm_again(pool, sent):
     # 2026-09-13, at 18:14:52 and again at 18:14:58.
     # A reset goes out too, because one pump back is worth clearing the alarm
     # for, so count the silences rather than pinning the order.
+    #
+    # Two sweeps, because the silence gives way to the reset: pressing while a
+    # reset is holding the button would be pressing twice to do less, so it
+    # stands down and the next sweep picks it up. The panel re-raising the
+    # alarm for the pump still out is itself a contact change, so on the real
+    # thing that next sweep arrives on its own.
     contacts.by_channel[5] = False
+    await engine.sweep()
+    await _pressed_everything(engine)
     await engine.sweep()
     await _pressed_everything(engine)
     assert pressed.count("silence") == 3, "one pump back is a different alarm"
 
     # And the last one going the same way.
     contacts.by_channel[6] = False
+    await engine.sweep()
+    await _pressed_everything(engine)
     await engine.sweep()
     await _pressed_everything(engine)
     assert pressed.count("silence") == 4

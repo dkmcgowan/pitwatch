@@ -113,7 +113,7 @@ SPECS: tuple[Spec, ...] = (
             "2026-09-12: eleven minutes and five calls on one pump."
         ),
         needs=CONTACTS,
-        placeholders=(*COMMON, "{pump}", "{overload}", "{recovery}"),
+        placeholders=(*COMMON, "{pump}", "{overload}", "{cover}", "{recovery}"),
         clears="it is reset",
         cleared_message=("{pump} overload has reset at {site}. {recovery} {cover} Time {time}."),
     ),
@@ -129,13 +129,9 @@ SPECS: tuple[Spec, ...] = (
             "reset while this one says how much time there is to do it in."
         ),
         needs=CONTACTS,
-        placeholders=COMMON,
+        placeholders=(*COMMON, "{recovery}"),
         clears="either pump is back",
-        cleared_message=(
-            "{state} at {site}. Neither pump rejoins the rotation until "
-            "somebody clears the alarm at the panel: hold the red button for "
-            "three seconds. Time {time}."
-        ),
+        cleared_message=("{state} at {site}. {recovery} Time {time}."),
     ),
     Spec(
         key="contactor_no_current",

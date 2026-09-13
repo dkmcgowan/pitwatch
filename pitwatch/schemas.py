@@ -790,8 +790,7 @@ class AlertsSettings(BaseModel):
             severity=Severity.CRITICAL,
             message=(
                 "Panel alert at {site} and nothing here explains it. Often a "
-                "power failure or the panel door left open. Somebody has to "
-                "look. Time {time}."
+                "power failure or the panel door left open. Time {time}."
             ),
         )
     )
@@ -799,7 +798,8 @@ class AlertsSettings(BaseModel):
         default_factory=lambda: AlertRule(
             severity=Severity.CRITICAL,
             message=(
-                "{pump} overload tripped at {site} and is out of service. {recovery} Time {time}."
+                "{pump} overload tripped at {site} and is out of service. "
+                "{cover} {recovery} Time {time}."
             ),
         )
     )
@@ -807,10 +807,9 @@ class AlertsSettings(BaseModel):
         default_factory=lambda: AlertRule(
             severity=Severity.CRITICAL,
             message=(
-                "BOTH pumps at {site} are out on overload. Nothing is pumping "
-                "and the pit is filling from now on. Somebody has to get to "
-                "the panel: reset both relays, then hold the red button for "
-                "three seconds to clear the alarm. Time {time}."
+                "BOTH pumps at {site} are out on overload. Nothing is "
+                "pumping and the pit is filling from now on. {recovery} "
+                "Time {time}."
             ),
         )
     )

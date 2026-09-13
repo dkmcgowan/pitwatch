@@ -288,6 +288,7 @@ class AlertEngine:
                 values["recovery"] = await self._recovery_note(pump, "reset")
             else:
                 values["state"] = self._who_is_out()
+                values["recovery"] = await self._both_note()
             # A value that came back empty leaves a gap where it was, and a
             # message with two spaces in the middle looks like a bug to the
             # person reading it, which for a message about a pump being out of
@@ -344,7 +345,7 @@ class AlertEngine:
             return f"only {running[0]} is running"
         return "neither pump is running"
 
-    def _cover(self, pump: int) -> str:
+    def _cover(self, pump: int, moment: str = "reset") -> str:
         """What is left while this pump is out, for the message that says it
         is not back yet. The reassuring half and the frightening half are the
         same sentence with a different other pump behind it."""
@@ -355,6 +356,8 @@ class AlertEngine:
             return ""
         if tripped:
             return f"{name} is out as well, so nothing is pumping at all."
+        if moment == "tripped":
+            return f"{name} is covering."
         return f"{name} is covering on its own until then."
 
     def _who_is_out(self) -> str:
@@ -411,17 +414,15 @@ class AlertEngine:
         """
         button = self._store.panel_button
         if not button.recovering:
+            # Only said when nothing is going to do it. With recovery on it
+            # is not merely wordy, it is wrong: somebody reading "you have to
+            # go and press it" while the panel is already clearing itself
+            # drives to the building for nothing.
             if moment == "tripped":
-                return (
-                    "Reset the overload relay if it has not reset itself, then "
-                    "hold the red button on the panel for three seconds: the "
-                    "pump does not rejoin the rotation until somebody does."
-                )
-            return (
-                "The pump is NOT back in service until somebody clears the "
-                "alarm at the panel by holding the red button for three "
-                "seconds."
-            )
+                return "Reset the overload, then clear the alarm at the panel."
+            if moment == "both":
+                return "Nobody is resetting this. Get to the panel."
+            return "Clear the alarm at the panel to put it back in service."
 
         # This trip is not on the record yet when the message for it is built:
         # the check runs before the row is inserted. Counting it here is what
@@ -434,7 +435,18 @@ class AlertEngine:
                 "is out until somebody looks at it."
             )
         if moment == "tripped":
-            return "Silencing the alarm. The pump comes back on its own once the relay resets."
+            # Deliberately not "the overload resets itself". True on auto
+            # reset, false on hand reset, and nothing here can see which way
+            # the dial is set. "When the overload resets" is true either way.
+            return (
+                "The alarm has been silenced. When the overload resets, the "
+                "panel will clear itself."
+            )
+        if moment == "both":
+            return (
+                "Trying to clear both. If this has not sorted itself out in a "
+                "few minutes, somebody needs to get to the building."
+            )
         return "Clearing the panel alarm now to bring it back into rotation."
 
     def _recover(self, pump: int, moment: str) -> None:
@@ -465,6 +477,29 @@ class AlertEngine:
                 # presses at nothing.
                 await asyncio.sleep(ALARM_AFTER_S)
                 await self._press("silence", name)
+                return
+
+            # Not while the other one is still out.
+            #
+            # Found on the panel on 2026-09-13: both pumps were tripped, the
+            # first relay was reset by hand, and this cleared the alarm on the
+            # strength of that one. The controller went back to green with a
+            # pump still faulted in the rotation, so the next call would have
+            # handed water to a pump that could not take it, tripped again,
+            # and raised the alarm again. Clearing an alarm that is still true
+            # is worse than leaving it: it puts the panel back in service and
+            # says everything is fine.
+            #
+            # So the reset waits for the last fault to go. Whichever pump
+            # clears last brings its own recovery round again, both contacts
+            # read healthy, and the alarm is cleared once for both.
+            still_out = [
+                self._store.pumps.by_number[other].name
+                for other in (1, 2)
+                if other != pump and self._contact(f"pump{other}_fault")
+            ]
+            if still_out:
+                log.info("Not clearing the alarm yet: %s is still out", still_out[0])
                 return
 
             await self._press("reset", name)
@@ -534,6 +569,7 @@ class AlertEngine:
                     pump=pump,
                     values={
                         "overload": self._overload_label(pump),
+                        "cover": self._cover(pump, "tripped"),
                         "recovery": await self._recovery_note(pump, "tripped"),
                     },
                 )
@@ -541,6 +577,21 @@ class AlertEngine:
                 else None
             )
         return found or None
+
+    async def _both_note(self) -> str:
+        """The same sentence for the rule that has no pump behind it.
+
+        Worked out per pump, because the count that decides whether recovery
+        has given up is per pump and both of them being out is not a third
+        pump. If either has given up then nothing is going to clear itself,
+        which is the half that has to reach somebody.
+        """
+        note = await self._recovery_note(1, "both")
+        if self._store.panel_button.recovering:
+            other = await self._recovery_note(2, "both")
+            if "stopped" in other:
+                return other
+        return note
 
     async def _check_both_overloads(self, rule) -> dict | None:
         """Nothing left to pump with.
@@ -554,7 +605,9 @@ class AlertEngine:
         two = self._contact("pump2_fault")
         if one is None or two is None:
             return None
-        return {None: Finding() if (one and two) else None}
+        if not (one and two):
+            return {None: None}
+        return {None: Finding(values={"recovery": await self._both_note()})}
 
     async def _check_both_pumps(self, rule) -> dict | None:
         one, two = self._contact("pump1_run"), self._contact("pump2_run")

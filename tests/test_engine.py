@@ -649,8 +649,7 @@ async def test_clearing_an_overload_says_the_pump_is_not_back_yet(pool, sent):
 
     body = [body for _, _, body in sent][-1]
     assert not body.startswith("Cleared"), "it is not cleared, the pump is out"
-    assert "NOT back in service" in body
-    assert "red button" in body
+    assert "Clear the alarm at the panel" in body, "nothing is going to do it"
     assert "Pump 2 is covering on its own" in body
     assert "  " not in body, "an empty value left a gap in the sentence"
 
@@ -699,9 +698,9 @@ async def test_both_overloads_out_is_its_own_alert(pool, sent):
     # And the all clear names both of them rather than hedging. A text about a
     # sewage ejector saying "the other one may still be out" is a text that
     # makes somebody go and look at the thing we are already looking at.
-    said = [body for _, _, body in sent if "rejoins the rotation" in body][-1]
+    said = [body for _, _, body in sent if "is still out" in body][-1]
     assert "Pump 1 is back and Pump 2 is still out" in said
-    assert "may still be out" not in said
+    assert "may still be out" not in said, "it knows which, so it says which"
 
 
 def _wired(**over):
@@ -851,7 +850,7 @@ async def test_nothing_is_pressed_when_nobody_asked_for_it(pool, sent):
     detail = await pool.fetchval(
         "SELECT detail FROM alert WHERE rule = 'overload' AND cleared_at IS NULL"
     )
-    assert "hold the red button" in detail
+    assert "Reset the overload" in detail and "clear the alarm at the panel" in detail
 
 
 async def test_the_second_pump_failing_on_top_of_the_first_says_so(pool, sent):
@@ -895,6 +894,49 @@ async def test_the_second_pump_failing_on_top_of_the_first_says_so(pool, sent):
     await engine.sweep()
     await _pressed_everything(engine)
     assert any("nothing is pumping at all" in body for _, _, body in sent)
+
+
+async def test_the_alarm_is_not_cleared_while_the_other_pump_is_still_out(pool, sent):
+    """Walked on the real panel on 2026-09-13.
+
+    Pump 1 tripped and was silenced. Pump 2 covered, tripped as well, and now
+    both were out. The first relay was reset by hand and this cleared the alarm
+    on the strength of that one pump: the controller went back to green with a
+    faulted pump still in the rotation, so the next call would have handed
+    water to a pump that could not take it, tripped again, and raised the alarm
+    again.
+
+    Clearing an alarm that is still true is worse than leaving it up, because
+    it puts the panel back in service and says everything is fine. So the reset
+    waits for the last fault to go.
+    """
+    import pitwatch.domain.engine as engine_module
+
+    await _a_person(pool)
+    store = _store()
+    store.panel_button = _wired()
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=True)
+    engine = _engine(pool, store, contacts)
+    pressed = _watching(engine)
+    engine_module.ALARM_AFTER_S = 0
+
+    await engine.sweep()
+    await _pressed_everything(engine)
+    assert pressed and set(pressed) == {"silence"}, "silence both, clear neither"
+
+    # The first relay is pushed back in. The other pump is still out, so the
+    # alarm is still true and must stay up.
+    contacts.by_channel[5] = False
+    await engine.sweep()
+    await _pressed_everything(engine)
+    assert "reset" not in pressed, "the alarm is still true for the other pump"
+
+    # The second one comes back, and now there is nothing left to be out.
+    contacts.by_channel[6] = False
+    await engine.sweep()
+    await _pressed_everything(engine)
+    assert "reset" in pressed, "the last fault going is what clears it"
+    assert pressed.count("reset") == 1, "and once, not once per pump"
 
 
 async def test_two_presses_never_share_the_contact(pool):

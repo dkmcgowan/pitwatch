@@ -119,7 +119,10 @@ class AlertEngine:
         self._panel_alert_explained: bool | None = None
         # Whether this alarm has been silenced already, so a sweep that comes
         # round while it is still up does not press again.
-        self._panel_alert_silenced = False
+        # How many pumps were faulted when the alarm was last silenced. None
+        # until it has been. Counting rather than a yes or no is what lets a
+        # second pump going be told from the same alarm still sounding.
+        self._silenced_faults: int | None = None
         # Held, because a task nothing refers to can be collected before it
         # has run.
         self._hushing: asyncio.Task | None = None
@@ -468,9 +471,23 @@ class AlertEngine:
         """
         if self.press is None or not self._store.panel_button.silencing:
             return
-        if self._panel_alert_silenced:
+
+        # Once per alarm is right for one that pulses and wrong for one that
+        # is re-raised. Both pumps went on 2026-09-13: the first was silenced,
+        # the second tripped a second later, the panel raised the alarm again,
+        # and it pulsed for nineteen seconds with nobody in the room. The
+        # contact cannot tell those apart, because after a silence it sits
+        # steady, which is even less like a new alarm than a pulse is. Waiting
+        # longer would not have helped.
+        #
+        # What did change was the number of pumps that were out. Counted off
+        # the contacts rather than the alerts, because the alert for a trip is
+        # written after this runs on the same sweep and would look like news
+        # about itself.
+        faults = sum(1 for pump in (1, 2) if self._contact(f"pump{pump}_fault"))
+        if self._silenced_faults is not None and faults <= self._silenced_faults:
             return
-        self._panel_alert_silenced = True
+        self._silenced_faults = faults
 
         async def hush() -> None:
             try:
@@ -701,7 +718,7 @@ class AlertEngine:
             self._panel_alert_since = None
             self._panel_alert_quiet_since = None
             self._panel_alert_explained = None
-            self._panel_alert_silenced = False
+            self._silenced_faults = None
             return {None: None}
 
         held = (now - self._panel_alert_since).total_seconds()

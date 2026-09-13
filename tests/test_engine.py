@@ -941,6 +941,124 @@ async def test_a_limit_of_zero_never_gives_up(pool, sent):
     assert "recovery has stopped" not in detail
 
 
+async def test_a_second_pump_going_silences_the_alarm_again(pool, sent):
+    """Walked on the real panel on 2026-09-13.
+
+    Pump 1 tripped and was silenced. Pump 2 tripped a second later, the panel
+    raised the alarm again, and nothing silenced it: it pulsed for nineteen
+    seconds with nobody in the room.
+
+    The contact cannot tell those apart. After a silence it sits steady, which
+    is even less like a new alarm than a pulse is, so waiting longer would not
+    have helped. What changed was the number of pumps that were out.
+    """
+    import pitwatch.domain.engine as engine_module
+
+    await _a_person(pool)
+    store = _store()
+    store.panel_button = _wired()
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
+    engine = _engine(pool, store, contacts)
+    pressed = _watching(engine)
+    engine_module.ALARM_AFTER_S = 0
+
+    await engine.sweep()
+    await _pressed_everything(engine)
+    assert pressed == ["silence"]
+
+    # Still one pump out and the alarm still up. Nothing new to say.
+    await engine.sweep()
+    await _pressed_everything(engine)
+    assert pressed == ["silence"], "the same alarm is not silenced twice"
+
+    # The second pump goes.
+    contacts.by_channel[6] = True
+    await engine.sweep()
+    await _pressed_everything(engine)
+    assert pressed == ["silence", "silence"], "a second pump out is worth silencing again"
+
+    await engine.sweep()
+    await _pressed_everything(engine)
+    assert pressed == ["silence", "silence"], "and then it settles again"
+
+
+async def test_two_presses_never_share_the_contact(pool):
+    """One contact, and the panel reads how long it is held.
+
+    The danger is a short press cutting a long one short. Two silences
+    overlapping are harmless: the first release opens the contact and the
+    second finds it open already. A silence landing in the middle of a reset
+    is not, because it releases at four hundred milliseconds and turns a three
+    second press into a tap. The alarm stays up, the pump stays out, and
+    nothing reports a failure: both messages were sent and both were accepted.
+
+    Pump 1's relay clearing at the moment pump 2 trips is exactly that pair.
+
+    Tested on the supervisor because that is where the one connection lives
+    and therefore where the queue has to be. The engine is handed this same
+    method, so ordering it here covers the automatic presses and the ones a
+    person makes from the page alike.
+    """
+    from pitwatch.ingest.supervisor import Supervisor
+
+    store = _store()
+    store.panel_button = _wired()
+    boss = Supervisor(pool, store, None, None)
+
+    holding = 0
+    overlapped = False
+    sent_topics: list[str] = []
+
+    async def send(topic: str, payload: str) -> str | None:
+        nonlocal holding, overlapped
+        sent_topics.append(topic)
+        if '"on": true' in payload or '"on":true' in payload:
+            holding += 1
+            overlapped = overlapped or holding > 1
+        else:
+            holding -= 1
+        await asyncio.sleep(0)
+        return None
+
+    boss.send = send
+
+    await asyncio.gather(boss.press("reset"), boss.press("silence"))
+
+    assert not overlapped, "a silence was on the contact during a reset"
+    assert len(sent_topics) == 4, "two presses, each held and released"
+
+
+async def test_a_person_is_told_to_wait_rather_than_queued_behind_a_press(pool):
+    """A recovery waits its turn. A person does not.
+
+    Queueing is right for the automatic presses: a silence that arrives during
+    a reset still has to happen, and dropping it leaves a horn sounding. It is
+    wrong for somebody at the page, because a button that appears to do nothing
+    and then fires three seconds later, after whatever it was queued behind, is
+    a button that gets pressed twice.
+    """
+    from pitwatch.ingest.supervisor import Supervisor
+
+    store = _store()
+    store.panel_button = _wired()
+    boss = Supervisor(pool, store, None, None)
+
+    async def send(topic: str, payload: str) -> str | None:
+        await asyncio.sleep(0)
+        return None
+
+    boss.send = send
+
+    held = asyncio.create_task(boss.press("reset"))
+    await asyncio.sleep(0)
+
+    turned_away = await boss.press("silence", wait=False)
+    assert turned_away and "already being pressed" in turned_away
+
+    # And the one that waits still happens.
+    assert await held is None
+
+
 async def test_a_pump_with_no_runs_on_record_is_not_reported_idle(pool, sent):
     """This one shipped and sent a text at three in the morning.
 

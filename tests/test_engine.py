@@ -907,7 +907,7 @@ async def test_two_presses_never_share_the_contact(pool):
 
     Tested on the supervisor because that is where the one connection lives
     and therefore where the queue has to be. The engine is handed this same
-    method, so serialising it here covers the automatic presses and the ones a
+    method, so serializing it here covers the automatic presses and the ones a
     person makes from the page alike.
     """
     from pitwatch.ingest.supervisor import Supervisor

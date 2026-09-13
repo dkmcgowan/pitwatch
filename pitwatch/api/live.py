@@ -527,7 +527,7 @@ async def panel_press(request: Request, user: auth.SignedIn) -> JSONResponse:
     # it; the Shelly releases it by itself a couple of seconds later whatever
     # happens here, which is the `toggle_after` on the message it sends.
     _, _, held_ms = settings.press(action)
-    released = await supervisor.press(action)
+    released = await supervisor.press(action, wait=False)
     if released:
         log.warning("%s could not %s the panel: %s", user.username, action, released)
         return JSONResponse({"ok": False, "error": released})

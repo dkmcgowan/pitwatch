@@ -900,14 +900,18 @@ async def test_the_second_pump_failing_on_top_of_the_first_says_so(pool, sent):
 async def test_two_presses_never_share_the_contact(pool):
     """One contact, and the panel reads how long it is held.
 
-    Two presses overlapping is not two presses, it is one long one, and one
-    long one is a reset. Two pumps going within a few seconds of each other
-    would have sent two silences and the panel would have read a reset and
-    cleared an alarm nobody had dealt with.
+    The danger is a short press cutting a long one short. Two silences
+    overlapping are harmless: the first release opens the contact and the
+    second finds it open already. A silence landing in the middle of a reset
+    is not, because it releases at four hundred milliseconds and turns a three
+    second press into a tap. The alarm stays up, the pump stays out, and
+    nothing reports a failure: both messages were sent and both were accepted.
+
+    Pump 1's relay clearing at the moment pump 2 trips is exactly that pair.
 
     Tested on the supervisor because that is where the one connection lives
     and therefore where the queue has to be. The engine is handed this same
-    method, so serializing it here covers the automatic presses and the ones a
+    method, so ordering it here covers the automatic presses and the ones a
     person makes from the page alike.
     """
     from pitwatch.ingest.supervisor import Supervisor
@@ -933,10 +937,41 @@ async def test_two_presses_never_share_the_contact(pool):
 
     boss.send = send
 
-    await asyncio.gather(boss.press("silence"), boss.press("silence"))
+    await asyncio.gather(boss.press("reset"), boss.press("silence"))
 
-    assert not overlapped, "two presses were on the contact at the same time"
+    assert not overlapped, "a silence was on the contact during a reset"
     assert len(sent_topics) == 4, "two presses, each held and released"
+
+
+async def test_a_person_is_told_to_wait_rather_than_queued_behind_a_press(pool):
+    """A recovery waits its turn. A person does not.
+
+    Queueing is right for the automatic presses: a silence that arrives during
+    a reset still has to happen, and dropping it leaves a horn sounding. It is
+    wrong for somebody at the page, because a button that appears to do nothing
+    and then fires three seconds later, after whatever it was queued behind, is
+    a button that gets pressed twice.
+    """
+    from pitwatch.ingest.supervisor import Supervisor
+
+    store = _store()
+    store.panel_button = _wired()
+    boss = Supervisor(pool, store, None, None)
+
+    async def send(topic: str, payload: str) -> str | None:
+        await asyncio.sleep(0)
+        return None
+
+    boss.send = send
+
+    held = asyncio.create_task(boss.press("reset"))
+    await asyncio.sleep(0)
+
+    turned_away = await boss.press("silence", wait=False)
+    assert turned_away and "already being pressed" in turned_away
+
+    # And the one that waits still happens.
+    assert await held is None
 
 
 async def test_a_pump_with_no_runs_on_record_is_not_reported_idle(pool, sent):

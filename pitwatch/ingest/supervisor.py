@@ -198,7 +198,7 @@ class Supervisor:
             return "The broker reader is not running"
         return await reader.send(topic, payload)
 
-    async def press(self, action: str) -> str | None:
+    async def press(self, action: str, *, wait: bool = True) -> str | None:
         """One press of the panel's own button, held and released.
 
         The same two messages the page sends, so an automatic press and a
@@ -208,14 +208,33 @@ class Supervisor:
 
         **One at a time, and this is not tidiness.** The panel reads how long
         the contact is held and nothing else: a tap silences, three seconds
-        resets. Two presses overlapping on one contact is not two presses, it
-        is one long one, so two pumps tripping within a few seconds of each
-        other would have sent two silences and the panel would have read a
-        reset. They queue instead, and a silence arriving late is a silence.
+        resets.
+
+        The danger is a short press cutting a long one short, not two shorts
+        adding up. Overlapping silences are harmless, because the first
+        release opens the contact and the second finds it already open. But a
+        silence landing in the middle of a reset releases at four hundred
+        milliseconds, and the reset that was going to run for three seconds
+        becomes a tap: the alarm is not cleared, the pump does not come back,
+        and nothing reports a failure because both messages were sent and both
+        were accepted. That is one pump out of service, quietly, for as long as
+        it takes somebody to notice.
+
+        It is a real sequence, not a contrived one: pump 1's relay clearing at
+        the moment pump 2 trips is a reset and a silence at the same instant.
+
+        **A recovery waits its turn. A person is told to wait.** For the
+        automatic presses queueing is right: a silence that arrives during a
+        reset still needs to happen, and dropping it leaves a horn sounding.
+        For somebody at the page it is not: a button that appears to do nothing
+        and then fires three seconds later, after the thing it was queued
+        behind, is a button that gets pressed twice.
         """
         button = self._store.panel_button
         if not button.ready:
             return "No panel button is configured"
+        if not wait and self._pressing.locked():
+            return "The panel button is already being pressed. Try again in a moment."
         on, off, held_ms = button.press(action)
         async with self._pressing:
             failed = await self.send(button.topic, on)

@@ -759,18 +759,24 @@ async def test_an_overload_silences_the_alarm_and_then_puts_the_pump_back(pool, 
     contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
     engine = _engine(pool, store, contacts)
     pressed = _watching(engine)
-    # The wait for the ladder to raise the alarm, which is real and is not
-    # worth two and a half seconds of test time.
-    engine_module.ALARM_AFTER_S = 0
+    # The wait for the ladder to raise the alarm. Real, and not worth two and
+    # a half seconds of test time, but not zero either: at zero a press can
+    # overtake the sweep that schedules the reset, which is an ordering
+    # production never has.
+    engine_module.ALARM_AFTER_S = 0.05
 
     await engine.sweep()
     await _pressed_everything(engine)
     assert pressed == ["silence"], "the horn first, and nothing else yet"
 
+    # The relay is pushed back in and the panel drops its alarm, which is
+    # what clearing it looks like from here. Both together, because a fault
+    # going while the alarm stays up is a different case and has its own test.
     contacts.by_channel[5] = False
+    contacts.by_channel[2] = False
     await engine.sweep()
     await _pressed_everything(engine)
-    assert pressed == ["silence", "reset"]
+    assert pressed == ["silence", "reset"], "nothing left to silence"
 
     # Every overload message is a warning at least, including the good news.
     # A pump that has not tripped in a month and then does is worth a message
@@ -985,6 +991,24 @@ async def test_a_second_pump_going_silences_the_alarm_again(pool, sent):
     await engine.sweep()
     await _pressed_everything(engine)
     assert pressed == ["silence", "silence"], "and then it settles again"
+
+    # A relay pushed back in while the other pump is still out. The panel
+    # clears the alarm and raises it again for the one that is left, and the
+    # count of pumps out has gone down rather than up. Only the increase used
+    # to count, so this pulsed unattended on the real panel twice on
+    # 2026-09-13, at 18:14:52 and again at 18:14:58.
+    # A reset goes out too, because one pump back is worth clearing the alarm
+    # for, so count the silences rather than pinning the order.
+    contacts.by_channel[5] = False
+    await engine.sweep()
+    await _pressed_everything(engine)
+    assert pressed.count("silence") == 3, "one pump back is a different alarm"
+
+    # And the last one going the same way.
+    contacts.by_channel[6] = False
+    await engine.sweep()
+    await _pressed_everything(engine)
+    assert pressed.count("silence") == 4
 
 
 async def test_two_presses_never_share_the_contact(pool):

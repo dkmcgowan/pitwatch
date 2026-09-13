@@ -473,19 +473,24 @@ class AlertEngine:
             return
 
         # Once per alarm is right for one that pulses and wrong for one that
-        # is re-raised. Both pumps went on 2026-09-13: the first was silenced,
-        # the second tripped a second later, the panel raised the alarm again,
-        # and it pulsed for nineteen seconds with nobody in the room. The
-        # contact cannot tell those apart, because after a silence it sits
-        # steady, which is even less like a new alarm than a pulse is. Waiting
-        # longer would not have helped.
+        # is re-raised, and this panel re-raises constantly: on a second pump
+        # tripping, and again every time an alarm is cleared while another
+        # pump is still out. The contact cannot tell any of that from the
+        # pulsing, because after a silence it sits steady, which is even less
+        # like a new alarm than a pulse is.
         #
-        # What did change was the number of pumps that were out. Counted off
-        # the contacts rather than the alerts, because the alert for a trip is
-        # written after this runs on the same sweep and would look like news
-        # about itself.
+        # What changes is how many pumps are out, so a silence is owed
+        # whenever that number is different from the one it was silenced at.
+        # Different in either direction: it went up on 2026-09-13 when the
+        # second pump tripped, and down twice more when each relay was pushed
+        # back in and the panel raised the alarm again for the one still out.
+        # Only the increase was caught, so it pulsed unattended both times.
+        #
+        # Counted off the contacts rather than the alerts, because the alert
+        # for a trip is written after this runs on the same sweep and would
+        # look like news about itself.
         faults = sum(1 for pump in (1, 2) if self._contact(f"pump{pump}_fault"))
-        if self._silenced_faults is not None and faults <= self._silenced_faults:
+        if self._silenced_faults is not None and faults == self._silenced_faults:
             return
         # A first silence answers an alarm that is already up, so it can go at
         # once. A second answers a fault, and the panel takes about a second
@@ -500,6 +505,18 @@ class AlertEngine:
             try:
                 if wait:
                     await asyncio.sleep(wait)
+                # Things move while this waits its turn, and a tap into a
+                # panel with nothing to silence is not harmless: pressing that
+                # button when all is well is how the controller runs its lamp
+                # test, so it would raise an alarm rather than end one. Two
+                # reasons not to bother by now.
+                if self._panel_alert_since is None:
+                    return
+                if self._recovering:
+                    # A reset is holding the button as we speak, or about to,
+                    # and that clears the alarm outright. Silencing first
+                    # would be pressing twice to do less.
+                    return
                 await self._press("silence", "the panel")
             except asyncio.CancelledError:
                 raise

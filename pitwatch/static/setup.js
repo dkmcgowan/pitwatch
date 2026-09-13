@@ -117,10 +117,24 @@ function csrfHeader(form) {
     return;
   }
 
-  function show(text, kind) {
+  // Said, then gone. This sits on the page somebody watches the pumps on, and
+  // a line reporting something that happened four hours ago reads as something
+  // that is happening. The markup starts hidden, so a reload clears it too.
+  //
+  // A failure stays up. That one somebody has to read.
+  const GONE_AFTER_MS = 6000;
+  let clearing = null;
+
+  function show(text, kind, keep) {
+    window.clearTimeout(clearing);
     output.hidden = false;
     output.className = "test-result " + kind;
     output.textContent = text;
+    if (!keep) {
+      clearing = window.setTimeout(function () {
+        output.hidden = true;
+      }, GONE_AFTER_MS);
+    }
   }
 
   buttons.forEach(function (button) {
@@ -132,7 +146,7 @@ function csrfHeader(form) {
         return;
       }
       buttons.forEach(function (one) { one.disabled = true; });
-      show("Holding the button...", "");
+      show("Holding the button...", "", true);
 
       try {
         const body = new FormData();
@@ -147,15 +161,16 @@ function csrfHeader(form) {
           result = JSON.parse(await response.text());
         } catch (error) {
           show(
-            response.status === 403
-              ? "Administrators only."
+            response.status === 401 || response.status === 403
+              ? "Sign in again."
               : "The server returned something unexpected (" + response.status + ").",
-            "bad"
+            "bad",
+            true
           );
           return;
         }
         if (!result.ok) {
-          show(result.error || "It did not go.", "bad");
+          show(result.error || "It did not go.", "bad", true);
           return;
         }
         show(result.detail || "Pressed.", "good");
@@ -166,7 +181,7 @@ function csrfHeader(form) {
           output.appendChild(aside);
         }
       } catch (error) {
-        show("The request failed: " + error.message, "bad");
+        show("The request failed: " + error.message, "bad", true);
       } finally {
         buttons.forEach(function (one) { one.disabled = false; });
       }

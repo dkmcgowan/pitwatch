@@ -6,7 +6,6 @@ promise; it is the shape the pages in this repository happen to want.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import timedelta
 
@@ -492,32 +491,20 @@ async def panel_press(request: Request, user: auth.SignedIn) -> JSONResponse:
     if supervisor is None:
         return JSONResponse({"ok": False, "error": "Not connected"}, status_code=503)
 
-    on, off, held_ms = settings.press(action)
-    failed = await supervisor.send(settings.topic, on)
-    if failed:
-        log.warning("%s could not %s the panel: %s", user.username, action, failed)
-        return JSONResponse({"ok": False, "error": failed})
-
-    # Held from here, then released. The Shelly releases it by itself anyway,
-    # a couple of seconds later, whatever happens to this process: that is the
-    # `toggle_after` on the message just sent. This is the tidy path, not the
-    # safe one, and the difference matters for a contact wired across a button
-    # on a live panel.
-    await asyncio.sleep(held_ms / 1000)
-    released = await supervisor.send(settings.topic, off)
+    # The same press the automatic recovery uses, so a person's press and a
+    # machine's cannot drift apart. It holds the contact closed and releases
+    # it; the Shelly releases it by itself a couple of seconds later whatever
+    # happens here, which is the `toggle_after` on the message it sends.
+    _, _, held_ms = settings.press(action)
+    released = await supervisor.press(action)
+    if released:
+        log.warning("%s could not %s the panel: %s", user.username, action, released)
+        return JSONResponse({"ok": False, "error": released})
 
     log.info("%s pressed %s on the panel for %d ms", user.username, action, held_ms)
     said = "Silenced" if action == "silence" else "Reset"
     return JSONResponse(
-        {
-            "ok": True,
-            "detail": f"{said}: held the button for {held_ms / 1000:.1f} s.",
-            "note": (
-                "Watch the panel. This presses the button, it does not check "
-                "that the controller agreed."
-                + (f" Releasing it reported: {released}" if released else "")
-            ),
-        }
+        {"ok": True, "detail": f"{said}: held the button for {held_ms / 1000:.1f} s."}
     )
 
 

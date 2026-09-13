@@ -535,7 +535,10 @@ async def test_a_pulsing_alarm_is_counted_as_one_alarm(pool):
     closings = await SignalHistory().closings(pool, [4], "UTC", 2.0)
 
     assert closings[4].month == 2, "two alarms, not fifty four"
-    assert closings[4].today == 2
+    # Not today's count. These are minutes apart but one of them is twenty
+    # minutes old, and twenty minutes before midnight is yesterday: asserting
+    # on it passes for twenty three hours a day and fails in the last one.
+    # What is under test is the collapsing, and the month says that.
 
     # The pulsing one is reported as one alarm that lasted the whole time,
     # timed from the first rise to the last fall rather than half a flash.

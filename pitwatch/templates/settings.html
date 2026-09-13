@@ -345,6 +345,40 @@
       </div>
     </div>
 
+    {# Pressing both without being asked.
+
+       Off by default and limited when on. In hand reset mode the loop cannot
+       run: the relay stays tripped until a person presses it. In auto reset
+       mode it can, and a loop around a motor that overloads because something
+       is wrong with it is how one pump out of service becomes two burned
+       out. #}
+    <div class="field">
+      <label class="check">
+        <input type="checkbox" name="panel_button_auto_recover"
+               {% if panel_button.auto_recover %}checked{% endif %}>
+        Press them automatically when an overload trips
+      </label>
+      <p class="hint">Silence the alarm on the trip, then clear it once the
+        relay resets, which is what puts the pump back in the rotation.</p>
+    </div>
+
+    <div class="grid">
+      <div class="field">
+        <label for="panel_button_max_trips">Give up after</label>
+        <input type="number" id="panel_button_max_trips" min="1" max="20"
+               name="panel_button_max_trips" value="{{ panel_button.max_trips }}">
+        <p class="hint">Trips before it stops trying, per pump. Past this the
+          alarm is left up and the message says how many times.</p>
+      </div>
+      <div class="field">
+        <label for="panel_button_within_minutes">Counted over (minutes)</label>
+        <input type="number" id="panel_button_within_minutes" min="5" max="1440" step="5"
+               name="panel_button_within_minutes" value="{{ panel_button.within_minutes }}">
+        <p class="hint">A pump that trips once has had a bad afternoon. Four
+          times in an hour has something wrong with it.</p>
+      </div>
+    </div>
+
     <button type="submit" class="button">Save</button>
 
     {# Set apart from Save on purpose. Save writes a setting; these two close a

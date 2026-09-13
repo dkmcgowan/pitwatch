@@ -22,6 +22,7 @@ from pitwatch.schemas import (
     ContactInput,
     HealthSource,
     MqttSettings,
+    PanelButtonSettings,
     PumpsSettings,
     Severity,
     SiteSettings,
@@ -61,6 +62,7 @@ def _store(alerts: AlertsSettings | None = None, **contact_states):
             ],
         ),
         pumps=PumpsSettings(),
+        panel_button=PanelButtonSettings(),
         smtp=SmtpSettings(),
         sms=SmsSettings(),
     )
@@ -700,6 +702,156 @@ async def test_both_overloads_out_is_its_own_alert(pool, sent):
     said = [body for _, _, body in sent if "rejoins the rotation" in body][-1]
     assert "Pump 1 is back and Pump 2 is still out" in said
     assert "may still be out" not in said
+
+
+def _wired(**over):
+    """Settings with a panel button wired and, unless told otherwise, set to
+    press it by itself."""
+    from pitwatch.schemas import PanelButtonSettings
+
+    fields = {"enabled": True, "topic": "shellyemg3/rpc", "auto_recover": True}
+    fields.update(over)
+    return PanelButtonSettings(**fields)
+
+
+async def _pressed_everything(engine, timeout: float = 2.0) -> None:
+    """Wait for any recovery to finish.
+
+    A recovery runs off the sweep on purpose, because it holds a contact closed
+    for seconds and the sweep is what notices the other pump. So a test that
+    checks what it did has to let it happen first.
+    """
+    loop = asyncio.get_running_loop()
+    end = loop.time() + timeout
+    while engine._recovering and loop.time() < end:
+        await asyncio.sleep(0.01)
+    await asyncio.sleep(0.01)
+
+
+def _watching(engine):
+    """Record every press instead of making one, and do not wait about."""
+    pressed: list[str] = []
+
+    async def press(action: str) -> str | None:
+        pressed.append(action)
+        return None
+
+    engine.press = press
+    return pressed
+
+
+async def test_an_overload_silences_the_alarm_and_then_puts_the_pump_back(pool, sent):
+    """The two presses, at the two moments that matter.
+
+    Silence when the fault arrives, because the horn is the least useful part
+    of it. Reset when the relay clears, because that is the press that actually
+    returns the pump to the rotation: the fault going away does not. Measured
+    on 2026-09-12, eleven minutes and five calls on one pump.
+    """
+    import pitwatch.domain.engine as engine_module
+
+    await _a_person(pool)
+    store = _store()
+    store.panel_button = _wired()
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False)
+    engine = _engine(pool, store, contacts)
+    pressed = _watching(engine)
+    # The wait for the ladder to raise the alarm, which is real and is not
+    # worth two and a half seconds of test time.
+    engine_module.ALARM_AFTER_S = 0
+
+    await engine.sweep()
+    await _pressed_everything(engine)
+    assert pressed == ["silence"], "the horn first, and nothing else yet"
+
+    contacts.by_channel[5] = False
+    await engine.sweep()
+    await _pressed_everything(engine)
+    assert pressed == ["silence", "reset"]
+
+    # A pump that tripped once and fixed itself is not worth waking anybody
+    # for, so that note goes out at info and this person asked for warnings
+    # and above. Nothing reached them, which is the point.
+    assert not any("back in the rotation" in body for _, _, body in sent)
+
+    # The second time inside the window it is a pattern rather than an
+    # afternoon, so the same note goes out a level higher and does reach them.
+    contacts.by_channel[5] = True
+    await engine.sweep()
+    await _pressed_everything(engine)
+    contacts.by_channel[5] = False
+    await engine.sweep()
+    await _pressed_everything(engine)
+
+    said = [body for _, _, body in sent if "back in the rotation" in body]
+    assert said, "the second recovery is worth telling somebody about"
+    assert "2 trips in the last 60 minutes" in said[-1]
+    assert "worth having the pump looked at" in said[-1]
+
+
+async def test_recovery_gives_up_on_a_pump_that_keeps_tripping(pool, sent):
+    """The limit, and the reason for it.
+
+    A relay on auto reset comes back once the bimetal has cooled, so clearing
+    the alarm for it every time is a loop. Around a motor that overloads
+    because something is wrong with it, that loop is how one pump out of
+    service becomes two burned out overnight. Past the limit it stops, leaves
+    the alarm up, and says how many times.
+    """
+    import pitwatch.domain.engine as engine_module
+
+    await _a_person(pool)
+    store = _store()
+    store.panel_button = _wired(max_trips=2, within_minutes=60)
+    engine = _engine(pool, store, _wire(_Contacts(), pump1_fault=True, pump2_fault=False))
+    pressed = _watching(engine)
+    engine_module.ALARM_AFTER_S = 0
+
+    # Three earlier trips already on the record, inside the window.
+    for minutes in (5, 10, 15):
+        await pool.execute(
+            """
+            INSERT INTO alert (rule, severity, pump, title, detail, raised_at, cleared_at)
+            VALUES ('overload', 'critical', 1, 'Overload tripped', 'x',
+                    now() - ($1::int * interval '1 minute'),
+                    now() - ($1::int * interval '1 minute'))
+            """,
+            minutes,
+        )
+
+    await engine.sweep()
+    await _pressed_everything(engine)
+
+    assert pressed == [], "it stopped rather than pressing again"
+
+    detail = await pool.fetchval(
+        "SELECT detail FROM alert WHERE rule = 'overload' AND cleared_at IS NULL"
+    )
+    assert "automatic recovery has stopped" in detail
+    assert "4 trips in 60 minutes" in detail
+
+
+async def test_nothing_is_pressed_when_nobody_asked_for_it(pool, sent):
+    """Off is off. A contact wired across a button on a live panel does not get
+    pressed because a setting defaulted to on somewhere."""
+    import pitwatch.domain.engine as engine_module
+
+    await _a_person(pool)
+    store = _store()
+    store.panel_button = _wired(auto_recover=False)
+    engine = _engine(pool, store, _wire(_Contacts(), pump1_fault=True, pump2_fault=False))
+    pressed = _watching(engine)
+    engine_module.ALARM_AFTER_S = 0
+
+    await engine.sweep()
+    await _pressed_everything(engine)
+    assert pressed == []
+
+    # And the message tells somebody to go and do it themselves.
+    detail = await pool.fetchval(
+        "SELECT detail FROM alert WHERE rule = 'overload' AND cleared_at IS NULL"
+    )
+    assert "hold the red button" in detail
 
 
 async def test_a_pump_with_no_runs_on_record_is_not_reported_idle(pool, sent):

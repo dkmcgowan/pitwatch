@@ -174,6 +174,11 @@ class Supervisor:
             initial_state=known,
         )
         self._reader = reader
+        # The alert engine can press the panel's button now that there is a
+        # connection to press it through. Handed over rather than reached for,
+        # so an engine with nothing wired simply has None and does nothing.
+        if self._engine is not None:
+            self._engine.press = self.press
         self._spawn("mqtt", reader.run)
         log.info(
             "Listening to the broker at %s:%d for %d clamp(s), %d contact(s) and %d check(s)",
@@ -190,6 +195,24 @@ class Supervisor:
         if reader is None:
             return "The broker reader is not running"
         return await reader.send(topic, payload)
+
+    async def press(self, action: str) -> str | None:
+        """One press of the panel's own button, held and released.
+
+        The same two messages the page sends, so an automatic press and a
+        person's press cannot drift apart. The closing one carries its own
+        release in firmware, which is what makes it safe to do this from a
+        task nobody is watching.
+        """
+        button = self._store.panel_button
+        if not button.ready:
+            return "No panel button is configured"
+        on, off, held_ms = button.press(action)
+        failed = await self.send(button.topic, on)
+        if failed:
+            return failed
+        await asyncio.sleep(held_ms / 1000)
+        return await self.send(button.topic, off)
 
     async def _start_weather(self) -> None:
         """The rain over the pit, on a timer.

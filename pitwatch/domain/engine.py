@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -41,6 +42,7 @@ import asyncpg
 from pitwatch import clock, domain
 from pitwatch.domain import alerts as specs
 from pitwatch.notify import dispatch
+from pitwatch.schemas import Severity
 
 log = logging.getLogger(__name__)
 
@@ -60,6 +62,14 @@ SWEEP_S = 30.0
 # feels like it, so the first seconds of a run say nothing about whether the
 # thing is turning. This only has to outlast that.
 SETTLE_S = 6.0
+
+# How long the controller takes to raise its alarm after a fault.
+#
+# Measured twice on 2026-09-12: 1.01 s and 1.50 s from the overload contact
+# closing to the alarm output moving. The ladder debounces the fault before it
+# believes it. Silencing before that presses at nothing, so the automatic
+# silence waits out the longest we have seen and a bit.
+ALARM_AFTER_S = 2.5
 
 
 def _spell(seconds: float) -> str:
@@ -118,6 +128,13 @@ class AlertEngine:
         # alarm had already cleared. Any panel alarm shorter than a tick was
         # invisible, on the contact that carries the controller's own alarm.
         self._recheck_at: float | None = None
+        # How to press the panel's button, handed in once the broker reader
+        # exists. None until then, and None forever on an installation that
+        # has not wired a contact across it.
+        self.press: Callable[[str], Awaitable[str | None]] | None = None
+        # Recoveries in flight, so a sweep that comes round again while one is
+        # still holding the button down does not start a second.
+        self._recovering: set[int] = set()
 
     # -- when it runs -------------------------------------------------------
 
@@ -235,6 +252,8 @@ class AlertEngine:
 
         log.warning("ALERT %s: %s", key, detail)
         await self._notify(alert_id, "raised", rule, detail)
+        if key == "overload" and pump:
+            self._recover(pump, "tripped")
 
     async def _clear(self, key: str, rule, pump: int | None) -> None:
         row = await self._pool.fetchrow(
@@ -266,6 +285,7 @@ class AlertEngine:
             if pump:
                 values["pump"] = self._store.pumps.by_number[pump].name
                 values["cover"] = self._cover(pump)
+                values["recovery"] = await self._recovery_note(pump, "reset")
             else:
                 values["state"] = self._who_is_out()
             # A value that came back empty leaves a gap where it was, and a
@@ -276,6 +296,8 @@ class AlertEngine:
         else:
             said = f"Cleared at {site}: {spec.title}."
         await self._notify(row["id"], "cleared", rule, said)
+        if key == "overload" and pump:
+            self._recover(pump, "reset")
 
     # -- telling somebody ---------------------------------------------------
 
@@ -352,6 +374,139 @@ class AlertEngine:
         back = 2 if still == 1 else 1
         return f"{names[back].name} is back and {names[still].name} is still out"
 
+    # -- pressing the button without being asked -----------------------------
+    #
+    # Two moments, one per pump. When an overload trips, silence the horn.
+    # When the relay clears, reset the panel, which is the press that actually
+    # puts the pump back in the rotation: the fault going away does not.
+    #
+    # In hand reset mode this cannot run away, because the relay stays tripped
+    # until somebody presses it and nothing here can do that. In auto reset
+    # mode it is a loop, and a loop around a motor that overloads because
+    # something is wrong with it is how one pump out of service becomes two
+    # burned out. Hence the count, and hence it stopping rather than warning.
+
+    async def _trips(self, pump: int) -> int:
+        """How many times this pump has tripped inside the window."""
+        button = self._store.panel_button
+        return (
+            await self._pool.fetchval(
+                """
+                SELECT count(*) FROM alert
+                WHERE rule = 'overload' AND pump = $1
+                  AND raised_at > now() - ($2::int * interval '1 minute')
+                """,
+                pump,
+                button.within_minutes,
+            )
+            or 0
+        )
+
+    async def _recovery_note(self, pump: int, moment: str) -> str:
+        """What to tell somebody is being done about it, in one sentence.
+
+        Written in the present rather than the past on purpose: the message
+        goes out the instant the contact moves, and the button has not been
+        pressed yet when it does.
+        """
+        button = self._store.panel_button
+        if not button.recovering:
+            if moment == "tripped":
+                return (
+                    "Reset the overload relay if it has not reset itself, then "
+                    "hold the red button on the panel for three seconds: the "
+                    "pump does not rejoin the rotation until somebody does."
+                )
+            return (
+                "The pump is NOT back in service until somebody clears the "
+                "alarm at the panel by holding the red button for three "
+                "seconds."
+            )
+
+        # This trip is not on the record yet when the message for it is built:
+        # the check runs before the row is inserted. Counting it here is what
+        # makes the sentence and the decision agree.
+        trips = await self._trips(pump) + (1 if moment == "tripped" else 0)
+        if trips > button.max_trips:
+            return (
+                f"That is {trips} trips in {button.within_minutes} minutes, so "
+                "automatic recovery has stopped. The alarm is up and the pump "
+                "is out until somebody looks at it."
+            )
+        if moment == "tripped":
+            return "Silencing the alarm. The pump comes back on its own once the relay resets."
+        return "Clearing the panel alarm now to bring it back into rotation."
+
+    def _recover(self, pump: int, moment: str) -> None:
+        """Start a recovery, off the sweep.
+
+        A press holds the contact closed for seconds and the sweep must not
+        wait on it: the same sweep is what notices the other pump.
+        """
+        if self.press is None or not self._store.panel_button.recovering:
+            return
+        if pump in self._recovering:
+            return
+        self._recovering.add(pump)
+        task = asyncio.create_task(self._do_recover(pump, moment))
+        task.add_done_callback(lambda _: self._recovering.discard(pump))
+
+    async def _do_recover(self, pump: int, moment: str) -> None:
+        button = self._store.panel_button
+        name = self._store.pumps.by_number[pump].name
+        try:
+            if await self._trips(pump) > button.max_trips:
+                log.warning("Not recovering %s: too many trips", name)
+                return
+
+            if moment == "tripped":
+                # The ladder waits about a second and a half before it raises
+                # the alarm at all, so pressing the instant the contact moves
+                # presses at nothing.
+                await asyncio.sleep(ALARM_AFTER_S)
+                await self._press("silence", name)
+                return
+
+            await self._press("reset", name)
+            await self._said_it_is_back(pump, name)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("A recovery raised while pressing the panel button")
+
+    async def _press(self, action: str, name: str) -> None:
+        if self.press is None:
+            return
+        failed = await self.press(action)
+        if failed:
+            log.warning("Could not %s the panel for %s: %s", action, name, failed)
+        else:
+            log.info("Pressed %s on the panel for %s", action, name)
+
+    async def _said_it_is_back(self, pump: int, name: str) -> None:
+        """The one message the alerts cannot send, because nothing is wrong.
+
+        An overload clearing is an alert clearing and that goes out on its own.
+        This is the sentence after it: the button has been pressed, the pump is
+        in the rotation again, and here is how often that has had to happen.
+        """
+        button = self._store.panel_button
+        where = self._store.site.where or "the pit"
+        trips = await self._trips(pump)
+        said = f"{name} is back in the rotation at {where}. The panel alarm has been cleared."
+        if trips > 1:
+            said += (
+                f" That is {trips} trips in the last {button.within_minutes} "
+                "minutes, which is worth having the pump looked at."
+            )
+        await dispatch.tell(
+            self._pool,
+            self._store,
+            message=said,
+            severity=Severity.WARNING if trips > 1 else Severity.INFO,
+            event="recovered",
+        )
+
     def _overload_label(self, pump: int) -> str:
         """What the overload relay is called on the panel, for somebody
         standing in front of it looking for the right one to reset."""
@@ -372,7 +527,13 @@ class AlertEngine:
             if tripped is None:
                 continue
             found[pump] = (
-                Finding(pump=pump, values={"overload": self._overload_label(pump)})
+                Finding(
+                    pump=pump,
+                    values={
+                        "overload": self._overload_label(pump),
+                        "recovery": await self._recovery_note(pump, "tripped"),
+                    },
+                )
                 if tripped
                 else None
             )

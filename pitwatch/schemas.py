@@ -799,12 +799,7 @@ class AlertsSettings(BaseModel):
         default_factory=lambda: AlertRule(
             severity=Severity.CRITICAL,
             message=(
-                "{pump} overload tripped at {site} and is out of service. The "
-                "other pump is covering, so there is no spare. Reset the "
-                "overload relay if it has not reset itself, then hold the red "
-                "button on the panel for three seconds to clear the alarm: "
-                "the pump does not rejoin the rotation until somebody does. "
-                "Time {time}."
+                "{pump} overload tripped at {site} and is out of service. {recovery} Time {time}."
             ),
         )
     )
@@ -1126,6 +1121,34 @@ class PanelButtonSettings(BaseModel):
     # between silencing an alarm and clearing it.
     silence_ms: int = Field(default=400, ge=50, le=2000)
     reset_ms: int = Field(default=3500, ge=1000, le=10000)
+
+    # Pressing both buttons without being asked.
+    #
+    # Silence when an overload trips, then reset once the relay has cleared,
+    # which is what puts the pump back in the rotation. In hand reset mode this
+    # cannot run away: the relay stays tripped until a person presses it, so
+    # all this does is silence the horn and save the second trip downstairs. In
+    # auto reset mode it is a loop, and the loop is the reason for the limit
+    # below.
+    auto_recover: bool = False
+
+    # When to stop trying and get a person.
+    #
+    # A pump that trips once has had a bad afternoon. A pump that trips four
+    # times in an hour has something wrong with it, and each recovery is
+    # another start on a motor that is already struggling. Past this the alarm
+    # is left up, the pump is left out, and the message says how many times and
+    # over how long.
+    #
+    # The count is not what protects the motor. The relay's own cooldown is:
+    # it will not reset while the bimetal is hot, whatever this says. The count
+    # is for noticing a pattern and putting somebody in front of it.
+    max_trips: int = Field(default=3, ge=1, le=20)
+    within_minutes: int = Field(default=60, ge=5, le=1440)
+
+    @property
+    def recovering(self) -> bool:
+        return bool(self.ready and self.auto_recover)
 
     @property
     def ready(self) -> bool:

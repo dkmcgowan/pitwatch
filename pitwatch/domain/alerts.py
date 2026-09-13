@@ -105,12 +105,13 @@ SPECS: tuple[Spec, ...] = (
         key="overload",
         title="Overload tripped",
         what=(
-            "A motor overload has cut a pump, and it will not run again until "
-            "somebody does something about it. That holds whether the relay is "
-            "set to hand or auto reset: auto brings the relay back once the "
-            "bimetal has cooled, but the controller keeps the pump out of the "
-            "rotation until the panel alarm is cleared by hand. Measured on "
-            "2026-09-12: eleven minutes and five calls on one pump."
+            "A motor overload has cut a pump. On hand reset relays it stays "
+            "cut until somebody presses the button on the relay itself. On "
+            "auto reset the relay comes back once the bimetal has cooled, but "
+            "the pump still does not rejoin the rotation until the panel alarm "
+            "is cleared, which is what the panel button section automates. "
+            "Measured on 2026-09-12 without it: eleven minutes and five calls "
+            "on one pump. **The default wording assumes auto reset.**"
         ),
         needs=CONTACTS,
         placeholders=(*COMMON, "{pump}", "{overload}", "{cover}", "{recovery}"),

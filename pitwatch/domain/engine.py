@@ -117,6 +117,12 @@ class AlertEngine:
         # Whether this alarm was explained by something else when it first
         # came up, decided once and kept for as long as the alarm lasts.
         self._panel_alert_explained: bool | None = None
+        # Whether this alarm has been silenced already, so a sweep that comes
+        # round while it is still up does not press again.
+        self._panel_alert_silenced = False
+        # Held, because a task nothing refers to can be collected before it
+        # has run.
+        self._hushing: asyncio.Task | None = None
         self._wake = asyncio.Event()
         # When a rule that deferred wants looking at again.
         #
@@ -252,8 +258,6 @@ class AlertEngine:
 
         log.warning("ALERT %s: %s", key, detail)
         await self._notify(alert_id, "raised", rule, detail)
-        if key == "overload" and pump:
-            self._recover(pump, "tripped")
 
     async def _clear(self, key: str, rule, pump: int | None) -> None:
         row = await self._pool.fetchrow(
@@ -435,12 +439,14 @@ class AlertEngine:
                 "is out until somebody looks at it."
             )
         if moment == "tripped":
-            # Deliberately not "the overload resets itself". True on auto
-            # reset, false on hand reset, and nothing here can see which way
-            # the dial is set. "When the overload resets" is true either way.
+            # Written for the reference panel, whose relays are set to auto
+            # reset: the bimetal cools, the relay comes back on its own, and
+            # this clears the panel behind it. Anybody running hand reset
+            # relays should change this wording on the alerts page, because
+            # nothing here can see which way the dial is set.
             return (
-                "The alarm has been silenced. When the overload resets, the "
-                "panel will clear itself."
+                "The alarm has been silenced. The overload should reset itself "
+                "once it has cooled and the panel will clear itself after it."
             )
         if moment == "both":
             return (
@@ -448,6 +454,31 @@ class AlertEngine:
                 "few minutes, somebody needs to get to the building."
             )
         return "Clearing the panel alarm now to bring it back into rotation."
+
+    def _silence_the_alarm(self) -> None:
+        """Stop the horn, once per alarm.
+
+        Unconditional while recovery is on, including when recovery has given
+        up on a pump: the horn is not what fetches anybody, the message is, and
+        a beacon sounding in a basement all night reaches nobody at all. The
+        alarm stays raised and the alert stays open either way. This only stops
+        the noise.
+        """
+        if self.press is None or not self._store.panel_button.recovering:
+            return
+        if self._panel_alert_silenced:
+            return
+        self._panel_alert_silenced = True
+
+        async def hush() -> None:
+            try:
+                await self._press("silence", "the panel")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("Silencing the panel raised")
+
+        self._hushing = asyncio.create_task(hush())
 
     def _recover(self, pump: int, moment: str) -> None:
         """Start a recovery, off the sweep.
@@ -471,37 +502,21 @@ class AlertEngine:
                 log.warning("Not recovering %s: too many trips", name)
                 return
 
-            if moment == "tripped":
-                # The ladder waits about a second and a half before it raises
-                # the alarm at all, so pressing the instant the contact moves
-                # presses at nothing.
-                await asyncio.sleep(ALARM_AFTER_S)
-                await self._press("silence", name)
-                return
-
-            # Not while the other one is still out.
+            # Cleared as soon as any pump can come back, not once every fault
+            # has gone.
             #
-            # Found on the panel on 2026-09-13: both pumps were tripped, the
-            # first relay was reset by hand, and this cleared the alarm on the
-            # strength of that one. The controller went back to green with a
-            # pump still faulted in the rotation, so the next call would have
-            # handed water to a pump that could not take it, tripped again,
-            # and raised the alarm again. Clearing an alarm that is still true
-            # is worse than leaving it: it puts the panel back in service and
-            # says everything is fine.
+            # Waiting for both was written here on 2026-09-13 and was exactly
+            # backwards. The latched alarm is what holds a recovered pump out
+            # of the rotation: measured the same day, a relay reset at 14:48:52
+            # and the pump did not run again until 17:29:56, after the alarm
+            # was cleared at 17:25:03. So holding the alarm up until the second
+            # pump is fixed does not keep anything safe, it turns one working
+            # pump into none.
             #
-            # So the reset waits for the last fault to go. Whichever pump
-            # clears last brings its own recovery round again, both contacts
-            # read healthy, and the alarm is cleared once for both.
-            still_out = [
-                self._store.pumps.by_number[other].name
-                for other in (1, 2)
-                if other != pump and self._contact(f"pump{other}_fault")
-            ]
-            if still_out:
-                log.info("Not clearing the alarm yet: %s is still out", still_out[0])
-                return
-
+            # The pump that is still faulted rejoins, gets a call, trips again
+            # and is silenced again. That is churn, not danger: the good pump
+            # keeps pumping throughout, and each retrip counts toward the limit
+            # that stops this happening forever.
             await self._press("reset", name)
             await self._said_it_is_back(pump, name)
         except asyncio.CancelledError:
@@ -654,6 +669,19 @@ class AlertEngine:
             self._panel_alert_quiet_since = None
             if self._panel_alert_since is None:
                 self._panel_alert_since = now
+            # Silence follows the alarm, not the overload that caused it.
+            #
+            # It used to hang off an overload alert being raised, which misses
+            # the case that matters. On 2026-09-13 both pumps were out, the
+            # first was reset, the alarm was cleared for it, and the panel
+            # raised the alarm again one second later because the second pump
+            # was still faulted. No new overload, no new alert, and nothing
+            # silenced it: it pulsed for eight seconds until somebody dealt
+            # with the other relay by hand.
+            #
+            # An alarm is an alarm however it got there, and the horn is the
+            # least useful part of any of them. The message still goes out.
+            self._silence_the_alarm()
         elif self._panel_alert_since is None:
             return {None: None}
         else:
@@ -669,6 +697,7 @@ class AlertEngine:
             self._panel_alert_since = None
             self._panel_alert_quiet_since = None
             self._panel_alert_explained = None
+            self._panel_alert_silenced = False
             return {None: None}
 
         held = (now - self._panel_alert_since).total_seconds()

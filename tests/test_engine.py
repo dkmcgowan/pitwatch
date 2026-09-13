@@ -9,6 +9,7 @@ nothing for the six hours it stays wet.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -640,7 +641,7 @@ async def test_clearing_an_overload_says_the_pump_is_not_back_yet(pool, sent):
     await _a_person(pool)
     store = _store()
     store.alerts.overload.tell_when_it_clears = True
-    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False)
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
     engine = _engine(pool, store, contacts)
     await engine.sweep()
 
@@ -660,7 +661,7 @@ async def test_an_overload_clearing_while_the_other_is_out_says_so(pool, sent):
     await _a_person(pool)
     store = _store()
     store.alerts.overload.tell_when_it_clears = True
-    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=True)
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=True, system_alert=True)
     engine = _engine(pool, store, contacts)
     await engine.sweep()
 
@@ -676,7 +677,7 @@ async def test_both_overloads_out_is_its_own_alert(pool, sent):
     """Two pumps out is not two faults, it is no pumping."""
     await _a_person(pool)
     store = _store()
-    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=True)
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=True, system_alert=True)
     engine = _engine(pool, store, contacts)
 
     await engine.sweep()
@@ -724,6 +725,9 @@ async def _pressed_everything(engine, timeout: float = 2.0) -> None:
     end = loop.time() + timeout
     while engine._recovering and loop.time() < end:
         await asyncio.sleep(0.01)
+    if engine._hushing is not None:
+        with contextlib.suppress(Exception):
+            await engine._hushing
     await asyncio.sleep(0.01)
 
 
@@ -752,7 +756,7 @@ async def test_an_overload_silences_the_alarm_and_then_puts_the_pump_back(pool, 
     await _a_person(pool)
     store = _store()
     store.panel_button = _wired()
-    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False)
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
     engine = _engine(pool, store, contacts)
     pressed = _watching(engine)
     # The wait for the ladder to raise the alarm, which is real and is not
@@ -802,7 +806,9 @@ async def test_recovery_gives_up_on_a_pump_that_keeps_tripping(pool, sent):
     await _a_person(pool)
     store = _store()
     store.panel_button = _wired(max_trips=2, within_minutes=60)
-    engine = _engine(pool, store, _wire(_Contacts(), pump1_fault=True, pump2_fault=False))
+    engine = _engine(
+        pool, store, _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
+    )
     pressed = _watching(engine)
     engine_module.ALARM_AFTER_S = 0
 
@@ -821,7 +827,12 @@ async def test_recovery_gives_up_on_a_pump_that_keeps_tripping(pool, sent):
     await engine.sweep()
     await _pressed_everything(engine)
 
-    assert pressed == [], "it stopped rather than pressing again"
+    # The horn still stops. The limit is about putting a pump back into
+    # service, not about leaving a beacon sounding in a basement: the thing
+    # that fetches somebody is the message, and that still says how many times
+    # this has happened and that nothing is going to fix it.
+    assert "reset" not in pressed, "it stopped putting the pump back"
+    assert pressed == ["silence"]
 
     detail = await pool.fetchval(
         "SELECT detail FROM alert WHERE rule = 'overload' AND cleared_at IS NULL"
@@ -838,7 +849,9 @@ async def test_nothing_is_pressed_when_nobody_asked_for_it(pool, sent):
     await _a_person(pool)
     store = _store()
     store.panel_button = _wired(auto_recover=False)
-    engine = _engine(pool, store, _wire(_Contacts(), pump1_fault=True, pump2_fault=False))
+    engine = _engine(
+        pool, store, _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
+    )
     pressed = _watching(engine)
     engine_module.ALARM_AFTER_S = 0
 
@@ -865,7 +878,7 @@ async def test_the_second_pump_failing_on_top_of_the_first_says_so(pool, sent):
     await _a_person(pool)
     store = _store()
     store.panel_button = _wired()
-    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False)
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
     engine = _engine(pool, store, contacts)
     _watching(engine)
     engine_module.ALARM_AFTER_S = 0
@@ -896,47 +909,44 @@ async def test_the_second_pump_failing_on_top_of_the_first_says_so(pool, sent):
     assert any("nothing is pumping at all" in body for _, _, body in sent)
 
 
-async def test_the_alarm_is_not_cleared_while_the_other_pump_is_still_out(pool, sent):
-    """Walked on the real panel on 2026-09-13.
+async def test_one_pump_coming_back_clears_the_alarm_even_with_the_other_out(pool, sent):
+    """One working pump beats none, and waiting for both gives you none.
 
-    Pump 1 tripped and was silenced. Pump 2 covered, tripped as well, and now
-    both were out. The first relay was reset by hand and this cleared the alarm
-    on the strength of that one pump: the controller went back to green with a
-    faulted pump still in the rotation, so the next call would have handed
-    water to a pump that could not take it, tripped again, and raised the alarm
-    again.
+    Walked on the real panel on 2026-09-13: both pumps tripped, the first
+    relay was pushed back in, and the alarm was cleared on the strength of that
+    one pump. That reads like putting the panel back in service with a known
+    bad pump in it, and this waited for every fault to go instead.
 
-    Clearing an alarm that is still true is worse than leaving it up, because
-    it puts the panel back in service and says everything is fine. So the reset
-    waits for the last fault to go.
+    Which was backwards. The latched alarm is precisely what holds a recovered
+    pump out of the rotation, measured the same day as a relay clearing at
+    14:48:52 against the pump running again at 17:29:56, after the alarm went
+    at 17:25:03. Holding the alarm up until the second pump is fixed does not
+    keep anything safe. It turns one working pump into none.
+
+    The faulted pump rejoins, takes a call, trips and is silenced again. Churn,
+    not danger: the good pump pumps throughout, and every retrip counts toward
+    the limit that stops it going on forever.
     """
     import pitwatch.domain.engine as engine_module
 
     await _a_person(pool)
     store = _store()
     store.panel_button = _wired()
-    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=True)
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=True, system_alert=True)
     engine = _engine(pool, store, contacts)
     pressed = _watching(engine)
     engine_module.ALARM_AFTER_S = 0
 
     await engine.sweep()
     await _pressed_everything(engine)
-    assert pressed and set(pressed) == {"silence"}, "silence both, clear neither"
+    assert pressed and set(pressed) == {"silence"}
 
-    # The first relay is pushed back in. The other pump is still out, so the
-    # alarm is still true and must stay up.
+    # The first relay is pushed back in. The other pump is still out, and the
+    # alarm is cleared anyway, because that is what lets this one work.
     contacts.by_channel[5] = False
     await engine.sweep()
     await _pressed_everything(engine)
-    assert "reset" not in pressed, "the alarm is still true for the other pump"
-
-    # The second one comes back, and now there is nothing left to be out.
-    contacts.by_channel[6] = False
-    await engine.sweep()
-    await _pressed_everything(engine)
-    assert "reset" in pressed, "the last fault going is what clears it"
-    assert pressed.count("reset") == 1, "and once, not once per pump"
+    assert "reset" in pressed, "one pump back is worth clearing the alarm for"
 
 
 async def test_two_presses_never_share_the_contact(pool):

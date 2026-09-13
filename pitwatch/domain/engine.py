@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -63,13 +64,26 @@ SWEEP_S = 30.0
 # thing is turning. This only has to outlast that.
 SETTLE_S = 6.0
 
-# How long the controller takes to raise its alarm after a fault.
+# What a still-sounding alarm looks like, and how often to answer one.
 #
-# Measured twice on 2026-09-12: 1.01 s and 1.50 s from the overload contact
-# closing to the alarm output moving. The ladder debounces the fault before it
-# believes it. Silencing before that presses at nothing, so the automatic
-# silence waits out the longest we have seen and a bit.
-ALARM_AFTER_S = 2.5
+# This controller flashes its alarm output while nobody has acknowledged it and
+# holds it steady once somebody has, so the flashing is not a detail of the
+# signal, it is the signal: it means the panel is still asking. Answering that
+# directly is simpler than any proxy for it, and it is what somebody standing
+# in the doorway reads off the lamp.
+#
+# Three edges inside three seconds. The wave is half a second each way, so a
+# real one clears that in about a second and a half, and a single blip cannot:
+# two edges is a flicker and this wants a rhythm.
+#
+# Then a pause before answering again. The panel takes a moment to go steady
+# after the button, and without a pause the sweep that runs in between would
+# press a second time at an alarm already dealt with. Long enough to cover
+# that, short enough that a press which did not land is retried while the horn
+# is still going.
+PULSING_WITHIN_S = 3.0
+PULSING_EDGES = 3
+HUSH_AGAIN_AFTER_S = 5.0
 
 
 def _spell(seconds: float) -> str:
@@ -119,10 +133,11 @@ class AlertEngine:
         self._panel_alert_explained: bool | None = None
         # Whether this alarm has been silenced already, so a sweep that comes
         # round while it is still up does not press again.
-        # How many pumps were faulted when the alarm was last silenced. None
-        # until it has been. Counting rather than a yes or no is what lets a
-        # second pump going be told from the same alarm still sounding.
-        self._silenced_faults: int | None = None
+        # When the alarm contact last changed, most recent last, so a flashing
+        # alarm can be told from a steady one. See PULSING_EDGES.
+        self._alarm_edges: deque[float] = deque(maxlen=32)
+        # When the button was last pressed to quiet one.
+        self._hushed_at: float | None = None
         # Held, because a task nothing refers to can be collected before it
         # has run.
         self._hushing: asyncio.Task | None = None
@@ -460,81 +475,67 @@ class AlertEngine:
             )
         return "Clearing the panel alarm now to bring it back into rotation."
 
-    def _faults_out(self) -> int:
-        """How many pumps are out on their own overload right now."""
-        return sum(1 for pump in (1, 2) if self._contact(f"pump{pump}_fault"))
+    def _alarm_is_pulsing(self) -> bool:
+        """Whether the panel is still asking to be acknowledged.
+
+        Read off how often the contact has changed rather than what it reads
+        this instant, because half of a flashing alarm is indistinguishable
+        from no alarm at all.
+        """
+        try:
+            now = asyncio.get_running_loop().time()
+        except RuntimeError:  # pragma: no cover -- called outside a loop
+            return False
+        recent = [at for at in self._alarm_edges if now - at <= PULSING_WITHIN_S]
+        return len(recent) >= PULSING_EDGES
 
     def _silence_the_alarm(self) -> None:
-        """Stop the horn, once per alarm.
+        """Stop the horn, while it is still asking to be stopped.
 
-        Unconditional while recovery is on, including when recovery has given
-        up on a pump: the horn is not what fetches anybody, the message is, and
-        a beacon sounding in a basement all night reaches nobody at all. The
-        alarm stays raised and the alert stays open either way. This only stops
-        the noise.
+        Answering the flashing directly is the whole of it. Everything before
+        this tried to work out from the faults whether an alarm was new, and
+        kept being wrong about it, because this panel raises a fresh alarm
+        every time one is cleared while a pump is still out: three of them in
+        one incident on 2026-09-13, each looking exactly like the last.
+
+        The flashing does not care which alarm it is or what caused it. It
+        means the panel has not been acknowledged, which is the only question
+        worth asking, and it retries itself: a press that does not land leaves
+        it flashing and the next edge asks again.
+
+        Silencing hides nothing. The alarm stays raised, the alert stays open,
+        the message still goes out. This only stops the noise, which is why it
+        does not care about the give up limit either.
         """
         if self.press is None or not self._store.panel_button.silencing:
             return
-
-        # Once per alarm is right for one that pulses and wrong for one that
-        # is re-raised, and this panel re-raises constantly: on a second pump
-        # tripping, and again every time an alarm is cleared while another
-        # pump is still out. The contact cannot tell any of that from the
-        # pulsing, because after a silence it sits steady, which is even less
-        # like a new alarm than a pulse is.
-        #
-        # What changes is how many pumps are out, so a silence is owed
-        # whenever that number is different from the one it was silenced at.
-        # Different in either direction: it went up on 2026-09-13 when the
-        # second pump tripped, and down twice more when each relay was pushed
-        # back in and the panel raised the alarm again for the one still out.
-        # Only the increase was caught, so it pulsed unattended both times.
-        #
-        # Counted off the contacts rather than the alerts, because the alert
-        # for a trip is written after this runs on the same sweep and would
-        # look like news about itself.
-        # One on its way already. Without this a run of sweeps while the first
-        # is still waiting would queue a press each time.
         if self._hushing is not None and not self._hushing.done():
             return
-        faults = self._faults_out()
-        if self._silenced_faults is not None and faults == self._silenced_faults:
+        if not self._alarm_is_pulsing():
             return
-        # A first silence answers an alarm that is already up, so it can go at
-        # once. A second answers a fault, and the panel takes about a second
-        # to turn that into an alarm: pressed immediately it lands in the gap
-        # before there is anything to silence, which is what happened on
-        # 2026-09-13 at 17:56:37. The press was a second early and the alarm
-        # it was meant for started afterwards.
-        wait = ALARM_AFTER_S if self._silenced_faults is not None else 0
+
+        now = asyncio.get_running_loop().time()
+        if self._hushed_at is not None and now - self._hushed_at < HUSH_AGAIN_AFTER_S:
+            return
+        self._hushed_at = now
 
         async def hush() -> None:
             try:
-                if wait:
-                    await asyncio.sleep(wait)
-                # Things move while this waits its turn, and a tap into a
-                # panel with nothing to silence is not harmless: pressing that
-                # button when all is well is how the controller runs its lamp
-                # test, so it would raise an alarm rather than end one. Two
-                # reasons not to bother by now.
-                if self._panel_alert_since is None:
-                    return
+                # A reset is holding the button, or about to, and that clears
+                # the alarm outright. Silencing first would be pressing twice
+                # to do less, and the press would land after the alarm had
+                # gone: a tap into a quiet panel is how the controller runs
+                # its lamp test, so it would raise one rather than end one.
                 if self._recovering:
-                    # A reset is holding the button as we speak, or about to,
-                    # and that clears the alarm outright. Silencing first
-                    # would be pressing twice to do less.
                     return
                 await self._press("silence", "the panel")
-                # Recorded here rather than when this was scheduled, because
-                # the guards above can drop the press. Marking it silenced on
-                # the way in meant a skipped press still counted as done, and
-                # the alarm it was for was never silenced by anybody.
-                self._silenced_faults = self._faults_out()
             except asyncio.CancelledError:
                 raise
             except Exception:
                 log.exception("Silencing the panel raised")
 
+        # Held, because a task nothing refers to can be collected before it
+        # has run.
         self._hushing = asyncio.create_task(hush())
 
     def _recover(self, pump: int, moment: str) -> None:
@@ -728,19 +729,6 @@ class AlertEngine:
             self._panel_alert_quiet_since = None
             if self._panel_alert_since is None:
                 self._panel_alert_since = now
-            # Silence follows the alarm, not the overload that caused it.
-            #
-            # It used to hang off an overload alert being raised, which misses
-            # the case that matters. On 2026-09-13 both pumps were out, the
-            # first was reset, the alarm was cleared for it, and the panel
-            # raised the alarm again one second later because the second pump
-            # was still faulted. No new overload, no new alert, and nothing
-            # silenced it: it pulsed for eight seconds until somebody dealt
-            # with the other relay by hand.
-            #
-            # An alarm is an alarm however it got there, and the horn is the
-            # least useful part of any of them. The message still goes out.
-            self._silence_the_alarm()
         elif self._panel_alert_since is None:
             return {None: None}
         else:
@@ -756,7 +744,6 @@ class AlertEngine:
             self._panel_alert_since = None
             self._panel_alert_quiet_since = None
             self._panel_alert_explained = None
-            self._silenced_faults = None
             return {None: None}
 
         held = (now - self._panel_alert_since).total_seconds()
@@ -799,7 +786,15 @@ class AlertEngine:
         """
         rules = self._store.alerts
         inputs = self._store.mqtt
+        alarm = inputs.channel_for("system_alert")
         for event in events:
+            # Both edges of the alarm, before anything else looks at them.
+            # Which way it went does not matter: what says the panel is still
+            # asking is that it keeps going both ways. See PULSING_EDGES.
+            if alarm and event.channel == alarm:
+                with contextlib.suppress(RuntimeError):
+                    self._alarm_edges.append(asyncio.get_running_loop().time())
+                self._silence_the_alarm()
             if not event.state:
                 continue
             role = next(

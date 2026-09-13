@@ -731,6 +731,22 @@ async def _pressed_everything(engine, timeout: float = 2.0) -> None:
     await asyncio.sleep(0.01)
 
 
+async def _flash(engine, contacts, times: int = 3) -> None:
+    """Make the alarm contact flash, the way the panel does.
+
+    The controller pulses that output while nobody has acknowledged it, half a
+    second each way, and goes steady once somebody has. So a test about
+    silencing has to flash: a contact held true is an alarm that has already
+    been dealt with, and the point is to not press at one of those.
+    """
+    alarm = engine._store.mqtt.channel_for("system_alert")
+    for _ in range(times):
+        for state in (True, False):
+            contacts.by_channel[alarm] = state
+            await engine.on_events([SimpleNamespace(channel=alarm, state=state, label="alarm")])
+    contacts.by_channel[alarm] = True
+
+
 def _watching(engine):
     """Record every press instead of making one, and do not wait about."""
     pressed: list[str] = []
@@ -751,21 +767,16 @@ async def test_an_overload_silences_the_alarm_and_then_puts_the_pump_back(pool, 
     returns the pump to the rotation: the fault going away does not. Measured
     on 2026-09-12, eleven minutes and five calls on one pump.
     """
-    import pitwatch.domain.engine as engine_module
-
     await _a_person(pool)
     store = _store()
     store.panel_button = _wired()
     contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
     engine = _engine(pool, store, contacts)
     pressed = _watching(engine)
-    # The wait for the ladder to raise the alarm. Real, and not worth two and
-    # a half seconds of test time, but not zero either: at zero a press can
-    # overtake the sweep that schedules the reset, which is an ordering
-    # production never has.
-    engine_module.ALARM_AFTER_S = 0.05
 
+    # The panel starts flashing, which is it asking to be acknowledged.
     await engine.sweep()
+    await _flash(engine, contacts)
     await _pressed_everything(engine)
     assert pressed == ["silence"], "the horn first, and nothing else yet"
 
@@ -807,16 +818,13 @@ async def test_recovery_gives_up_on_a_pump_that_keeps_tripping(pool, sent):
     service becomes two burned out overnight. Past the limit it stops, leaves
     the alarm up, and says how many times.
     """
-    import pitwatch.domain.engine as engine_module
 
     await _a_person(pool)
     store = _store()
     store.panel_button = _wired(max_trips=2, within_minutes=60)
-    engine = _engine(
-        pool, store, _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
-    )
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
+    engine = _engine(pool, store, contacts)
     pressed = _watching(engine)
-    engine_module.ALARM_AFTER_S = 0
 
     # Three earlier trips already on the record, inside the window.
     for minutes in (5, 10, 15):
@@ -831,6 +839,7 @@ async def test_recovery_gives_up_on_a_pump_that_keeps_tripping(pool, sent):
         )
 
     await engine.sweep()
+    await _flash(engine, contacts)
     await _pressed_everything(engine)
 
     # The horn still stops. The limit is about putting a pump back into
@@ -850,16 +859,13 @@ async def test_recovery_gives_up_on_a_pump_that_keeps_tripping(pool, sent):
 async def test_nothing_is_pressed_when_nobody_asked_for_it(pool, sent):
     """Off is off, both halves of it. A contact wired across a button on a
     live panel does not get pressed because a setting defaulted to on."""
-    import pitwatch.domain.engine as engine_module
 
     await _a_person(pool)
     store = _store()
     store.panel_button = _wired(auto_recover=False, auto_silence=False)
-    engine = _engine(
-        pool, store, _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
-    )
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
+    engine = _engine(pool, store, contacts)
     pressed = _watching(engine)
-    engine_module.ALARM_AFTER_S = 0
 
     await engine.sweep()
     await _pressed_everything(engine)
@@ -880,7 +886,6 @@ async def test_the_horn_can_be_stopped_without_the_pump_being_put_back(pool, sen
     sounding in a basement at nobody. Deciding a pump is fit to run again is a
     different question, and wanting the first without the second is reasonable.
     """
-    import pitwatch.domain.engine as engine_module
 
     await _a_person(pool)
     store = _store()
@@ -888,9 +893,9 @@ async def test_the_horn_can_be_stopped_without_the_pump_being_put_back(pool, sen
     contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
     engine = _engine(pool, store, contacts)
     pressed = _watching(engine)
-    engine_module.ALARM_AFTER_S = 0
 
     await engine.sweep()
+    await _flash(engine, contacts)
     await _pressed_everything(engine)
     assert pressed == ["silence"]
 
@@ -913,7 +918,6 @@ async def test_a_limit_of_zero_never_gives_up(pool, sent):
     turning the reset off already said. Two settings for one behavior is worse
     than either, so zero now reads the way a zero usually does.
     """
-    import pitwatch.domain.engine as engine_module
 
     await _a_person(pool)
     store = _store()
@@ -921,7 +925,6 @@ async def test_a_limit_of_zero_never_gives_up(pool, sent):
     contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
     engine = _engine(pool, store, contacts)
     pressed = _watching(engine)
-    engine_module.ALARM_AFTER_S = 0
 
     # Plenty of trips already on the record, well past any sane limit.
     for minutes in range(1, 9):
@@ -947,78 +950,62 @@ async def test_a_limit_of_zero_never_gives_up(pool, sent):
     assert "recovery has stopped" not in detail
 
 
-async def test_a_second_pump_going_silences_the_alarm_again(pool, sent):
-    """Walked on the real panel on 2026-09-13.
+async def test_every_fresh_alarm_is_silenced_and_a_dealt_with_one_is_not(pool, sent):
+    """Walked on the real panel on 2026-09-13, four times over.
 
-    Pump 1 tripped and was silenced. Pump 2 tripped a second later, the panel
-    raised the alarm again, and nothing silenced it: it pulsed for nineteen
-    seconds with nobody in the room.
+    This controller raises a fresh alarm whenever one is cleared while a pump
+    is still out, so a single incident produces several: one for the first
+    trip, one for the second, and one after each relay is pushed back in.
+    Every attempt to work out from the faults which of those was new got some
+    of them wrong, and each wrong one left the horn sounding at nobody.
 
-    The contact cannot tell those apart. After a silence it sits steady, which
-    is even less like a new alarm than a pulse is, so waiting longer would not
-    have helped. What changed was the number of pumps that were out.
+    The flashing says it directly. This panel flashes while nobody has
+    acknowledged it and holds steady once somebody has, so the question is
+    never which alarm it is, only whether it is still asking.
     """
-    import pitwatch.domain.engine as engine_module
-
     await _a_person(pool)
     store = _store()
     store.panel_button = _wired()
     contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
     engine = _engine(pool, store, contacts)
     pressed = _watching(engine)
-    engine_module.ALARM_AFTER_S = 0
 
     await engine.sweep()
+    await _flash(engine, contacts)
     await _pressed_everything(engine)
     assert pressed == ["silence"]
 
-    # Still one pump out and the alarm still up. Nothing new to say.
-    await engine.sweep()
-    await _pressed_everything(engine)
-    assert pressed == ["silence"], "the same alarm is not silenced twice"
+    # Steady now, which is what a silenced alarm looks like. Sweeping at it
+    # again must not press: a tap into a panel with nothing to silence is how
+    # the controller runs its lamp test, so it would raise one, not end one.
+    for _ in range(3):
+        await engine.sweep()
+        await _pressed_everything(engine)
+    assert pressed == ["silence"], "an alarm already dealt with is left alone"
 
-    # The second pump goes. The press waits for the panel to raise the alarm
-    # that fault is about to cause: pressed on the fault itself it lands in
-    # the gap before there is anything to silence, which is what happened on
-    # the real panel at 17:56:37 on 2026-09-13.
-    engine_module.ALARM_AFTER_S = 0.05
+    # The second pump goes and the panel starts asking again.
+    engine._hushed_at = None
     contacts.by_channel[6] = True
     await engine.sweep()
-    assert pressed == ["silence"], "not yet: the panel has not raised it"
+    await _flash(engine, contacts)
     await _pressed_everything(engine)
-    assert pressed == ["silence", "silence"], "a second pump out is worth silencing again"
+    assert pressed.count("silence") == 2, "a fresh alarm is a fresh press"
 
-    await engine.sweep()
-    await _pressed_everything(engine)
-    assert pressed == ["silence", "silence"], "and then it settles again"
-
-    # A relay pushed back in while the other pump is still out. The panel
-    # clears the alarm and raises it again for the one that is left, and the
-    # count of pumps out has gone down rather than up. Only the increase used
-    # to count, so this pulsed unattended on the real panel twice on
-    # 2026-09-13, at 18:14:52 and again at 18:14:58.
-    # A reset goes out too, because one pump back is worth clearing the alarm
-    # for, so count the silences rather than pinning the order.
-    #
-    # Two sweeps, because the silence gives way to the reset: pressing while a
-    # reset is holding the button would be pressing twice to do less, so it
-    # stands down and the next sweep picks it up. The panel re-raising the
-    # alarm for the pump still out is itself a contact change, so on the real
-    # thing that next sweep arrives on its own.
+    # A relay pushed back in. The panel clears the alarm and raises it again
+    # for the pump still out, and the count of pumps out has gone down rather
+    # than up: the version that counted faults missed this one twice.
     contacts.by_channel[5] = False
     await engine.sweep()
     await _pressed_everything(engine)
-    await engine.sweep()
-    await _pressed_everything(engine)
-    assert pressed.count("silence") == 3, "one pump back is a different alarm"
+    assert "reset" in pressed, "one pump back is worth clearing the alarm for"
 
-    # And the last one going the same way.
-    contacts.by_channel[6] = False
-    await engine.sweep()
+    # And then the panel raises it again for the pump still out. That happens
+    # after the reset, not during it: silencing into a reset would cut a three
+    # second press down to a tap.
+    engine._hushed_at = None
+    await _flash(engine, contacts)
     await _pressed_everything(engine)
-    await engine.sweep()
-    await _pressed_everything(engine)
-    assert pressed.count("silence") == 4
+    assert pressed.count("silence") == 3, "one pump back is a fresh alarm too"
 
 
 async def test_two_presses_never_share_the_contact(pool):

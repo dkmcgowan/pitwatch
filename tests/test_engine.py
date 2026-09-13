@@ -769,13 +769,13 @@ async def test_an_overload_silences_the_alarm_and_then_puts_the_pump_back(pool, 
     await _pressed_everything(engine)
     assert pressed == ["silence", "reset"]
 
-    # A pump that tripped once and fixed itself is not worth waking anybody
-    # for, so that note goes out at info and this person asked for warnings
-    # and above. Nothing reached them, which is the point.
-    assert not any("back in the rotation" in body for _, _, body in sent)
+    # Every overload message is a warning at least, including the good news.
+    # A pump that has not tripped in a month and then does is worth a message
+    # whether or not it fixed itself.
+    assert any("back in the rotation" in body for _, _, body in sent)
 
-    # The second time inside the window it is a pattern rather than an
-    # afternoon, so the same note goes out a level higher and does reach them.
+    # And a second one inside the window says how often, which is the sentence
+    # that turns two incidents into a thing to look at.
     contacts.by_channel[5] = True
     await engine.sweep()
     await _pressed_everything(engine)
@@ -852,6 +852,91 @@ async def test_nothing_is_pressed_when_nobody_asked_for_it(pool, sent):
         "SELECT detail FROM alert WHERE rule = 'overload' AND cleared_at IS NULL"
     )
     assert "hold the red button" in detail
+
+
+async def test_the_second_pump_failing_on_top_of_the_first_says_so(pool, sent):
+    """The cascade. Pump 1 goes, pump 2 covers, pump 2 goes too.
+
+    Three different pieces of news and they must not read the same. The first
+    trip has cover, the second has none, and the pair of them is its own alert
+    because nothing is pumping and the pit fills from there.
+    """
+    import pitwatch.domain.engine as engine_module
+
+    await _a_person(pool)
+    store = _store()
+    store.panel_button = _wired()
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False)
+    engine = _engine(pool, store, contacts)
+    _watching(engine)
+    engine_module.ALARM_AFTER_S = 0
+
+    await engine.sweep()
+    await _pressed_everything(engine)
+
+    # Pump 2 takes over and then goes as well.
+    contacts.by_channel[6] = True
+    await engine.sweep()
+    await _pressed_everything(engine)
+
+    rules = [row["rule"] for row in await pool.fetch("SELECT rule FROM alert")]
+    assert rules.count("overload") == 2, "each pump says which relay it is"
+    assert "both_overloads" in rules
+
+    emergency = await pool.fetchval(
+        "SELECT detail FROM alert WHERE rule = 'both_overloads' AND cleared_at IS NULL"
+    )
+    assert "Nothing is pumping" in emergency
+    assert "{" not in emergency
+
+    # Pump 1's relay comes back while pump 2 is still out, so the sentence
+    # about what is left running has to be the frightening one.
+    contacts.by_channel[5] = False
+    await engine.sweep()
+    await _pressed_everything(engine)
+    assert any("nothing is pumping at all" in body for _, _, body in sent)
+
+
+async def test_two_presses_never_share_the_contact(pool):
+    """One contact, and the panel reads how long it is held.
+
+    Two presses overlapping is not two presses, it is one long one, and one
+    long one is a reset. Two pumps going within a few seconds of each other
+    would have sent two silences and the panel would have read a reset and
+    cleared an alarm nobody had dealt with.
+
+    Tested on the supervisor because that is where the one connection lives
+    and therefore where the queue has to be. The engine is handed this same
+    method, so serialising it here covers the automatic presses and the ones a
+    person makes from the page alike.
+    """
+    from pitwatch.ingest.supervisor import Supervisor
+
+    store = _store()
+    store.panel_button = _wired()
+    boss = Supervisor(pool, store, None, None)
+
+    holding = 0
+    overlapped = False
+    sent_topics: list[str] = []
+
+    async def send(topic: str, payload: str) -> str | None:
+        nonlocal holding, overlapped
+        sent_topics.append(topic)
+        if '"on": true' in payload or '"on":true' in payload:
+            holding += 1
+            overlapped = overlapped or holding > 1
+        else:
+            holding -= 1
+        await asyncio.sleep(0)
+        return None
+
+    boss.send = send
+
+    await asyncio.gather(boss.press("silence"), boss.press("silence"))
+
+    assert not overlapped, "two presses were on the contact at the same time"
+    assert len(sent_topics) == 4, "two presses, each held and released"
 
 
 async def test_a_pump_with_no_runs_on_record_is_not_reported_idle(pool, sent):

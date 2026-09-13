@@ -499,11 +499,14 @@ class AlertEngine:
                 f" That is {trips} trips in the last {button.within_minutes} "
                 "minutes, which is worth having the pump looked at."
             )
+        # Never info. An overload is not a thing to find out about later by
+        # reading a page, and a pump that trips at all after a month of not
+        # doing so is worth a message even when it fixed itself.
         await dispatch.tell(
             self._pool,
             self._store,
             message=said,
-            severity=Severity.WARNING if trips > 1 else Severity.INFO,
+            severity=Severity.WARNING,
             event="recovered",
         )
 

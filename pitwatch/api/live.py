@@ -35,6 +35,11 @@ from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
 
+# How far before the alarm a trip may have happened and still count as the
+# thing that raised it. The ladder debounces the fault before it believes it:
+# 1.01 s and 1.50 s, measured on the panel on 2026-09-12.
+HELD_OUT_SLACK = timedelta(seconds=10)
+
 router = APIRouter(prefix="/api")
 
 # How much rain either side of now the dashboard card carries. A day back
@@ -93,8 +98,34 @@ def lead_and_lag(inputs: MqttSettings, live_io: LiveIo) -> tuple[str, str]:
     run_1 = inputs.channel_for("pump1_run")
     run_2 = inputs.channel_for("pump2_run")
 
-    faulted_1 = live_io.state_of(fault_1) if fault_1 else None
-    faulted_2 = live_io.state_of(fault_2) if fault_2 else None
+    # Out of service, which lasts longer than the fault does.
+    #
+    # Resetting the relay does not put a pump back. The controller holds it out
+    # until the panel alarm is cleared by hand, and this page used to call it
+    # LEAD the moment its own contact went quiet: measured on 2026-09-12, that
+    # was eleven minutes of the page naming a pump that would not answer the
+    # next call, while the building ran on the other one.
+    #
+    # So a pump stays ERROR from its trip until the alarm is gone, which is the
+    # window in which it is genuinely unavailable.
+    alarm = inputs.channel_for("system_alert")
+    ringing = live_io.state_of(alarm) if alarm else None
+    since = live_io.came_on_at(alarm) if alarm else None
+
+    def out(channel: int | None) -> bool:
+        if not channel:
+            return False
+        if live_io.state_of(channel):
+            return True
+        # Its own contact is clear. If the alarm that trip raised is still up,
+        # the controller has not let it back in yet. The fault leads the alarm
+        # by a second or so, so the comparison allows for that.
+        if not ringing or since is None:
+            return False
+        tripped = live_io.came_on_at(channel)
+        return tripped is not None and tripped >= since - HELD_OUT_SLACK
+
+    faulted_1, faulted_2 = out(fault_1), out(fault_2)
     if faulted_1 and faulted_2:
         return ("ERROR", "ERROR")
 

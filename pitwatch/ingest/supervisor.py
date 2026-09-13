@@ -82,6 +82,8 @@ class Supervisor:
         # the meter for a reading. None whenever nothing is configured or the
         # connection is between attempts, which is why every use is guarded.
         self._reader: MqttReader | None = None
+        # Only one hand on the panel's button at a time. See press().
+        self._pressing = asyncio.Lock()
 
         self._tasks: dict[str, asyncio.Task] = {}
         self._stops: dict[str, asyncio.Event] = {}
@@ -203,16 +205,24 @@ class Supervisor:
         person's press cannot drift apart. The closing one carries its own
         release in firmware, which is what makes it safe to do this from a
         task nobody is watching.
+
+        **One at a time, and this is not tidiness.** The panel reads how long
+        the contact is held and nothing else: a tap silences, three seconds
+        resets. Two presses overlapping on one contact is not two presses, it
+        is one long one, so two pumps tripping within a few seconds of each
+        other would have sent two silences and the panel would have read a
+        reset. They queue instead, and a silence arriving late is a silence.
         """
         button = self._store.panel_button
         if not button.ready:
             return "No panel button is configured"
         on, off, held_ms = button.press(action)
-        failed = await self.send(button.topic, on)
-        if failed:
-            return failed
-        await asyncio.sleep(held_ms / 1000)
-        return await self.send(button.topic, off)
+        async with self._pressing:
+            failed = await self.send(button.topic, on)
+            if failed:
+                return failed
+            await asyncio.sleep(held_ms / 1000)
+            return await self.send(button.topic, off)
 
     async def _start_weather(self) -> None:
         """The rain over the pit, on a timer.

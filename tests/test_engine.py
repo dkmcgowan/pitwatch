@@ -971,9 +971,14 @@ async def test_a_second_pump_going_silences_the_alarm_again(pool, sent):
     await _pressed_everything(engine)
     assert pressed == ["silence"], "the same alarm is not silenced twice"
 
-    # The second pump goes.
+    # The second pump goes. The press waits for the panel to raise the alarm
+    # that fault is about to cause: pressed on the fault itself it lands in
+    # the gap before there is anything to silence, which is what happened on
+    # the real panel at 17:56:37 on 2026-09-13.
+    engine_module.ALARM_AFTER_S = 0.05
     contacts.by_channel[6] = True
     await engine.sweep()
+    assert pressed == ["silence"], "not yet: the panel has not raised it"
     await _pressed_everything(engine)
     assert pressed == ["silence", "silence"], "a second pump out is worth silencing again"
 

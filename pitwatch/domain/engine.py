@@ -487,10 +487,19 @@ class AlertEngine:
         faults = sum(1 for pump in (1, 2) if self._contact(f"pump{pump}_fault"))
         if self._silenced_faults is not None and faults <= self._silenced_faults:
             return
+        # A first silence answers an alarm that is already up, so it can go at
+        # once. A second answers a fault, and the panel takes about a second
+        # to turn that into an alarm: pressed immediately it lands in the gap
+        # before there is anything to silence, which is what happened on
+        # 2026-09-13 at 17:56:37. The press was a second early and the alarm
+        # it was meant for started afterwards.
+        wait = ALARM_AFTER_S if self._silenced_faults is not None else 0
         self._silenced_faults = faults
 
         async def hush() -> None:
             try:
+                if wait:
+                    await asyncio.sleep(wait)
                 await self._press("silence", "the panel")
             except asyncio.CancelledError:
                 raise

@@ -374,6 +374,20 @@ def test_the_panel_button_is_off_and_incomplete_until_somebody_wires_it():
     assert PanelButtonSettings(enabled=True, topic="shellyemg3/rpc").ready is True
 
 
+def test_the_presses_live_where_somebody_would_reach_for_them():
+    """On the dashboard, not on the settings page.
+
+    They were on settings while the wiring was being proved, which is the right
+    place to test a thing and the wrong place to find it at two in the morning.
+    The page somebody opens when their phone goes off is the board.
+    """
+    from pitwatch.schemas import PanelButtonSettings
+
+    wired = PanelButtonSettings(enabled=True, topic="shellyemg3/rpc")
+    assert "data-press" not in render_settings(panel_button=wired)
+    assert "data-press" in render_dashboard(user=_Admin(), panel_button=wired)
+
+
 def test_the_panel_button_settings_make_the_round_trip():
     """Every field the page renders comes back the way it went in, so saving a
     page nobody edited cannot quietly change what the button does."""

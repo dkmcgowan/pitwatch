@@ -233,17 +233,10 @@ main {
   font-weight: 500;
 }
 
-/* The two that press the panel's own button.
-
-   Ruled off and pushed down the page away from Save, because Save writes a
-   setting and these close a contact on a panel in a basement. Two buttons of
-   the same weight side by side is a thing somebody hits the wrong half of. */
-.press-row {
-  margin-top: 2rem;
-  padding-top: 1.2rem;
-  border-top: 1px solid var(--border);
-}
-
+/* The two that press the panel's own button, on the dashboard where somebody
+   whose phone has just gone off is already looking. They were on the settings
+   page while the wiring was being proved, which was the right place to test
+   them and the wrong place to reach for at two in the morning. */
 .press-buttons {
   display: flex;
   gap: 0.75rem;

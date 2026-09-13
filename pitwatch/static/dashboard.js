@@ -1011,7 +1011,46 @@
     }
   }
 
+  // A page older than the thing it is talking to.
+  //
+  // Reconnecting brings fresh readings and runs them through whatever
+  // JavaScript the tab loaded, which on a day with several deploys is not the
+  // JavaScript that produced them. The failure looks like the data being
+  // wrong, or a section not drawing, and the fix somebody reaches for is a
+  // reload: so do the reload.
+  //
+  // Once, and only once. A reload loop on a page somebody opens to find out
+  // whether their basement is flooding would be worse than anything it is
+  // guarding against, so a page that comes back still mismatched gives up and
+  // says so rather than going round again.
+  const RELOADED = "pitwatch-reloaded-for";
+  const loadedVersion = (function () {
+    const tag = document.querySelector('meta[name="pitwatch-version"]');
+    return tag ? tag.getAttribute("content") : "";
+  })();
+
+  function checkVersion(serving) {
+    if (!serving || !loadedVersion || serving === loadedVersion) {
+      return;
+    }
+    let already = null;
+    try {
+      already = window.sessionStorage.getItem(RELOADED);
+      window.sessionStorage.setItem(RELOADED, serving);
+    } catch (error) {
+      // Private windows and blocked storage. Without somewhere to remember
+      // the attempt there is no way to promise it happens once, so it does
+      // not happen at all.
+      return;
+    }
+    if (already === serving) {
+      return;
+    }
+    window.location.reload();
+  }
+
   function render(state) {
+    checkVersion(state && state.version);
     renderPump(1, (state.pumps || {})["1"]);
     renderPump(2, (state.pumps || {})["2"]);
     renderPanel(state.panel);
@@ -1026,8 +1065,22 @@
   // -- transport ------------------------------------------------------------
 
   function connect() {
+    // Nothing if one is already up or on its way. Waking a phone fires several
+    // of these at once -- the tab becomes visible, the network comes back, the
+    // page is restored -- and each one used to open another socket.
+    if (socket && (socket.readyState === 0 || socket.readyState === 1)) {
+      return;
+    }
     const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
     socket = new WebSocket(scheme + "//" + window.location.host + "/ws/state");
+
+    socket.addEventListener("open", function () {
+      // On open, not on the first frame. A pit that is doing nothing sends
+      // nothing, so a page that reconnected to a quiet panel used to keep the
+      // thirty second backoff it had climbed to and pay it again next time.
+      reconnectDelay = RECONNECT_MIN_MS;
+      document.body.classList.remove("stale");
+    });
 
     socket.addEventListener("message", function (event) {
       // Only the parse is forgiven. A malformed frame is not a reason to tear
@@ -1045,6 +1098,7 @@
       render(state);
       reconnectDelay = RECONNECT_MIN_MS;
     });
+
 
     socket.addEventListener("close", function () {
       socket = null;
@@ -1076,6 +1130,47 @@
     }
     render(state);
   }
+
+  // Coming back to a page that was left open.
+  //
+  // Three ways this used to sit on a spinner until somebody reloaded, and the
+  // first is the one that bites on a phone.
+  //
+  // A socket can die without ever raising close. The operating system tears
+  // the network down under a suspended tab and the browser has nobody to tell,
+  // so the close handler never runs, no reconnect is ever scheduled, and the
+  // page waits for a message that cannot arrive. Nothing here noticed, because
+  // everything hung off close.
+  //
+  // Backgrounded timers are throttled to minutes and frozen outright in the
+  // back forward cache, so even a reconnect that was scheduled correctly
+  // arrives long after somebody is looking at the page.
+  //
+  // And nothing was listening for the page coming back at all. It is the one
+  // moment when somebody is definitely watching and the answer definitely
+  // matters.
+  //
+  // So: on becoming visible, on being restored, and on the network returning,
+  // throw away the backoff, reconnect if the socket is not open, and repaint
+  // from the API rather than waiting for a push that a quiet pit will not
+  // send.
+
+  function wakeUp() {
+    reconnectDelay = RECONNECT_MIN_MS;
+    if (!socket || socket.readyState > 1) {
+      socket = null;
+      connect();
+    }
+    first();
+  }
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") {
+      wakeUp();
+    }
+  });
+  window.addEventListener("pageshow", wakeUp);
+  window.addEventListener("online", wakeUp);
 
   first();
   connect();

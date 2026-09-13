@@ -1455,6 +1455,56 @@ def test_the_word_beside_the_pump_is_the_one_on_the_panel():
     assert ".status-fail" not in css
 
 
+def test_the_page_reconnects_when_somebody_comes_back_to_it():
+    """A socket can die without ever raising close.
+
+    The operating system tears the network down under a suspended tab and the
+    browser has nobody to tell, so the close handler never runs, no reconnect
+    is ever scheduled, and the page waits for a message that cannot arrive.
+    Everything hung off close, so nothing noticed. Backgrounded timers make it
+    worse: throttled to minutes, frozen outright in the back forward cache.
+
+    The moment somebody looks at the page again is the moment it matters, so
+    that is what it listens for.
+    """
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+
+    for event in ("visibilitychange", "pageshow", "online"):
+        assert event in js, event
+
+    # Not just reconnect: repaint. A quiet pit pushes nothing, so a page that
+    # reconnected and waited would sit on stale numbers looking live.
+    wake = js.split("function wakeUp()", 1)[1].split("\n  }", 1)[0]
+    assert "connect()" in wake and "first()" in wake
+    assert "RECONNECT_MIN_MS" in wake, "and it does not keep the backoff it climbed to"
+
+    # One socket. Waking a phone fires several of these at once.
+    assert "readyState === 0 || socket.readyState === 1" in js
+
+    # The backoff resets on open rather than on the first frame, because a
+    # panel with nothing happening does not send one.
+    assert 'addEventListener("open"' in js
+
+
+def test_a_page_older_than_the_server_reloads_itself_once():
+    """A tab left open across a deploy runs the JavaScript it loaded against
+    readings from the new server, which looks like the data being wrong.
+
+    Once, and only once. A reload loop on the page somebody opens to find out
+    whether their basement is flooding would be worse than what it guards
+    against.
+    """
+    js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+    page = render_dashboard()
+
+    assert 'meta[name="pitwatch-version"]' in js
+    assert 'name="pitwatch-version"' in page, "the page has to say what built it"
+    assert "sessionStorage" in js and "window.location.reload()" in js
+
+    check = js.split("function checkVersion(", 1)[1].split("\n  }", 1)[0]
+    assert "already === serving" in check, "a second mismatch gives up rather than looping"
+
+
 def test_every_long_note_is_a_dialog_opened_from_beside_its_heading():
     """A native dialog shown as a modal renders in the top layer, so it cannot
     push the numbers around or end up behind something whatever the stacking

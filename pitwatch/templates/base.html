@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
+{# What built this page, so a tab left open across a deploy can notice it is
+   older than the server answering it and reload itself once. #}
+<meta name="pitwatch-version" content="{{ version }}">
 <title>{% block title %}PitWatch{% endblock %}</title>
 <link rel="icon" href="/static/favicon.svg?v={{ version }}" type="image/svg+xml">
 <link rel="stylesheet" href="/static/style.css?v={{ version }}">

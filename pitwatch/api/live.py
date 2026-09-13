@@ -13,7 +13,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from pitwatch import auth, domain
+from pitwatch import __version__, auth, domain
 from pitwatch.api import forms
 from pitwatch.domain import tides as tide_domain
 from pitwatch.domain import weather as weather_domain
@@ -404,6 +404,12 @@ async def build_state(app) -> dict:
         # away asked for.
         "devices": devices,
         "updated_at": live.updated_at.isoformat() if live.updated_at else None,
+        # What is serving this, so a page can notice it is older than the
+        # thing it is talking to. A tab left open across a deploy keeps running
+        # the JavaScript it loaded: the socket brings it fresh readings and it
+        # draws them with last week's code, which is the failure that looks
+        # like the data being wrong.
+        "version": __version__,
     }
 
 

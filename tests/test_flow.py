@@ -403,7 +403,7 @@ def test_a_non_admin_sees_no_settings_or_users_icon(client):
     page = client.get("/").text
     assert 'aria-label="Settings"' in page, "the admin should see it"
 
-    # The template decides by user.is_admin, which the Users page shows too.
+    # The template decides by user.is_admin, which the role gives it.
     assert 'aria-label="Users"' in page
 
 
@@ -495,7 +495,7 @@ def test_your_own_profile_cannot_make_you_an_administrator(client):
         data={
             "name": "Watcher",
             "email": "w@example.com",
-            "is_admin": "on",
+            "role": "owner",
             "enabled": "",
             "min_severity": "warning",
         },

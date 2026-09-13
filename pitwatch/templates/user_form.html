@@ -79,22 +79,41 @@
     </div>
 
     <h3>Role and access</h3>
+    {# Owner is only offered to an owner. Handing somebody the hardware is not
+       something an administrator can do on their own, and a select that lists
+       a choice the server will refuse is a worse page than one that does not
+       offer it. #}
+    <div class="field">
+      <label for="role">Role</label>
+      <select id="role" name="role">
+        {% set now = person.role if person else 'viewer' %}
+        <option value="viewer" {% if now == 'viewer' %}selected{% endif %}>Viewer</option>
+        <option value="admin" {% if now == 'admin' %}selected{% endif %}>Administrator</option>
+        {% if user and user.is_owner %}
+        <option value="owner" {% if now == 'owner' %}selected{% endif %}>Site owner</option>
+        {% endif %}
+      </select>
+      <p class="hint">
+        A <strong>viewer</strong> sees the pumps, the history and what the
+        alarms have done, and gets the messages. An
+        <strong>administrator</strong> also manages these accounts and the
+        rules that decide what raises an alert. The <strong>site owner</strong>
+        also changes the hardware: the broker, the topics, which input means
+        what, and the panel button. Everything on that last list can stop the
+        monitoring working without looking any different.
+      </p>
+    </div>
+
+    {% if person %}
     <div class="field checkboxes">
-      <label>
-        <input type="checkbox" name="is_admin" {% if person and person.is_admin %}checked{% endif %}>
-        Administrator
-      </label>
-      {% if person %}
       <label>
         <input type="checkbox" name="enabled" {% if person.enabled %}checked{% endif %}>
         Active
       </label>
-      {% endif %}
     </div>
-    <p class="hint">
-      An administrator can see and change everything, including these accounts.
-      A user who is not active keeps their settings and is sent nothing.
-    </p>
+    <p class="hint">A user who is not active keeps their settings and is sent
+      nothing.</p>
+    {% endif %}
 
     {% if not person %}
     <div class="field checkboxes">

@@ -41,15 +41,26 @@
     </a>
     {% endif %}
 
+    {# What has happened is everybody's business: the bell shows the history
+       to anybody signed in, and the tab that sets the rules is the part that
+       is not. #}
+    {% if user %}
+    <a href="/alerts" class="icon-link {% if active == 'alerts' %}active{% endif %}"
+       title="Alerts" aria-label="Alerts">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-bell"/></svg>
+    </a>
+    {% endif %}
+
     {% if user and user.is_admin %}
     <a href="/users" class="icon-link {% if active == 'users' %}active{% endif %}"
        title="Users" aria-label="Users">
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-people"/></svg>
     </a>
-    <a href="/alerts" class="icon-link {% if active == 'alerts' %}active{% endif %}"
-       title="Alerts" aria-label="Alerts">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-bell"/></svg>
-    </a>
+    {% endif %}
+
+    {# The hardware. A link to a page that answers 403 is a worse experience
+       than no link, and everybody who can see this one can use it. #}
+    {% if user and user.is_owner %}
     <a href="/settings" class="icon-link {% if active == 'settings' %}active{% endif %}"
        title="Settings" aria-label="Settings">
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-gear"/></svg>

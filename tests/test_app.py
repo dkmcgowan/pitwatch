@@ -758,11 +758,15 @@ def render_dashboard(**overrides) -> str:
 
 
 class _Admin:
+    role = "owner"
     is_admin = True
+    is_owner = True
 
 
 class _Ordinary:
+    role = "viewer"
     is_admin = False
+    is_owner = False
 
 
 def test_the_panel_button_is_on_the_dashboard_for_anybody_who_wired_it():
@@ -1855,12 +1859,14 @@ def test_the_header_has_one_of_each_icon():
 
     base = _Path("pitwatch/templates/base.html").read_text(encoding="utf-8")
     links = re.findall(r'<a href="(/[a-z]*)" class="icon-link', base)
+    # Widest audience first and narrowest last, which is also the order the
+    # roles open up in: everybody, then administrators, then the owner.
     assert links == [
         "/",
         "/history",
         "/summary",
-        "/users",
         "/alerts",
+        "/users",
         "/settings",
         "/profile",
     ], links

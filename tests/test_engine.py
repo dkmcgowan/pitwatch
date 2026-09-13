@@ -107,14 +107,14 @@ async def _a_person(pool, **columns):
         "notify_email": True,
         "notify_sms": False,
         "min_severity": "warning",
-        "is_admin": True,
+        "role": "owner",
         "enabled": True,
     }
     fields.update(columns)
     await pool.execute(
         """
         INSERT INTO app_user (username, name, email, phone, notify_email, notify_sms,
-                              min_severity, is_admin, enabled)
+                              min_severity, role, enabled)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         """,
         *fields.values(),
@@ -289,8 +289,8 @@ async def test_severity_decides_who_is_told(pool, sent):
 async def test_admins_only_keeps_it_off_everybody_elses_phone(pool, sent):
     """A device going quiet is worth waking somebody who can do something about
     it, and is noise to everybody else."""
-    await _a_person(pool, username="boss", email="boss@example.com", is_admin=True)
-    await _a_person(pool, username="tenant", email="tenant@example.com", is_admin=False)
+    await _a_person(pool, username="boss", email="boss@example.com", role="owner")
+    await _a_person(pool, username="tenant", email="tenant@example.com", role="viewer")
 
     rules = AlertsSettings()
     rules.high_water.admins_only = True

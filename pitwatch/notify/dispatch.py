@@ -41,7 +41,7 @@ async def audience(pool: asyncpg.Pool, severity: Severity, admins_only: bool) ->
             SELECT name, email, phone, notify_email, notify_sms
             FROM app_user
             WHERE enabled
-              AND (NOT $1::boolean OR is_admin)
+              AND (NOT $1::boolean OR role IN ('admin', 'owner'))
               AND CASE min_severity
                       WHEN 'info' THEN 0 WHEN 'warning' THEN 1 ELSE 2
                   END <= $2::int

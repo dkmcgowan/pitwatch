@@ -86,7 +86,10 @@ class User:
     notify_email: bool
     notify_sms: bool
     min_severity: str
-    is_admin: bool
+    # viewer, admin or owner. Read through the two properties below rather
+    # than compared to strings at the call sites, so what each level may do
+    # is written down in one place.
+    role: str
     enabled: bool
     must_change_password: bool
     has_password: bool
@@ -97,6 +100,18 @@ class User:
     @property
     def display_name(self) -> str:
         return self.name or self.username
+
+    @property
+    def is_admin(self) -> bool:
+        """May manage people and the rules that decide what raises an alert."""
+        return self.role in ("admin", "owner")
+
+    @property
+    def is_owner(self) -> bool:
+        """May also change the hardware: broker, topics, inputs, clamps, the
+        panel button. Everything on that list can stop the monitoring working
+        without saying so."""
+        return self.role == "owner"
 
     @classmethod
     def from_row(cls, row: asyncpg.Record) -> User:
@@ -109,7 +124,7 @@ class User:
             notify_email=row["notify_email"],
             notify_sms=row["notify_sms"],
             min_severity=row["min_severity"],
-            is_admin=row["is_admin"],
+            role=row["role"],
             enabled=row["enabled"],
             must_change_password=row["must_change_password"],
             has_password=row["password_hash"] is not None,
@@ -176,7 +191,7 @@ def reset_throttling() -> None:
 
 COLUMNS = """
     id, username, name, email, phone, notify_email, notify_sms, min_severity,
-    is_admin, enabled, must_change_password, password_hash
+    role, enabled, must_change_password, password_hash
 """
 
 
@@ -187,7 +202,9 @@ async def get_user(pool: asyncpg.Pool, user_id: int) -> User | None:
 
 async def list_users(pool: asyncpg.Pool) -> list[User]:
     rows = await pool.fetch(
-        f"SELECT {COLUMNS} FROM app_user ORDER BY is_admin DESC, lower(coalesce(name, username))"
+        f"SELECT {COLUMNS} FROM app_user ORDER BY "
+        "CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, "
+        "lower(coalesce(name, username))"
     )
     return [User.from_row(row) for row in rows]
 
@@ -204,8 +221,8 @@ async def ensure_default_admin(pool: asyncpg.Pool) -> bool:
 
     await pool.execute(
         """
-        INSERT INTO app_user (username, name, password_hash, is_admin, must_change_password)
-        VALUES ($1, 'Administrator', $2, true, true)
+        INSERT INTO app_user (username, name, password_hash, role, must_change_password)
+        VALUES ($1, 'Administrator', $2, 'owner', true)
         """,
         DEFAULT_USERNAME,
         hasher.hash(DEFAULT_PASSWORD),
@@ -357,5 +374,23 @@ def require_admin(request: Request) -> User:
     return user
 
 
+def require_owner(request: Request) -> User:
+    """The hardware, and anything that can stop the monitoring quietly.
+
+    A separate door from the administrators because the two mistakes are not
+    the same size. Adding the wrong person to the list is embarrassing and
+    reversible in a minute. Ticking invert on an input turns an alarm off, and
+    nothing looks any different until the night it was needed.
+    """
+    user = require_user(request)
+    if not user.is_owner:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the site owner can change this",
+        )
+    return user
+
+
 SignedIn = Annotated[User, Depends(require_user)]
 IsAdmin = Annotated[User, Depends(require_admin)]
+IsOwner = Annotated[User, Depends(require_owner)]

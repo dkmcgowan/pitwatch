@@ -211,14 +211,15 @@ def test_an_admin_cannot_lock_themselves_out(client):
     sign_in_as_admin(client)
     admin_id = user_id_of(client, auth.DEFAULT_USERNAME)
 
+    # No role posted reads as viewer, which is the owner demoting themselves.
     response = client.post(
         f"/users/{admin_id}/edit", data={"name": "Administrator", "enabled": "on"}
     )
     assert response.status_code == 400
-    assert "administrator rights" in response.text
+    assert "your own role" in response.text
 
     response = client.post(
-        f"/users/{admin_id}/edit", data={"name": "Administrator", "is_admin": "on"}
+        f"/users/{admin_id}/edit", data={"name": "Administrator", "role": "owner"}
     )
     assert response.status_code == 400
     assert "disable your own account" in response.text
@@ -247,6 +248,11 @@ def test_only_an_admin_can_manage_people_or_settings(client):
     assert client.get("/users", follow_redirects=False).status_code == 403
     assert client.get("/settings", follow_redirects=False).status_code == 403
     assert client.post("/settings/site", data={"site_name": "Nope"}).status_code == 403
+    # The rules that decide what raises an alert are not theirs either.
+    assert client.get("/alerts/settings", follow_redirects=False).status_code == 403
+    # What the alarms have actually done is, though. That is the half of the
+    # bell somebody who gets the messages has a reason to look at.
+    assert client.get("/alerts", follow_redirects=False).status_code == 200
     # The dashboard, which is what they were given an account for, works.
     # Checked for the signed in layout rather than for a 200, because the root
     # answers 200 to a signed out visitor too: it is the public home page.
@@ -421,8 +427,10 @@ def test_a_signed_in_non_admin_cannot_reach_the_dashboard_lamps(client):
     )
     assert save.status_code in (303, 403)
 
-    # And alerts, which has its own place in the header now.
-    assert client.get("/alerts", follow_redirects=False).status_code in (303, 403)
+    # The rules are refused. What the alarms have done is not: that is the
+    # half of the bell somebody who gets the messages has a reason to read.
+    assert client.get("/alerts/settings", follow_redirects=False).status_code in (303, 403)
+    assert client.get("/alerts", follow_redirects=False).status_code == 200
     assert client.app.state.settings.mqtt.channel_for("high_water") is None
 
 
@@ -653,10 +661,123 @@ def test_administrator_is_a_box_that_can_be_ticked(client):
     assert "checked" in row.split("data-autosubmit", 1)[1].split(">", 1)[0]
 
 
-def test_you_cannot_take_away_your_own_administrator_rights(client):
-    """The box is ticked and fixed, and the server refuses it as well. An
-    install with nobody who can change anything needs the database edited by
-    hand to recover."""
+def test_only_an_owner_can_hand_over_the_hardware(client):
+    """Adding somebody is reversible in a minute. Ticking invert on an input
+    turns an alarm off and nothing looks different until the night it was
+    needed, so the two live behind different doors.
+
+    An administrator can make other administrators. Making an owner is the
+    owner's to do.
+    """
+    sign_in_as_admin(client)
+    client.post("/users/new", data=SUPER | {"send_invite": "", "role": "admin"})
+    super_id = user_id_of(client, "super")
+
+    # The owner may. The form offers it, and it takes.
+    assert "Site owner" in client.get(f"/users/{super_id}/edit").text
+    promoted = client.post(
+        f"/users/{super_id}/edit",
+        data=SUPER | {"role": "owner", "enabled": "on"},
+        follow_redirects=False,
+    )
+    assert promoted.status_code == 303
+
+    # Demote them again and sign in as them to check from the other side.
+    client.post(
+        f"/users/{super_id}/edit",
+        data=SUPER | {"role": "admin", "enabled": "on"},
+    )
+    link = invitation_link(client, super_id)
+    client.post("/logout")
+    client.post(
+        "/set-password",
+        data={
+            "token": token_from(link),
+            "new_password": "a-super-long-password",
+            "confirm_password": "a-super-long-password",
+        },
+    )
+
+    # An administrator runs the people and the rules.
+    assert client.get("/users").status_code == 200
+    assert client.get("/alerts/settings").status_code == 200
+    # And not the hardware.
+    assert client.get("/settings", follow_redirects=False).status_code == 403
+    # The form does not dangle a choice the server would refuse.
+    assert "Site owner" not in client.get(f"/users/{super_id}/edit").text
+
+    # Their own row is refused for being their own, before the role is even
+    # considered.
+    own = client.post(f"/users/{super_id}/edit", data=SUPER | {"role": "owner", "enabled": "on"})
+    assert own.status_code == 400
+    assert "your own role" in own.text
+
+    # And somebody else's is refused for the role.
+    board = dict(SUPER, name="Board Member", username="board", email="board@example.com")
+    client.post("/users/new", data=board | {"send_invite": "", "role": "viewer"})
+    board_id = user_id_of(client, "board")
+    refused = client.post(
+        f"/users/{board_id}/edit", data=board | {"role": "owner", "enabled": "on"}
+    )
+    assert refused.status_code == 400
+    assert "Only the site owner" in refused.text
+
+
+def test_the_last_owner_cannot_be_demoted(client):
+    """Somebody has to be able to reach the hardware. An installation with
+    nobody who can is one that needs the database edited by hand, which is a
+    bad evening for whoever only meant to tidy a user list."""
+    sign_in_as_admin(client)
+    client.post("/users/new", data=SUPER | {"send_invite": "", "role": "admin"})
+    admin_id = user_id_of(client, auth.DEFAULT_USERNAME)
+    super_id = user_id_of(client, "super")
+
+    # There is one owner, and they cannot step down while that is true. Their
+    # own row is refused for being their own, so use the other route: make the
+    # super an owner first, then the original can go.
+    refused = client.post(
+        f"/users/{admin_id}/edit", data={"name": "Administrator", "role": "admin"}
+    )
+    assert refused.status_code == 400
+
+    client.post(
+        f"/users/{super_id}/edit",
+        data=SUPER | {"role": "owner", "enabled": "on"},
+    )
+    stepped_down = client.post(
+        f"/users/{super_id}/edit",
+        data=SUPER | {"role": "admin", "enabled": "on"},
+        follow_redirects=False,
+    )
+    assert stepped_down.status_code == 303, "two owners, so one may stand down"
+
+
+def test_the_one_click_box_does_not_hand_over_ownership(client):
+    """It moves somebody between viewer and administrator, which is reversible
+    by the same click. Handing over the hardware is not a thing to do by
+    clicking a cell in a table."""
+    sign_in_as_admin(client)
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
+    super_id = user_id_of(client, "super")
+
+    client.post(f"/users/{super_id}/admin")
+    assert "Administrator" in client.get(f"/users/{super_id}/edit").text
+    client.post(f"/users/{super_id}/admin")
+
+    # Made an owner on the form, the box stops being offered for them at all.
+    client.post(
+        f"/users/{super_id}/edit",
+        data=SUPER | {"role": "owner", "enabled": "on"},
+    )
+    refused = client.post(f"/users/{super_id}/admin")
+    assert refused.status_code == 400
+    assert "owns the site" in refused.text
+
+
+def test_you_cannot_take_away_your_own_role(client):
+    """The list offers nothing on your own row and the server refuses it as
+    well. An install with nobody who can change anything needs the database
+    edited by hand to recover."""
     sign_in_as_admin(client)
     admin_id = user_id_of(client, auth.DEFAULT_USERNAME)
 
@@ -664,12 +785,14 @@ def test_you_cannot_take_away_your_own_administrator_rights(client):
     for chunk in client.get("/users").text.split("<tr"):
         if f'data-username="{auth.DEFAULT_USERNAME}"' in chunk:
             row = chunk
-    assert "disabled" in row
+    # The first account is the owner, and the list says so rather than
+    # offering a box that would hand the hardware away in one click.
+    assert "role-tag" in row
     assert f'action="/users/{admin_id}/admin"' not in row
 
     refused = client.post(f"/users/{admin_id}/admin")
     assert refused.status_code == 400
-    assert "cannot remove your own administrator rights" in refused.text
+    assert "cannot change your own role" in refused.text
 
 
 def test_the_admin_box_works_without_scripting(client):

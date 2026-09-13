@@ -243,6 +243,21 @@ main {
   flex-wrap: wrap;
 }
 
+/* A role that is not a checkbox. Owner is set on the form rather than by
+   clicking a cell, so the list says what somebody is without offering to
+   change it here. */
+.role-tag {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 2rem;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .button.secondary {
   background: var(--surface-2);
   color: var(--text);

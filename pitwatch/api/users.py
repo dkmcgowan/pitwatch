@@ -367,7 +367,7 @@ class _Details:
     notify_email: bool
     notify_sms: bool
     min_severity: str
-    is_admin: bool
+    role: str
 
 
 def _details_from(form) -> _Details | str:
@@ -402,7 +402,7 @@ def _details_from(form) -> _Details | str:
         notify_email=notify_email,
         notify_sms=notify_sms,
         min_severity=forms.text(form, "min_severity", "warning") or "warning",
-        is_admin=forms.checkbox(form, "is_admin"),
+        role=forms.text(form, "role", "viewer") or "viewer",
     )
 
 
@@ -431,7 +431,7 @@ async def add_user(request: Request, admin: auth.IsAdmin):
             """
             INSERT INTO app_user
                 (username, name, email, phone, notify_email, notify_sms,
-                 min_severity, is_admin, password_hash)
+                 min_severity, role, password_hash)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL)
             RETURNING id
             """,
@@ -442,7 +442,7 @@ async def add_user(request: Request, admin: auth.IsAdmin):
             details.notify_email,
             details.notify_sms,
             details.min_severity,
-            details.is_admin,
+            details.role,
         )
     except (ValidationError, ValueError) as error:
         return _form_page(request, person=None, error=str(error), status=400)
@@ -489,11 +489,26 @@ async def save_user(request: Request, user_id: int, admin: auth.IsAdmin):
 
     # An install with nobody who can change anything is an install that needs
     # the database edited by hand to recover.
-    if admin.id == user_id and not details.is_admin:
+    if admin.id == user_id and details.role != admin.role:
         return _form_page(
             request,
             person=person,
-            error="You cannot remove your own administrator rights",
+            error="You cannot change your own role",
+            status=400,
+        )
+    # Only an owner hands out ownership, and there has to be one left.
+    if details.role == "owner" and not admin.is_owner:
+        return _form_page(
+            request,
+            person=person,
+            error="Only the site owner can make somebody else an owner",
+            status=400,
+        )
+    if person.is_owner and details.role != "owner" and await _last_owner(request, user_id):
+        return _form_page(
+            request,
+            person=person,
+            error="Somebody has to own the site. Make another owner first.",
             status=400,
         )
     if admin.id == user_id and not enabled:
@@ -505,7 +520,7 @@ async def save_user(request: Request, user_id: int, admin: auth.IsAdmin):
         """
         UPDATE app_user
         SET name = $2, email = $3, phone = $4, notify_email = $5, notify_sms = $6,
-            min_severity = $7, is_admin = $8, enabled = $9
+            min_severity = $7, role = $8, enabled = $9
         WHERE id = $1
         """,
         user_id,
@@ -515,7 +530,7 @@ async def save_user(request: Request, user_id: int, admin: auth.IsAdmin):
         details.notify_email,
         details.notify_sms,
         details.min_severity,
-        details.is_admin,
+        details.role,
         enabled,
     )
     log.info("%s updated user %d", admin.username, user_id)
@@ -575,28 +590,45 @@ async def _send_invitation(request: Request, user_id: int, name: str, email: str
     return None
 
 
+async def _last_owner(request: Request, user_id: int) -> bool:
+    """Whether this is the only owner left.
+
+    An installation with nobody who can reach the hardware settings is one
+    that needs the database edited by hand to recover, which is a bad evening
+    for somebody who only wanted to tidy up a user list.
+    """
+    others = await request.app.state.pool.fetchval(
+        "SELECT count(*) FROM app_user WHERE role = 'owner' AND enabled AND id <> $1",
+        user_id,
+    )
+    return not others
+
+
 @router.post("/users/{user_id}/admin", include_in_schema=False)
 async def toggle_admin(request: Request, user_id: int, admin: auth.IsAdmin):
-    """Administrator or not, from the list.
+    """Between viewer and admin, from the list.
 
-    One click either way, on a page only administrators can reach. Opening a
-    form to change one checkbox and pressing Save is more ceremony than the
-    change deserves, and the change is reversible by the same click.
+    One click either way, because opening a form to change one thing and
+    pressing Save is more ceremony than a reversible change deserves.
+
+    Ownership is not on this button. Handing somebody the hardware is not a
+    thing to do by clicking a cell in a table, so it lives on the form behind a
+    deliberate choice, and only an owner can make it.
     """
     if admin.id == user_id:
-        return await _list_with_error(request, "You cannot remove your own administrator rights")
+        return await _list_with_error(request, "You cannot change your own role")
     pool = request.app.state.pool
     person = await auth.get_user(pool, user_id)
     if person is None:
         return RedirectResponse("/users", status_code=303)
+    if person.is_owner:
+        return await _list_with_error(
+            request, f"{person.display_name} owns the site. Change that on their form."
+        )
 
-    await pool.execute("UPDATE app_user SET is_admin = NOT is_admin WHERE id = $1", user_id)
-    log.info(
-        "%s made %s %s",
-        admin.username,
-        person.username,
-        "an ordinary user" if person.is_admin else "an administrator",
-    )
+    now = "viewer" if person.is_admin else "admin"
+    await pool.execute("UPDATE app_user SET role = $2 WHERE id = $1", user_id, now)
+    log.info("%s made %s %s", admin.username, person.username, now)
     return RedirectResponse("/users?saved=updated", status_code=303)
 
 

@@ -70,17 +70,23 @@
            Your own is ticked and fixed. An install with nobody who can change
            anything needs the database edited by hand to recover, and the
            server refuses this as well. #}
+        {# The box moves somebody between viewer and administrator, which is
+           reversible by the same click. Ownership is not on it: handing over
+           the hardware is not a thing to do by clicking a cell in a table, so
+           it is a choice on the form and only an owner is offered it. #}
         <td class="tight">
-          {% if person.id == user.id %}
-          <input type="checkbox" checked disabled
-                 title="You cannot remove your own administrator rights"
-                 aria-label="{{ person.name or person.username }} is an administrator">
+          {% if person.is_owner %}
+          <span class="role-tag" title="Changed on their form">Owner</span>
+          {% elif person.id == user.id %}
+          <input type="checkbox" {% if person.is_admin %}checked{% endif %} disabled
+                 title="You cannot change your own role"
+                 aria-label="Your own role">
           {% else %}
           <form method="post" action="/users/{{ person.id }}/admin" class="inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="checkbox" data-autosubmit
                    {% if person.is_admin %}checked{% endif %}
-                   title="{% if person.is_admin %}Remove administrator rights from{% else %}Make an administrator:{% endif %} {{ person.name or person.username }}"
+                   title="{% if person.is_admin %}Make {{ person.name or person.username }} a viewer{% else %}Make {{ person.name or person.username }} an administrator{% endif %}"
                    aria-label="Administrator: {{ person.name or person.username }}">
             {# Works without JavaScript too: the box posts nothing on its own,
                so the button is what carries the change. It is hidden once the

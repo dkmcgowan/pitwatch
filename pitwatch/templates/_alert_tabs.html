@@ -6,5 +6,10 @@
    to know whether the pit did anything last night. #}
 <nav class="subtabs" aria-label="Alerts">
   <a href="/alerts" class="{% if tab == 'history' %}on{% endif %}">History</a>
+  {# What happened is for everybody. What decides that something is worth
+     raising is not: a threshold nudged the wrong way weakens an alert and
+     looks like nothing at all. #}
+  {% if user and user.is_admin %}
   <a href="/alerts/settings" class="{% if tab == 'settings' %}on{% endif %}">Rules</a>
+  {% endif %}
 </nav>

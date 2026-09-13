@@ -61,7 +61,7 @@ def _templates(request: Request):
 
 
 @router.get("/setup", include_in_schema=False)
-async def setup_page(request: Request, admin: auth.IsAdmin):
+async def setup_page(request: Request, owner: auth.IsOwner):
     store: SettingsStore = request.app.state.settings
     if await store.is_setup_complete():
         return RedirectResponse("/settings", status_code=303)
@@ -78,7 +78,7 @@ async def setup_page(request: Request, admin: auth.IsAdmin):
 
 
 @router.post("/setup", include_in_schema=False)
-async def setup_submit(request: Request, admin: auth.IsAdmin):
+async def setup_submit(request: Request, owner: auth.IsOwner):
     store: SettingsStore = request.app.state.settings
     form = await request.form()
 
@@ -104,10 +104,10 @@ async def setup_submit(request: Request, admin: auth.IsAdmin):
 
     # The person doing the setup is the first person alerts should reach, and
     # asking again on a profile page afterwards is asking twice.
-    await _save_own_details(request, admin, form)
+    await _save_own_details(request, owner, form)
 
     await store.mark_setup_complete()
-    log.info("Setup completed by %s", admin.username)
+    log.info("Setup completed by %s", owner.username)
     return RedirectResponse("/", status_code=303)
 
 
@@ -115,7 +115,7 @@ async def setup_submit(request: Request, admin: auth.IsAdmin):
 
 
 @router.get("/settings", include_in_schema=False)
-async def settings_page(request: Request, admin: auth.IsAdmin, saved: str | None = None):
+async def settings_page(request: Request, owner: auth.IsOwner, saved: str | None = None):
     store: SettingsStore = request.app.state.settings
     return _templates(request).TemplateResponse(
         request,
@@ -170,7 +170,7 @@ def _spoken(seconds: float | None) -> str:
 
 
 @router.get("/alerts", include_in_schema=False)
-async def alert_history(request: Request, admin: auth.IsAdmin):
+async def alert_history(request: Request, user: auth.SignedIn):
     """What has happened, which is what somebody opening the bell wants.
 
     The rules are a tab away rather than a header icon of their own: they are
@@ -344,7 +344,7 @@ async def summary_write(request: Request, user: auth.SignedIn):
 
 
 @router.post("/settings/{section}", include_in_schema=False)
-async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> HTMLResponse:
+async def settings_save(request: Request, section: str, owner: auth.IsOwner) -> HTMLResponse:
     store: SettingsStore = request.app.state.settings
     form = await request.form()
 
@@ -393,11 +393,11 @@ async def settings_save(request: Request, section: str, admin: auth.IsAdmin) -> 
             status_code=400,
         )
 
-    log.info("%s saved the %s settings", admin.username, section)
+    log.info("%s saved the %s settings", owner.username, section)
     return RedirectResponse(f"/settings?saved={section}", status_code=303)
 
 
-async def _save_own_details(request: Request, admin: auth.User, form) -> None:
+async def _save_own_details(request: Request, owner: auth.User, form) -> None:
     """Record the administrator's own contact details from the setup form.
 
     Quietly skipped if what was typed does not make sense, because failing the
@@ -425,7 +425,7 @@ async def _save_own_details(request: Request, admin: auth.User, form) -> None:
             notify_sms = $6
         WHERE id = $1
         """,
-        admin.id,
+        owner.id,
         forms.text(form, "admin_name"),
         email,
         phone,

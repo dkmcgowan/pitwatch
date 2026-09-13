@@ -842,13 +842,13 @@ async def test_recovery_gives_up_on_a_pump_that_keeps_tripping(pool, sent):
 
 
 async def test_nothing_is_pressed_when_nobody_asked_for_it(pool, sent):
-    """Off is off. A contact wired across a button on a live panel does not get
-    pressed because a setting defaulted to on somewhere."""
+    """Off is off, both halves of it. A contact wired across a button on a
+    live panel does not get pressed because a setting defaulted to on."""
     import pitwatch.domain.engine as engine_module
 
     await _a_person(pool)
     store = _store()
-    store.panel_button = _wired(auto_recover=False)
+    store.panel_button = _wired(auto_recover=False, auto_silence=False)
     engine = _engine(
         pool, store, _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
     )
@@ -866,164 +866,79 @@ async def test_nothing_is_pressed_when_nobody_asked_for_it(pool, sent):
     assert "Reset the overload" in detail and "clear the alarm at the panel" in detail
 
 
-async def test_the_second_pump_failing_on_top_of_the_first_says_so(pool, sent):
-    """The cascade. Pump 1 goes, pump 2 covers, pump 2 goes too.
+async def test_the_horn_can_be_stopped_without_the_pump_being_put_back(pool, sent):
+    """Two questions, two settings.
 
-    Three different pieces of news and they must not read the same. The first
-    trip has cover, the second has none, and the pair of them is its own alert
-    because nothing is pumping and the pit fills from there.
+    Silencing costs nothing and hides nothing: the alarm stays raised, the
+    alert stays open, the message still goes out. All it stops is a beacon
+    sounding in a basement at nobody. Deciding a pump is fit to run again is a
+    different question, and wanting the first without the second is reasonable.
     """
     import pitwatch.domain.engine as engine_module
 
     await _a_person(pool)
     store = _store()
-    store.panel_button = _wired()
+    store.panel_button = _wired(auto_recover=False, auto_silence=True)
     contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
-    engine = _engine(pool, store, contacts)
-    _watching(engine)
-    engine_module.ALARM_AFTER_S = 0
-
-    await engine.sweep()
-    await _pressed_everything(engine)
-
-    # Pump 2 takes over and then goes as well.
-    contacts.by_channel[6] = True
-    await engine.sweep()
-    await _pressed_everything(engine)
-
-    rules = [row["rule"] for row in await pool.fetch("SELECT rule FROM alert")]
-    assert rules.count("overload") == 2, "each pump says which relay it is"
-    assert "both_overloads" in rules
-
-    emergency = await pool.fetchval(
-        "SELECT detail FROM alert WHERE rule = 'both_overloads' AND cleared_at IS NULL"
-    )
-    assert "Nothing is pumping" in emergency
-    assert "{" not in emergency
-
-    # Pump 1's relay comes back while pump 2 is still out, so the sentence
-    # about what is left running has to be the frightening one.
-    contacts.by_channel[5] = False
-    await engine.sweep()
-    await _pressed_everything(engine)
-    assert any("nothing is pumping at all" in body for _, _, body in sent)
-
-
-async def test_one_pump_coming_back_clears_the_alarm_even_with_the_other_out(pool, sent):
-    """One working pump beats none, and waiting for both gives you none.
-
-    Walked on the real panel on 2026-09-13: both pumps tripped, the first
-    relay was pushed back in, and the alarm was cleared on the strength of that
-    one pump. That reads like putting the panel back in service with a known
-    bad pump in it, and this waited for every fault to go instead.
-
-    Which was backwards. The latched alarm is precisely what holds a recovered
-    pump out of the rotation, measured the same day as a relay clearing at
-    14:48:52 against the pump running again at 17:29:56, after the alarm went
-    at 17:25:03. Holding the alarm up until the second pump is fixed does not
-    keep anything safe. It turns one working pump into none.
-
-    The faulted pump rejoins, takes a call, trips and is silenced again. Churn,
-    not danger: the good pump pumps throughout, and every retrip counts toward
-    the limit that stops it going on forever.
-    """
-    import pitwatch.domain.engine as engine_module
-
-    await _a_person(pool)
-    store = _store()
-    store.panel_button = _wired()
-    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=True, system_alert=True)
     engine = _engine(pool, store, contacts)
     pressed = _watching(engine)
     engine_module.ALARM_AFTER_S = 0
 
     await engine.sweep()
     await _pressed_everything(engine)
-    assert pressed and set(pressed) == {"silence"}
+    assert pressed == ["silence"]
 
-    # The first relay is pushed back in. The other pump is still out, and the
-    # alarm is cleared anyway, because that is what lets this one work.
+    detail = await pool.fetchval(
+        "SELECT detail FROM alert WHERE rule = 'overload' AND cleared_at IS NULL"
+    )
+    assert "The alarm has been silenced" in detail
+    assert "clear the alarm at the panel" in detail, "and somebody has to do the rest"
+
     contacts.by_channel[5] = False
     await engine.sweep()
     await _pressed_everything(engine)
-    assert "reset" in pressed, "one pump back is worth clearing the alarm for"
+    assert "reset" not in pressed
 
 
-async def test_two_presses_never_share_the_contact(pool):
-    """One contact, and the panel reads how long it is held.
+async def test_a_limit_of_zero_never_gives_up(pool, sent):
+    """No limit, rather than no resetting.
 
-    The danger is a short press cutting a long one short. Two silences
-    overlapping are harmless: the first release opens the contact and the
-    second finds it open already. A silence landing in the middle of a reset
-    is not, because it releases at four hundred milliseconds and turns a three
-    second press into a tap. The alarm stays up, the pump stays out, and
-    nothing reports a failure: both messages were sent and both were accepted.
-
-    Pump 1's relay clearing at the moment pump 2 trips is exactly that pair.
-
-    Tested on the supervisor because that is where the one connection lives
-    and therefore where the queue has to be. The engine is handed this same
-    method, so ordering it here covers the automatic presses and the ones a
-    person makes from the page alike.
+    Zero briefly meant the opposite, which was a second way of saying what
+    turning the reset off already said. Two settings for one behavior is worse
+    than either, so zero now reads the way a zero usually does.
     """
-    from pitwatch.ingest.supervisor import Supervisor
+    import pitwatch.domain.engine as engine_module
 
+    await _a_person(pool)
     store = _store()
-    store.panel_button = _wired()
-    boss = Supervisor(pool, store, None, None)
+    store.panel_button = _wired(max_trips=0)
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
+    engine = _engine(pool, store, contacts)
+    pressed = _watching(engine)
+    engine_module.ALARM_AFTER_S = 0
 
-    holding = 0
-    overlapped = False
-    sent_topics: list[str] = []
+    # Plenty of trips already on the record, well past any sane limit.
+    for minutes in range(1, 9):
+        await pool.execute(
+            """
+            INSERT INTO alert (rule, severity, pump, title, detail, raised_at, cleared_at)
+            VALUES ('overload', 'critical', 1, 'Overload tripped', 'x',
+                    now() - ($1::int * interval '1 minute'),
+                    now() - ($1::int * interval '1 minute'))
+            """,
+            minutes,
+        )
 
-    async def send(topic: str, payload: str) -> str | None:
-        nonlocal holding, overlapped
-        sent_topics.append(topic)
-        if '"on": true' in payload or '"on":true' in payload:
-            holding += 1
-            overlapped = overlapped or holding > 1
-        else:
-            holding -= 1
-        await asyncio.sleep(0)
-        return None
+    await engine.sweep()
+    await _pressed_everything(engine)
+    contacts.by_channel[5] = False
+    await engine.sweep()
+    await _pressed_everything(engine)
 
-    boss.send = send
+    assert "reset" in pressed, "nine trips and it still puts the pump back"
 
-    await asyncio.gather(boss.press("reset"), boss.press("silence"))
-
-    assert not overlapped, "a silence was on the contact during a reset"
-    assert len(sent_topics) == 4, "two presses, each held and released"
-
-
-async def test_a_person_is_told_to_wait_rather_than_queued_behind_a_press(pool):
-    """A recovery waits its turn. A person does not.
-
-    Queueing is right for the automatic presses: a silence that arrives during
-    a reset still has to happen, and dropping it leaves a horn sounding. It is
-    wrong for somebody at the page, because a button that appears to do nothing
-    and then fires three seconds later, after whatever it was queued behind, is
-    a button that gets pressed twice.
-    """
-    from pitwatch.ingest.supervisor import Supervisor
-
-    store = _store()
-    store.panel_button = _wired()
-    boss = Supervisor(pool, store, None, None)
-
-    async def send(topic: str, payload: str) -> str | None:
-        await asyncio.sleep(0)
-        return None
-
-    boss.send = send
-
-    held = asyncio.create_task(boss.press("reset"))
-    await asyncio.sleep(0)
-
-    turned_away = await boss.press("silence", wait=False)
-    assert turned_away and "already being pressed" in turned_away
-
-    # And the one that waits still happens.
-    assert await held is None
+    detail = await pool.fetchval("SELECT detail FROM alert WHERE rule = 'overload'")
+    assert "recovery has stopped" not in detail
 
 
 async def test_a_pump_with_no_runs_on_record_is_not_reported_idle(pool, sent):

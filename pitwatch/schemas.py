@@ -1131,6 +1131,14 @@ class PanelButtonSettings(BaseModel):
     # below.
     auto_recover: bool = False
 
+    # Stopping the horn is a separate question from putting the pump back.
+    #
+    # On by default and independent of the reset, because silencing costs
+    # nothing and hides nothing: the alarm stays raised, the alert stays open,
+    # the message still goes out. All it stops is a beacon sounding in a
+    # basement at nobody. Anybody who wants the noise kept can turn it off.
+    auto_silence: bool = True
+
     # When to stop trying and get a person.
     #
     # A pump that trips once has had a bad afternoon. A pump that trips four
@@ -1142,12 +1150,23 @@ class PanelButtonSettings(BaseModel):
     # The count is not what protects the motor. The relay's own cooldown is:
     # it will not reset while the bimetal is hot, whatever this says. The count
     # is for noticing a pattern and putting somebody in front of it.
-    max_trips: int = Field(default=3, ge=1, le=20)
+    # Zero means no limit: keep clearing the alarm however often it happens.
+    #
+    # It briefly meant the opposite, never reset, which was a second way of
+    # saying what turning the reset off already said. Two settings for one
+    # behavior is worse than either of them.
+    max_trips: int = Field(default=3, ge=0, le=20)
     within_minutes: int = Field(default=60, ge=5, le=1440)
 
     @property
     def recovering(self) -> bool:
+        """Whether it will clear the alarm by itself."""
         return bool(self.ready and self.auto_recover)
+
+    @property
+    def silencing(self) -> bool:
+        """Whether it will stop the horn by itself. Not the same question."""
+        return bool(self.ready and self.auto_silence)
 
     @property
     def ready(self) -> bool:

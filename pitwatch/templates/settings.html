@@ -354,21 +354,34 @@
        out. #}
     <div class="field">
       <label class="check">
+        <input type="checkbox" name="panel_button_auto_silence"
+               {% if panel_button.auto_silence %}checked{% endif %}>
+        Silence the alarm automatically
+      </label>
+      <p class="hint">Stops the horn whenever the panel raises an alarm, of any
+        kind. Nothing is hidden: the alarm stays up, the alert stays open and
+        the message still goes out. All it stops is a beacon sounding in a
+        basement at nobody.</p>
+    </div>
+
+    <div class="field">
+      <label class="check">
         <input type="checkbox" name="panel_button_auto_recover"
                {% if panel_button.auto_recover %}checked{% endif %}>
-        Press them automatically when an overload trips
+        Clear the alarm automatically once the overload resets
       </label>
-      <p class="hint">Silence the alarm on the trip, then clear it once the
-        relay resets, which is what puts the pump back in the rotation.</p>
+      <p class="hint">Clearing the alarm is what puts a tripped pump back into
+        the rotation. Until it happens the building runs on one pump.</p>
     </div>
 
     <div class="grid">
       <div class="field">
         <label for="panel_button_max_trips">Give up after</label>
-        <input type="number" id="panel_button_max_trips" min="1" max="20"
+        <input type="number" id="panel_button_max_trips" min="0" max="20"
                name="panel_button_max_trips" value="{{ panel_button.max_trips }}">
         <p class="hint">Trips before it stops trying, per pump. Past this the
-          alarm is left up and the message says how many times.</p>
+          alarm is left up and the message says how many times. Zero means no
+          limit: keep clearing it however often it happens.</p>
       </div>
       <div class="field">
         <label for="panel_button_within_minutes">Counted over (minutes)</label>

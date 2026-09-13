@@ -417,26 +417,28 @@ class AlertEngine:
         pressed yet when it does.
         """
         button = self._store.panel_button
+        hushed = "The alarm has been silenced. " if button.silencing else ""
+
         if not button.recovering:
-            # Only said when nothing is going to do it. With recovery on it
-            # is not merely wordy, it is wrong: somebody reading "you have to
-            # go and press it" while the panel is already clearing itself
-            # drives to the building for nothing.
-            if moment == "tripped":
-                return "Reset the overload, then clear the alarm at the panel."
+            # Nothing is going to clear it, so say so. With recovery on this
+            # would not merely be wordy, it would be wrong: somebody reading
+            # "you have to go and press it" while the panel is already
+            # clearing itself drives to the building for nothing.
             if moment == "both":
-                return "Nobody is resetting this. Get to the panel."
-            return "Clear the alarm at the panel to put it back in service."
+                return f"{hushed}Nobody is clearing this. Get to the panel."
+            if moment == "tripped":
+                return f"{hushed}Reset the overload, then clear the alarm at the panel."
+            return f"{hushed}Clear the alarm at the panel to put it back in service."
 
         # This trip is not on the record yet when the message for it is built:
         # the check runs before the row is inserted. Counting it here is what
         # makes the sentence and the decision agree.
         trips = await self._trips(pump) + (1 if moment == "tripped" else 0)
-        if trips > button.max_trips:
+        if button.max_trips and trips > button.max_trips:
             return (
-                f"That is {trips} trips in {button.within_minutes} minutes, so "
-                "automatic recovery has stopped. The alarm is up and the pump "
-                "is out until somebody looks at it."
+                f"{hushed}That is {trips} trips in {button.within_minutes} "
+                "minutes, so automatic recovery has stopped. The pump is out "
+                "until somebody looks at it."
             )
         if moment == "tripped":
             # Written for the reference panel, whose relays are set to auto
@@ -445,13 +447,13 @@ class AlertEngine:
             # relays should change this wording on the alerts page, because
             # nothing here can see which way the dial is set.
             return (
-                "The alarm has been silenced. The overload should reset itself "
-                "once it has cooled and the panel will clear itself after it."
+                f"{hushed}The overload should reset itself once it has cooled "
+                "and the panel will clear itself after it."
             )
         if moment == "both":
             return (
-                "Trying to clear both. If this has not sorted itself out in a "
-                "few minutes, somebody needs to get to the building."
+                f"{hushed}Trying to clear both. If this has not sorted itself "
+                "out in a few minutes, somebody needs to get to the building."
             )
         return "Clearing the panel alarm now to bring it back into rotation."
 
@@ -464,7 +466,7 @@ class AlertEngine:
         alarm stays raised and the alert stays open either way. This only stops
         the noise.
         """
-        if self.press is None or not self._store.panel_button.recovering:
+        if self.press is None or not self._store.panel_button.silencing:
             return
         if self._panel_alert_silenced:
             return
@@ -498,7 +500,9 @@ class AlertEngine:
         button = self._store.panel_button
         name = self._store.pumps.by_number[pump].name
         try:
-            if await self._trips(pump) > button.max_trips:
+            # A limit of zero is no limit: keep clearing it however often it
+            # happens.
+            if button.max_trips and await self._trips(pump) > button.max_trips:
                 log.warning("Not recovering %s: too many trips", name)
                 return
 

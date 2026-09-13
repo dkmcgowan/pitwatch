@@ -381,7 +381,15 @@ def test_the_panel_button_settings_make_the_round_trip():
     from pitwatch.schemas import PanelButtonSettings
 
     before = PanelButtonSettings(
-        enabled=True, topic="shellyemg3/rpc", switch_id=1, silence_ms=350, reset_ms=4000
+        enabled=True,
+        topic="shellyemg3/rpc",
+        switch_id=1,
+        silence_ms=350,
+        reset_ms=4000,
+        auto_recover=True,
+        auto_silence=False,
+        max_trips=0,
+        within_minutes=90,
     )
     page = render_settings(panel_button=before)
     posted = dict(submitted(page))

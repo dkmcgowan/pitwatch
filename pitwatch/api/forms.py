@@ -139,6 +139,7 @@ def panel_button_from(form: FormData) -> PanelButtonSettings:
         silence_ms=integer(form, "panel_button_silence_ms", 400),
         reset_ms=integer(form, "panel_button_reset_ms", 3500),
         auto_recover=checkbox(form, "panel_button_auto_recover"),
+        auto_silence=checkbox(form, "panel_button_auto_silence"),
         max_trips=integer(form, "panel_button_max_trips", 3),
         within_minutes=integer(form, "panel_button_within_minutes", 60),
     )

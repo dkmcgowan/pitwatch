@@ -54,8 +54,9 @@ async def _readings(pool, rows):
 
 
 async def test_an_observation_is_never_overwritten_by_a_prediction(pool):
-    """The window rolls forward every fifteen minutes, so a moment that carried
-    an observation last time arrives next time as a prediction and nothing else.
+    """The window rolls forward on every poll, so a moment that carried an
+    observation last time arrives next time as a prediction and nothing else.
+    It matters more now that the frequent poll carries no prediction at all.
     Writing that null over the reading would quietly erase the record of what
     the water actually did, which is the half nobody can recompute."""
     when = datetime(2026, 9, 9, 23, 42, tzinfo=UTC)
@@ -168,3 +169,81 @@ async def test_a_pit_with_no_station_is_sent_no_tide_column(pool, store):
     await store.put(TideSettings())
 
     assert await summary.tide(pool, store, summary.WINDOW, "America/New_York") is None
+
+
+def test_the_poll_is_often_enough_that_a_reading_still_counts_as_current():
+    """The bug this encodes: three numbers that each looked reasonable alone
+    and did not fit together.
+
+    NOAA publishes the gauge every six minutes and is some minutes behind real
+    time when it does, so a reading is already old when it is fetched. It then
+    ages until the next fetch replaces it. If that total can pass the window
+    the dashboard calls current, the level on the card goes blank for part of
+    every cycle, which is what it did on a fifteen minute poll."""
+    behind_when_fetched = timedelta(minutes=9)
+    oldest = timedelta(seconds=tides.EVERY_S) + behind_when_fetched
+
+    assert oldest < tide_domain.NOW_WITHIN, (
+        f"the newest reading reaches {oldest} before it is replaced, "
+        f"past the {tide_domain.NOW_WITHIN} the dashboard will print"
+    )
+
+
+def test_the_frequent_poll_asks_only_for_the_half_that_goes_stale():
+    """The prediction is harmonic and costs four days of six minute rows. The
+    observation is the only half with a reason to be asked for often, and its
+    window is hours rather than days."""
+    now = datetime(2026, 9, 13, 21, 45, tzinfo=UTC)
+
+    begin, end = tides._recent_window(now)
+
+    assert end == "20260913 21:45", "to the minute, not to the day"
+    assert begin == "20260913 15:45"
+    assert tides.PREDICTION_EVERY_S > tides.EVERY_S, "the expensive half is asked for less"
+
+
+async def test_a_flat_crest_is_one_high_tide_and_not_two(pool):
+    """Slack water is flat, so a crest arrives as two samples at the same
+    height. Counting both made the next turn and the one after it the same
+    tide, six minutes apart."""
+    now = datetime.now(UTC)
+    # Rise, sit at the top for two samples, then fall.
+    levels = [3.0, 3.6, 4.2, 4.8, 5.1, 5.1, 4.8, 4.2, 3.6, 3.0, 2.4, 2.0, 2.4, 3.0]
+    rows = [
+        tides.Reading(ts=now + timedelta(minutes=6 * step), observed=None, predicted=level)
+        for step, level in enumerate(levels, start=1)
+    ]
+    await _readings(pool, rows)
+
+    tide = await tide_domain.read(pool, timedelta(hours=1), timedelta(hours=4))
+
+    assert tide is not None
+    assert tide.next_turn is not None and tide.next_turn.high is True
+    assert tide.next_turn.level == pytest.approx(5.1, abs=0.01)
+    # The one after it is the low that follows, not the same crest again.
+    assert tide.following is not None
+    assert tide.following.high is False, "the crest was counted twice"
+    assert tide.following.level == pytest.approx(2.0, abs=0.01)
+
+
+async def test_the_surge_is_measured_at_the_moment_the_reading_was_taken(pool):
+    """Against the prediction for now instead, a reading that is minutes old on
+    a moving tide invents a surge out of nothing but its own age. Near mid tide
+    the water runs a foot an hour, and the card starts calling three tenths of
+    a foot a surge worth printing."""
+    now = datetime.now(UTC)
+    rows = []
+    # A tide running hard, a foot an hour, with the water doing exactly what
+    # was predicted. Observations stop twelve minutes ago, which is ordinary:
+    # NOAA is always somewhat behind.
+    for step in range(-20, 40):
+        when = now + timedelta(minutes=6 * step)
+        level = 4.0 + 0.1 * step
+        rows.append(tides.Reading(ts=when, observed=level if step <= -2 else None, predicted=level))
+    await _readings(pool, rows)
+
+    tide = await tide_domain.read(pool, timedelta(hours=3), timedelta(hours=4))
+
+    assert tide is not None
+    assert tide.now == pytest.approx(3.8, abs=0.01), "the last reading, twelve minutes old"
+    assert tide.surge == pytest.approx(0.0, abs=0.01), "the water did what was predicted"

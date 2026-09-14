@@ -101,6 +101,11 @@ def _turns(rows: list, after: datetime) -> list[Turn]:
     Found by looking for where the curve stops going the way it was going. The
     six minute series makes that exact to within three minutes, which is finer
     than anybody reads a tide table.
+
+    Slack water is flat, so a crest often arrives as two samples at the same
+    height. The test is loose behind and strict ahead, which takes the last
+    sample of a plateau and counts one turn rather than one per sample. Loose
+    on both sides used to give the same high tide twice, six minutes apart.
     """
     points = [(row["ts"], row["predicted"]) for row in rows if row["predicted"] is not None]
     turns: list[Turn] = []
@@ -109,9 +114,9 @@ def _turns(rows: list, after: datetime) -> list[Turn]:
         when = points[index][0]
         if when <= after:
             continue
-        if here >= before and here >= following and not (here == before == following):
+        if here >= before and here > following:
             turns.append(Turn(ts=when, level=here, high=True))
-        elif here <= before and here <= following and not (here == before == following):
+        elif here <= before and here < following:
             turns.append(Turn(ts=when, level=here, high=False))
     return turns
 
@@ -138,16 +143,22 @@ async def read(pool: asyncpg.Pool, back: timedelta, ahead: timedelta) -> Tide | 
     latest = seen[-1] if seen else None
     level = latest["observed"] if latest and (now - latest["ts"]) <= NOW_WITHIN else None
 
-    # The prediction at the same moment, for the surge and for the direction.
-    predicted_now = None
+    # Rising or falling, from the predicted curve either side of now.
     rising = None
     ordered = [(row["ts"], row["predicted"]) for row in rows if row["predicted"] is not None]
     for index, (when, value) in enumerate(ordered):
         if when > now:
-            predicted_now = value
             if index:
                 rising = value > ordered[index - 1][1]
             break
+
+    # The surge is the observation against the prediction for the observation's
+    # own moment, which is the row it arrived in. Against the prediction for
+    # now it would be the surge plus however far the water moved while the
+    # reading aged, and near mid tide that is a foot an hour: a quarter of an
+    # hour of lag invents three tenths of a foot, which is exactly the point
+    # the card starts saying the water is running above prediction.
+    against = latest["predicted"] if latest is not None else None
 
     turns = _turns(list(rows), now)
     return Tide(
@@ -155,11 +166,7 @@ async def read(pool: asyncpg.Pool, back: timedelta, ahead: timedelta) -> Tide | 
         rising=rising,
         next_turn=turns[0] if turns else None,
         following=turns[1] if len(turns) > 1 else None,
-        surge=(
-            round(level - predicted_now, 2)
-            if level is not None and predicted_now is not None
-            else None
-        ),
+        surge=(round(level - against, 2) if level is not None and against is not None else None),
         fetched_at=fetched,
         hours=[(row["ts"], row["observed"], row["predicted"]) for row in rows],
     )

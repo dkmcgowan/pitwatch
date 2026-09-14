@@ -59,10 +59,31 @@ DATUM = "MLLW"
 PAST_DAYS = 2
 AHEAD_DAYS = 2
 
-# How often to ask. The observed series updates every six minutes and the
-# prediction never changes, so this is already more often than the answer moves.
-# It matches the weather poller so the two stay legible together.
-EVERY_S = 900
+# How often to ask for the observed level, and why it is not the fifteen
+# minutes the weather poller uses.
+#
+# Three numbers have to fit together and for a while they did not. The gauge
+# publishes every six minutes; NOAA is around eight minutes behind real time
+# when it does, so the newest reading is already eight minutes old at the
+# moment it is fetched; and the dashboard stops calling a reading current at
+# eighteen minutes. Asking every fifteen let the newest reading age to twenty
+# three before the next fetch replaced it, so the level on the card went blank
+# for the last third of every cycle. Asking on the same six minute beat as the
+# gauge keeps it between eight and fourteen, which is inside the window with
+# room to spare.
+EVERY_S = 360
+
+# How often to ask for the prediction. It is harmonic, computed from the moon,
+# and it will say the same thing tomorrow that it says now: the only reason to
+# ask again at all is to keep the far edge of the window stocked. It is also
+# the expensive half, four days of six minute rows, so it does not belong on
+# the beat that exists for freshness.
+PREDICTION_EVERY_S = 3600
+
+# How far back the frequent poll asks for observations. Long enough to fill in
+# whatever a missed cycle or a bad afternoon at NOAA left behind, short enough
+# that asking every six minutes is a small question.
+OBSERVED_BACK = timedelta(hours=6)
 
 # Older than the longest window anything draws, plus a margin so the edge of the
 # window is not the edge of the data.
@@ -179,6 +200,17 @@ def _window(now: datetime) -> tuple[str, str]:
     return start, end
 
 
+def _recent_window(now: datetime) -> tuple[str, str]:
+    """The short range the observation poll asks for, to the minute.
+
+    Whole days would defeat the point: the question is what the water did in
+    the last few hours, and NOAA takes an hour and a minute as readily as it
+    takes a date.
+    """
+    start = (now - OBSERVED_BACK).strftime("%Y%m%d %H:%M")
+    return start, now.strftime("%Y%m%d %H:%M")
+
+
 async def _ask(client, station: str, product: str, begin: str, end: str) -> list[dict]:
     params = {
         "product": product,
@@ -261,6 +293,29 @@ async def fetch(station: str, now: datetime | None = None) -> list[Reading]:
     ]
 
 
+async def fetch_observed(station: str, now: datetime | None = None) -> list[Reading]:
+    """What the water has actually done in the last few hours.
+
+    One call over a short window, which is the half that goes stale. The
+    prediction is left out on purpose: it is harmonic and already stored, and
+    the upsert leaves a column alone when a fetch carries nothing for it.
+    """
+    if not station:
+        raise TideError("No station chosen")
+    begin, end = _recent_window(now or datetime.now(UTC))
+
+    async with httpx2.AsyncClient(timeout=TIMEOUT_S) as client:
+        observed = await _ask(client, station, "water_level", begin, end)
+
+    readings: list[Reading] = []
+    for row in observed:
+        when = _when(row.get("t"))
+        if when is not None:
+            readings.append(Reading(ts=when, observed=_level(row.get("v")), predicted=None))
+    readings.sort(key=lambda row: row.ts)
+    return readings
+
+
 UPSERT = """
 INSERT INTO tide_reading (ts, observed, predicted, fetched_at)
 VALUES ($1, $2, $3, now())
@@ -308,9 +363,21 @@ class TideReader:
             return
 
         log.info("Tide reading from station %s", settings.station_name or settings.station)
+        # Two cadences on one timer. The first pass through takes the wide
+        # question, because a reader that has just started has no curve to draw
+        # at all; after that the prediction is asked for on the hour and the
+        # observation on every beat.
+        predictions_at: float | None = None
         while not stop.is_set():
             try:
-                written = await store(self._pool, await fetch(settings.station))
+                elapsed = asyncio.get_running_loop().time()
+                whole = predictions_at is None or elapsed - predictions_at >= PREDICTION_EVERY_S
+                if whole:
+                    readings = await fetch(settings.station)
+                    predictions_at = elapsed
+                else:
+                    readings = await fetch_observed(settings.station)
+                written = await store(self._pool, readings)
                 log.debug("Wrote %d tide reading(s)", written)
                 await self._report(True, None)
             except TideError as error:
@@ -330,12 +397,15 @@ class TideReader:
 
 __all__ = [
     "EVERY_S",
+    "OBSERVED_BACK",
+    "PREDICTION_EVERY_S",
     "Reading",
     "Station",
     "TideError",
     "TideReader",
     "as_read",
     "fetch",
+    "fetch_observed",
     "nearest",
     "spoken",
     "store",

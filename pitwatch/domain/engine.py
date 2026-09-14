@@ -958,6 +958,18 @@ class AlertEngine:
         for pump in (1, 2):
             seconds = running.get(pump)
             over = seconds is not None and seconds * 1000 >= rule.longer_than_ms
+            if seconds is not None and not over:
+                # Come back when this run crosses the line, rather than at the
+                # next tick. A sweep happens when a contact changes and every
+                # thirty seconds otherwise, and both ends of a run are contact
+                # changes, so a run shorter than a tick was only ever looked at
+                # at the moment it started and the moment it finished. On the
+                # reference pit, which runs for twelve seconds, that meant no
+                # threshold under thirty could fire at all, and the sixty
+                # second one was reported up to a tick late.
+                # float, because extract(epoch) comes back as a Decimal and
+                # mixing the two raises rather than converting.
+                self._ask_again_in(rule.longer_than_ms / 1000 - float(seconds))
             found[pump] = (
                 Finding(
                     pump=pump,

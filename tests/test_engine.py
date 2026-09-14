@@ -1299,3 +1299,231 @@ async def test_a_contactor_with_no_current_fires_once_the_clamp_has_proved_itsel
 
     rules = [row["rule"] for row in await pool.fetch("SELECT rule FROM alert")]
     assert "contactor_no_current" in rules
+
+
+async def _a_reader(pool, store, contacts, *, history=None, recent=None, samples=None):
+    """The engine with the two history readers a drift rule needs, and a live
+    meter reading for the rule that compares the contact against the clamp."""
+    return AlertEngine(
+        pool, store, SimpleNamespace(samples=samples or {}), contacts, history, recent
+    )
+
+
+async def test_every_rule_that_can_fire_sends_a_finished_sentence(pool, sent):
+    """The wording test widened to the whole list.
+
+    The one that came before it built a single world, and that world only ever
+    fired three rules: high water, overload and ran too long. The other
+    thirteen had their finished sentence asserted by nothing at all, which is
+    the same hole that let "The top float is wet, {pumps_state}." reach a
+    phone. A rule nobody has ever read the output of is a rule nobody knows
+    the wording of.
+
+    So this walks scenarios rather than one arrangement, and every alert any
+    of them writes has to read as English.
+    """
+    await _a_person(pool)
+
+    fired: set[str] = set()
+
+    async def run(scenario, alerts, contacts_states, setup=None, **engine_bits):
+        await pool.execute("DELETE FROM notification")
+        await pool.execute("DELETE FROM alert")
+        await pool.execute("DELETE FROM pump_run")
+        await pool.execute("DELETE FROM pump_cycle")
+        await pool.execute("DELETE FROM em_sample")
+        await pool.execute("DELETE FROM device_status")
+        store = _store(alerts)
+        contacts = _wire(_Contacts(), **contacts_states)
+        if setup is not None:
+            await setup(pool, store)
+        engine = await _a_reader(pool, store, contacts, **engine_bits)
+        await engine.sweep()
+        rows = await pool.fetch("SELECT rule, detail FROM alert")
+        for row in rows:
+            assert "{" not in row["detail"], (
+                f"{scenario}: {row['rule']} sent a raw placeholder: {row['detail']}"
+            )
+            assert "}" not in row["detail"], f"{scenario}: {row['rule']}: {row['detail']}"
+            fired.add(row["rule"])
+        return {row["rule"]: row["detail"] for row in rows}
+
+    # The panel, everything wrong at once.
+    alerts = AlertsSettings()
+    alerts.run_too_long.longer_than_ms = 1000
+    await run(
+        "the panel in trouble",
+        alerts,
+        {
+            "high_water": True,
+            "pump1_fault": True,
+            "pump2_fault": True,
+            "pump1_run": True,
+            "pump2_run": True,
+        },
+        setup=lambda pool, store: pool.execute(
+            "INSERT INTO pump_run (pump, started_at, started_by) "
+            "VALUES (2, now() - interval '90 seconds', 'contact')"
+        ),
+    )
+
+    # The alarm with nothing to explain it.
+    alerts = AlertsSettings()
+    alerts.panel_alert.hold_s = 0
+    await run("an unexplained alarm", alerts, {"system_alert": True})
+
+    # A contactor closed on a motor that is not turning, which needs the clamp
+    # to have proved it can see current at all.
+    # Pump 1's readings are filed under channel 0: the clamp's channel is the
+    # pump number less one, which is the kind of off by one that makes a rule
+    # look broken when the test is what is wrong.
+    async def a_dead_motor(pool, store):
+        await pool.execute(
+            "INSERT INTO em_sample (ts, channel, current) VALUES (now() - interval '1 day', 0, 12.0)"
+        )
+        await pool.execute(
+            "INSERT INTO pump_run (pump, started_at, started_by) "
+            "VALUES (1, now() - interval '30 seconds', 'contact')"
+        )
+
+    alerts = AlertsSettings()
+    await run(
+        "a motor that is not turning",
+        alerts,
+        {"pump1_run": True},
+        setup=a_dead_motor,
+        samples={0: SimpleNamespace(current=0.2)},
+    )
+
+    # Drawing more than its limit.
+    async def drawing_too_much(pool, store):
+        for step in range(4):
+            await pool.execute(
+                "INSERT INTO em_sample (ts, channel, current) VALUES (now() - $1::interval, 0, 30.0)",
+                timedelta(seconds=step),
+            )
+
+    alerts = AlertsSettings()
+    alerts.over_current.enabled = True
+    alerts.over_current.pump1_amps = 20.0
+    await run("drawing too much", alerts, {}, setup=drawing_too_much)
+
+    # A check valve letting the discharge back in.
+    async def restarting_constantly(pool, store):
+        for step in range(6):
+            await pool.execute(
+                "INSERT INTO pump_run (pump, started_at, ended_at, started_by) VALUES "
+                "(1, now() - $1::interval, now() - $1::interval + interval '12 seconds', 'contact')",
+                timedelta(seconds=(6 - step) * 20),
+            )
+
+    alerts = AlertsSettings()
+    alerts.short_cycling.restart_within_ms = 30_000
+    alerts.short_cycling.times_in_a_row = 2
+    await run("a check valve passing", alerts, {}, setup=restarting_constantly)
+
+    # Silence.
+    async def long_quiet(pool, store):
+        await pool.execute(
+            "INSERT INTO pump_run (pump, started_at, ended_at, started_by) "
+            "VALUES (1, now() - interval '20 hours', now() - interval '20 hours', 'contact')"
+        )
+
+    alerts = AlertsSettings()
+    await run("nothing has run", alerts, {}, setup=long_quiet)
+
+    # One pump not taking its turn.
+    async def one_pump_sitting_out(pool, store):
+        await pool.execute(
+            "INSERT INTO pump_run (pump, started_at, ended_at, started_by) "
+            "VALUES (1, now() - interval '40 hours', now() - interval '40 hours', 'contact')"
+        )
+        await pool.execute(
+            "INSERT INTO pump_run (pump, started_at, ended_at, started_by) "
+            "VALUES (2, now() - interval '5 minutes', now() - interval '5 minutes', 'contact')"
+        )
+
+    alerts = AlertsSettings()
+    await run("a pump not taking its turn", alerts, {}, setup=one_pump_sitting_out)
+
+    # The two drift rules, which need their history readers to answer.
+    alerts = AlertsSettings()
+    await run(
+        "wearing out",
+        alerts,
+        {},
+        history=SimpleNamespace(
+            typical=lambda *a, **k: _answer(
+                SimpleNamespace(drift=2.0, median=9.5, earlier_median=7.5)
+            )
+        ),
+        recent=SimpleNamespace(
+            from_contacts=lambda *a, **k: _answer(
+                SimpleNamespace(duration_drift_s=9.0, typical_duration_s=21.0)
+            )
+        ),
+    )
+
+    # A box that stopped answering.
+    async def a_quiet_device(pool, store):
+        # The rule reads nothing at all unless the broker is configured, which
+        # is deliberate: there is no such thing as a device gone quiet on an
+        # installation that was never listening.
+        store.mqtt.enabled = True
+        store.mqtt.health[0].topic = "pit/health"
+        store.mqtt.health[0].name = "the I/O module"
+        await pool.execute("INSERT INTO device_status (device, online) VALUES ('health0', false)")
+
+    alerts = AlertsSettings()
+    await run("a device gone quiet", alerts, {}, setup=a_quiet_device)
+
+    # Every rule that is swept and can be made to fire should have been read.
+    expected = {
+        "high_water",
+        "overload",
+        "both_overloads",
+        "both_pumps",
+        "run_too_long",
+        "panel_alert",
+        "contactor_no_current",
+        "over_current",
+        "short_cycling",
+        "nothing_has_run",
+        "pump_idle",
+        "run_drift",
+        "load_drift",
+        "device_offline",
+    }
+    assert expected <= fired, f"never read the wording of: {sorted(expected - fired)}"
+
+
+async def _answer(value):
+    return value
+
+
+async def test_a_run_that_goes_long_is_noticed_when_it_does_not_a_tick_later(pool, sent):
+    """The rule reads open runs, and a sweep happens when a contact changes or
+    every thirty seconds otherwise. Both ends of a run are contact changes, so
+    a run shorter than a tick was looked at once when it started and once when
+    it finished, and never in between.
+
+    On the reference pit, which runs for twelve seconds, that meant no
+    threshold under thirty seconds could ever fire, and the sixty second one
+    was reported up to a tick late. The rule now asks to be looked at again at
+    the moment the run crosses its own threshold.
+    """
+    await _a_person(pool)
+    alerts = AlertsSettings()
+    alerts.run_too_long.longer_than_ms = 4_000
+    engine = _engine(pool, _store(alerts), _wire(_Contacts(), pump1_run=True))
+    await pool.execute(
+        "INSERT INTO pump_run (pump, started_at, started_by) "
+        "VALUES (1, now() - interval '1 second', 'contact')"
+    )
+
+    await engine.sweep()
+
+    assert await pool.fetchval("SELECT count(*) FROM alert WHERE rule = 'run_too_long'") == 0
+    # Roughly the three seconds it has left, rather than the thirty second tick.
+    waiting = engine._recheck_at - asyncio.get_running_loop().time()
+    assert 1.5 < waiting < 3.5, waiting

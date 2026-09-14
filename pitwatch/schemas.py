@@ -826,9 +826,16 @@ class AlertsSettings(BaseModel):
     contactor_no_current: AlertRule = Field(
         default_factory=lambda: AlertRule(
             severity=Severity.CRITICAL,
+            # It used to state flatly that the motor is not turning. The rule
+            # cannot know that: it knows the contact says on and the clamp says
+            # nothing, and a clamp that has come loose since the day it proved
+            # itself says exactly the same thing. Both need somebody to go and
+            # look, so the sentence names both rather than picking one and
+            # being confidently wrong about a pump that is running fine.
             message=(
-                "{pump} at {site} is switched on and drawing nothing. The "
-                "contactor is closed and the motor is not turning. Time {time}."
+                "{pump} at {site} is switched on and drawing nothing. Either "
+                "the motor is not turning or its clamp has stopped reading. "
+                "Time {time}."
             ),
         )
     )
@@ -904,9 +911,14 @@ class AlertsSettings(BaseModel):
     device_offline: AlertRule = Field(
         default_factory=lambda: AlertRule(
             admins_only=True,
+            # "lost contact with", not "lost the". The device name comes from
+            # whatever somebody typed in the health check, and the reference
+            # install calls them Inputs and Meter, so an article in front of it
+            # read "PitWatch has lost the Inputs", and two of them at once read
+            # "the Inputs and Meter". The sentence has to work for any name.
             message=(
-                "PitWatch has lost the {device} at {site} and is not watching "
-                "the pumps. Time {time}."
+                "PitWatch has lost contact with {device} at {site} and is not "
+                "watching the pumps. Time {time}."
             ),
         )
     )

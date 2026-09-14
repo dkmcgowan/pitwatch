@@ -131,8 +131,11 @@ class AlertEngine:
         # Whether this alarm was explained by something else when it first
         # came up, decided once and kept for as long as the alarm lasts.
         self._panel_alert_explained: bool | None = None
-        # Whether this alarm has been silenced already, so a sweep that comes
-        # round while it is still up does not press again.
+        # One incident, from the first overload until everything is back.
+        # Somebody reading a phone wants to know it is over, and a line per
+        # pump per event never quite says so. See _incident_is_over.
+        self._incident_since: datetime | None = None
+        self._incident_trips = 0
         # When the alarm contact last changed, most recent last, so a flashing
         # alarm can be told from a steady one. See PULSING_EDGES.
         self._alarm_edges: deque[float] = deque(maxlen=32)
@@ -231,6 +234,11 @@ class AlertEngine:
             findings = await check(rule)
             await self._settle(key, rule, findings)
 
+        # After the rules, because whether an incident is over is a question
+        # about all of them at once rather than about any one.
+        with contextlib.suppress(asyncpg.PostgresError, OSError):
+            await self._incident_is_over()
+
     async def _settle(self, key: str, rule, findings) -> None:
         """Raise what is true, clear what is not, for every pump the rule
         covers. A rule that returned None is one that could not be evaluated,
@@ -277,6 +285,15 @@ class AlertEngine:
         log.warning("ALERT %s: %s", key, detail)
         await self._notify(alert_id, "raised", rule, detail)
 
+        # An incident opens on the first overload and counts the rest. Both
+        # pumps going is one incident, not two, which is how somebody reading
+        # it afterwards thinks of it.
+        if key == "overload":
+            if self._incident_since is None:
+                self._incident_since = datetime.now(UTC)
+                self._incident_trips = 0
+            self._incident_trips += 1
+
     async def _clear(self, key: str, rule, pump: int | None) -> None:
         row = await self._pool.fetchrow(
             """
@@ -291,6 +308,14 @@ class AlertEngine:
             return
 
         log.info("Cleared %s", key)
+
+        # Before the setting below, because putting the pump back is not a
+        # kind of message. Hung off the notification, turning off "tell me
+        # when it clears" quietly turned off the recovery with it, which is a
+        # setting about words disabling a thing that presses a button.
+        if key == "overload" and pump:
+            self._recover(pump, "reset")
+
         if not rule.tell_when_it_clears:
             return
         site = self._store.site.where or "the pit"
@@ -319,8 +344,6 @@ class AlertEngine:
         else:
             said = f"Cleared at {site}: {spec.title}."
         await self._notify(row["id"], "cleared", rule, said)
-        if key == "overload" and pump:
-            self._recover(pump, "reset")
 
     # -- telling somebody ---------------------------------------------------
 
@@ -578,7 +601,6 @@ class AlertEngine:
             # keeps pumping throughout, and each retrip counts toward the limit
             # that stops this happening forever.
             await self._press("reset", name)
-            await self._said_it_is_back(pump, name)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -593,25 +615,50 @@ class AlertEngine:
         else:
             log.info("Pressed %s on the panel for %s", action, name)
 
-    async def _said_it_is_back(self, pump: int, name: str) -> None:
-        """The one message the alerts cannot send, because nothing is wrong.
+    async def _incident_is_over(self) -> None:
+        """One message saying it is finished, when it is finished.
 
-        An overload clearing is an alert clearing and that goes out on its own.
-        This is the sentence after it: the button has been pressed, the pump is
-        in the rotation again, and here is how often that has had to happen.
+        The alerts say what went wrong and what stopped being wrong, a line per
+        pump per event, and on 2026-09-13 that was eight of them for a single
+        incident. Every one was true and none of them said the thing somebody
+        scrolling a phone actually wants, which is whether it is over and
+        whether they still have to do anything. The last message in that chain
+        was about one pump.
+
+        So the incident is a thing in its own right. It opens on the first
+        overload and closes when there is nothing out and nothing sounding,
+        and this is the only message that speaks for the whole of it.
         """
-        button = self._store.panel_button
+        if self._incident_since is None:
+            return
+        # Anything still out, or an alarm still up, and it is not over. The
+        # alarm is read through _panel_alert_since rather than off the contact,
+        # so that the dark half of a flash does not look like quiet.
+        if self._faults_out() or self._panel_alert_since is not None:
+            return
+        if await self._pool.fetchval(
+            "SELECT EXISTS (SELECT 1 FROM alert WHERE cleared_at IS NULL "
+            "AND severity IN ('warning', 'critical'))"
+        ):
+            return
+
+        trips = self._incident_trips
+        went_on = datetime.now(UTC) - self._incident_since
+        minutes = max(1, round(went_on.total_seconds() / 60))
+        self._incident_since = None
+        self._incident_trips = 0
+
         where = self._store.site.where or "the pit"
-        trips = await self._trips(pump)
-        said = f"{name} is back in the rotation at {where}. The panel alarm has been cleared."
+        said = f"All clear at {where}. Both pumps are in the rotation and the alarm is off."
         if trips > 1:
             said += (
-                f" That is {trips} trips in the last {button.within_minutes} "
-                "minutes, which is worth having the pump looked at."
+                f" That was {trips} overloads in {minutes} "
+                f"{'minute' if minutes == 1 else 'minutes'}, which is worth "
+                "having the pumps looked at."
             )
-        # Never info. An overload is not a thing to find out about later by
-        # reading a page, and a pump that trips at all after a month of not
-        # doing so is worth a message even when it fixed itself.
+        log.info("Incident over after %d overload(s)", trips)
+        # A warning rather than news, because somebody who only asked to hear
+        # about problems still needs the one that says the problem is done.
         await dispatch.tell(
             self._pool,
             self._store,
@@ -619,6 +666,10 @@ class AlertEngine:
             severity=Severity.WARNING,
             event="recovered",
         )
+
+    def _faults_out(self) -> int:
+        """How many pumps are out on their own overload right now."""
+        return sum(1 for pump in (1, 2) if self._contact(f"pump{pump}_fault"))
 
     def _overload_label(self, pump: int) -> str:
         """What the overload relay is called on the panel, for somebody

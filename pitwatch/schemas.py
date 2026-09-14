@@ -797,6 +797,11 @@ class AlertsSettings(BaseModel):
     overload: AlertRule = Field(
         default_factory=lambda: AlertRule(
             severity=Severity.CRITICAL,
+            # The all clear speaks for the whole incident, so this
+            # rule does not also announce its own half of it. Eight
+            # messages went out for one incident on 2026-09-13 and
+            # none of them said it was over.
+            tell_when_it_clears=False,
             message=(
                 "{pump} overload tripped at {site} and is out of service. "
                 "{cover} {recovery} Time {time}."
@@ -806,6 +811,11 @@ class AlertsSettings(BaseModel):
     both_overloads: AlertRule = Field(
         default_factory=lambda: AlertRule(
             severity=Severity.CRITICAL,
+            # The all clear speaks for the whole incident, so this
+            # rule does not also announce its own half of it. Eight
+            # messages went out for one incident on 2026-09-13 and
+            # none of them said it was over.
+            tell_when_it_clears=False,
             message=(
                 "BOTH pumps at {site} are out on overload. Nothing is "
                 "pumping and the pit is filling from now on. {recovery} "

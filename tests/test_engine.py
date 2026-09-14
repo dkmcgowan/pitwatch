@@ -696,12 +696,14 @@ async def test_both_overloads_out_is_its_own_alert(pool, sent):
     assert await _open(pool, "both_overloads") == 0
     assert await _open(pool, "overload") == 1
 
-    # And the all clear names both of them rather than hedging. A text about a
-    # sewage ejector saying "the other one may still be out" is a text that
-    # makes somebody go and look at the thing we are already looking at.
-    said = [body for _, _, body in sent if "is still out" in body][-1]
-    assert "Pump 1 is back and Pump 2 is still out" in said
-    assert "may still be out" not in said, "it knows which, so it says which"
+    # Nothing is sent about half of it being over. These rules do not announce
+    # their own clears any more: one message speaks for the whole incident and
+    # it waits until there is nothing left out, because eight true sentences
+    # about pumps and relays never added up to "it is finished".
+    assert not [body for _, _, body in sent if body.startswith("All clear")], (
+        "one pump is still out, so it is not all clear"
+    )
+    assert not [body for _, _, body in sent if "is still out" in body]
 
 
 def _wired(**over):
@@ -789,24 +791,18 @@ async def test_an_overload_silences_the_alarm_and_then_puts_the_pump_back(pool, 
     await _pressed_everything(engine)
     assert pressed == ["silence", "reset"], "nothing left to silence"
 
-    # Every overload message is a warning at least, including the good news.
-    # A pump that has not tripped in a month and then does is worth a message
-    # whether or not it fixed itself.
-    assert any("back in the rotation" in body for _, _, body in sent)
-
-    # And a second one inside the window says how often, which is the sentence
-    # that turns two incidents into a thing to look at.
-    contacts.by_channel[5] = True
+    # One message for the whole thing, once there is nothing out and nothing
+    # sounding. Not a line per pump: the point is somebody knowing it is over.
+    #
+    # The alarm has to have been quiet for the pulse gap first, which is what
+    # stops half a flash being read as the end of one.
+    engine._panel_alert_quiet_since -= timedelta(seconds=store.alerts.panel_alert.pulse_gap_s + 1)
     await engine.sweep()
-    await _pressed_everything(engine)
-    contacts.by_channel[5] = False
-    await engine.sweep()
-    await _pressed_everything(engine)
-
-    said = [body for _, _, body in sent if "back in the rotation" in body]
-    assert said, "the second recovery is worth telling somebody about"
-    assert "2 trips in the last 60 minutes" in said[-1]
-    assert "worth having the pump looked at" in said[-1]
+    said = [body for _, _, body in sent if body.startswith("All clear")]
+    assert said, "somebody has to be told it is finished"
+    assert "Both pumps are in the rotation and the alarm is off" in said[-1]
+    # One overload, so no lecture about having them looked at.
+    assert "worth having" not in said[-1]
 
 
 async def test_recovery_gives_up_on_a_pump_that_keeps_tripping(pool, sent):
@@ -948,6 +944,56 @@ async def test_a_limit_of_zero_never_gives_up(pool, sent):
 
     detail = await pool.fetchval("SELECT detail FROM alert WHERE rule = 'overload'")
     assert "recovery has stopped" not in detail
+
+
+async def test_one_incident_is_four_messages_and_the_last_one_says_it_is_over(pool, sent):
+    """What the chain reads like on a phone.
+
+    On 2026-09-13 a dual trip sent eight: two trips, both pumps out, two
+    relays clearing, both pumps out clearing, and two pumps rejoining. Every
+    one true, and to know it was finished you had to hold all eight in your
+    head and notice both pumps had appeared in the "back" list. The last one
+    was about one pump.
+
+    Four now. It started, it got worse, it is over, and the last one says so.
+    """
+    await _a_person(pool)
+    store = _store()
+    store.panel_button = _wired()
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
+    engine = _engine(pool, store, contacts)
+    _watching(engine)
+
+    await engine.sweep()
+    await _flash(engine, contacts)
+    await _pressed_everything(engine)
+
+    contacts.by_channel[6] = True
+    await engine.sweep()
+    await _pressed_everything(engine)
+
+    # Both relays pushed back in and the panel drops its alarm.
+    contacts.by_channel[5] = False
+    contacts.by_channel[6] = False
+    contacts.by_channel[2] = False
+    await engine.sweep()
+    await _pressed_everything(engine)
+    engine._panel_alert_quiet_since -= timedelta(seconds=store.alerts.panel_alert.pulse_gap_s + 1)
+    await engine.sweep()
+
+    posted = [body for _, _, body in sent]
+    assert len(posted) == 4, posted
+
+    assert "Pump 1 overload tripped" in posted[0]
+    assert "Pump 2 overload tripped" in posted[1]
+    assert "nothing is pumping at all" in posted[1]
+    assert "BOTH pumps" in posted[2]
+
+    # The one somebody is actually looking for.
+    assert posted[3].startswith("All clear")
+    assert "Both pumps are in the rotation and the alarm is off" in posted[3]
+    assert "2 overloads" in posted[3]
+    assert "worth having the pumps looked at" in posted[3]
 
 
 async def test_every_fresh_alarm_is_silenced_and_a_dealt_with_one_is_not(pool, sent):

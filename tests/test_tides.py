@@ -116,8 +116,10 @@ async def test_the_surge_is_the_water_the_moon_did_not_put_there(pool):
 
 
 async def test_a_gauge_that_stopped_reporting_says_nothing_rather_than_something_old(pool):
-    """Twenty minutes of silence and the card should not print a level as if it
-    were current. Nothing is a better answer than stale."""
+    """Forty minutes of silence and the card should not print a level as if it
+    were current. Nothing is a better answer than stale, and the window is wide
+    enough for NOAA being its normal eleven minutes behind, not for a gauge
+    that has stopped."""
     now = datetime.now(UTC)
     rows = [
         tides.Reading(ts=now - timedelta(minutes=40), observed=4.2, predicted=4.2),
@@ -180,7 +182,9 @@ def test_the_poll_is_often_enough_that_a_reading_still_counts_as_current():
     ages until the next fetch replaces it. If that total can pass the window
     the dashboard calls current, the level on the card goes blank for part of
     every cycle, which is what it did on a fifteen minute poll."""
-    behind_when_fetched = timedelta(minutes=9)
+    # Measured against the Battery over three cycles: eleven minutes, plus a
+    # few for the day NOAA is slower than it was that morning.
+    behind_when_fetched = timedelta(minutes=14)
     oldest = timedelta(seconds=tides.EVERY_S) + behind_when_fetched
 
     assert oldest < tide_domain.NOW_WITHIN, (

@@ -27,11 +27,25 @@ from pitwatch.ingest.tides import as_read
 
 log = logging.getLogger(__name__)
 
-# How close to now a reading has to be to count as the level now. Two readings
-# either side of six minutes; beyond that the gauge has stopped reporting and
-# saying nothing is better than saying something twenty minutes old as if it
-# were current.
-NOW_WITHIN = timedelta(minutes=18)
+# How close to now a reading has to be to count as the level now. Beyond this
+# the gauge has stopped reporting, and saying nothing is better than saying
+# something old as if it were current.
+#
+# Eighteen minutes was picked as two readings either side of six, which assumed
+# the newest reading is about six minutes old. It is not. Measured against the
+# Battery over three cycles, NOAA publishes eleven minutes behind real time, so
+# on a six minute poll the newest reading runs from eleven minutes to just over
+# sixteen before the next fetch replaces it. That cleared eighteen by under two
+# minutes, which is not margin, it is luck: a couple of minutes of slippage at
+# NOAA and the card starts going blank again at the tail of every cycle.
+#
+# Widening this does not make the printed level any older. The reading is
+# eleven to sixteen minutes old either way; this only decides whether a real
+# reading is thrown away. What used to argue for keeping it tight was the
+# surge, which compared an aging reading against the prediction for now and so
+# got worse as the reading aged. That is fixed at the source: the surge is
+# measured at the reading's own moment and does not care how old it is.
+NOW_WITHIN = timedelta(minutes=25)
 
 
 @dataclass(frozen=True)

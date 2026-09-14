@@ -804,6 +804,13 @@ async def test_an_overload_silences_the_alarm_and_then_puts_the_pump_back(pool, 
     # One overload, so no lecture about having them looked at.
     assert "worth having" not in said[-1]
 
+    # Two messages for one pump: it tripped, and then it was over. The relay
+    # coming back is not news of its own, because the all clear covers it.
+    posted = [body for _, _, body in sent]
+    assert len(posted) == 2, posted
+    assert "Pump 1 overload tripped" in posted[0]
+    assert posted[1].startswith("All clear")
+
 
 async def test_recovery_gives_up_on_a_pump_that_keeps_tripping(pool, sent):
     """The limit, and the reason for it.

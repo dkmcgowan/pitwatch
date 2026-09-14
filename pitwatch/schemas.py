@@ -927,6 +927,18 @@ class AlertsSettings(BaseModel):
         )
     )
 
+    # How often to say it is still not right, while it still is not.
+    #
+    # The rules speak at the moments things change, which leaves the middle of
+    # a long incident silent, and silence reads the same as fixed. Nothing had
+    # said anything for twenty minutes on 2026-09-13 while a pump sat out and
+    # the alarm sounded, because nothing had changed in that time: not being
+    # over is not an event.
+    #
+    # Zero turns it off. Every few minutes is a nag, and a nag about a sewage
+    # ejector is the right kind: it stops when it is fixed.
+    unresolved_every_minutes: int = Field(default=10, ge=0, le=180)
+
     @property
     def by_key(self) -> dict[str, AlertRule]:
         return {name: getattr(self, name) for name in ALERT_ORDER}

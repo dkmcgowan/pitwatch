@@ -249,6 +249,9 @@ def alerts_from(form: FormData, existing: AlertsSettings) -> AlertsSettings:
             else:
                 values[name] = optional_number(form, field)
         rules[key] = type(current)(**values)
+    rules["unresolved_every_minutes"] = integer(
+        form, "unresolved_every_minutes", existing.unresolved_every_minutes
+    )
     return AlertsSettings(**rules)
 
 

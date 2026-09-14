@@ -1770,16 +1770,25 @@ def test_the_overload_note_names_all_four_selector_positions():
 # -- the alerts page and the parser have to agree ---------------------------
 
 
-def render_alerts(rules) -> str:
+def render_alerts(rules, alerts=None) -> str:
     from jinja2 import Environment, FileSystemLoader
 
     from pitwatch.domain import alerts as specs
+    from pitwatch.schemas import AlertsSettings
 
     env = Environment(loader=FileSystemLoader("pitwatch/templates"), autoescape=True)
     env.globals["csrf_token"] = lambda: "token"
     env.globals["version"] = "test"
     return env.get_template("alerts.html").render(
-        specs=specs.SPECS, rules=rules, site=None, user=None, saved=False, error=None
+        specs=specs.SPECS,
+        rules=rules,
+        # The settings object as well as the per rule dict, for the one field
+        # on that page that belongs to no rule.
+        alerts=alerts or AlertsSettings(),
+        site=None,
+        user=None,
+        saved=False,
+        error=None,
     )
 
 
@@ -1808,15 +1817,19 @@ def test_saving_the_alerts_page_unchanged_changes_nothing():
     before.run_too_long.longer_than_ms = 12_000
     before.device_offline.admins_only = True
     before.float_activity.enabled = True
+    # The one field on that page that belongs to no rule.
+    before.unresolved_every_minutes = 25
 
-    posted = submitted(render_alerts(before.by_key))
+    posted = submitted(render_alerts(before.by_key, before))
     # A checkbox that is off posts nothing, and a textarea is not an input, so
     # the message boxes have to be collected separately.
-    page = render_alerts(before.by_key)
+    page = render_alerts(before.by_key, before)
     for area in re.finditer(r'<textarea\b[^>]*name="([^"]+)"[^>]*>(.*?)</textarea>', page, re.S):
         posted.append((area.group(1), area.group(2).strip()))
 
     after = forms.alerts_from(FormData(posted), AlertsSettings())
+
+    assert after.unresolved_every_minutes == 25
 
     for key in ALERT_ORDER:
         assert getattr(after, key) == getattr(before, key), key

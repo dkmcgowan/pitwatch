@@ -136,6 +136,8 @@ class AlertEngine:
         # pump per event never quite says so. See _incident_is_over.
         self._incident_since: datetime | None = None
         self._incident_trips = 0
+        # When it last said the incident was still going.
+        self._nagged_at: datetime | None = None
         # When the alarm contact last changed, most recent last, so a flashing
         # alarm can be told from a steady one. See PULSING_EDGES.
         self._alarm_edges: deque[float] = deque(maxlen=32)
@@ -238,6 +240,7 @@ class AlertEngine:
         # about all of them at once rather than about any one.
         with contextlib.suppress(asyncpg.PostgresError, OSError):
             await self._incident_is_over()
+            await self._still_not_right()
 
     async def _settle(self, key: str, rule, findings) -> None:
         """Raise what is true, clear what is not, for every pump the rule
@@ -615,6 +618,57 @@ class AlertEngine:
         else:
             log.info("Pressed %s on the panel for %s", action, name)
 
+    def _where_things_stand(self) -> str:
+        """What is wrong, in the order somebody would want to hear it.
+
+        Written for a phone in the middle of an incident, so it leads with
+        whether anything is pumping. Everything else is detail behind that.
+        """
+        names = self._store.pumps.by_number
+        out = [names[pump].name for pump in (1, 2) if self._contact(f"pump{pump}_fault")]
+        if len(out) == 2:
+            said = "Both pumps are out on overload and nothing is pumping."
+        elif out:
+            left = names[2 if out[0] == names[1].name else 1].name
+            said = f"{out[0]} is out on overload and {left} is covering on its own."
+        else:
+            said = "Both pumps are available."
+
+        if self._panel_alert_since is not None:
+            said += " The panel alarm is still up."
+        return said
+
+    async def _still_not_right(self) -> None:
+        """Say it is still not right, at intervals, while it still is not.
+
+        The rules speak when things change, which leaves the middle of a long
+        incident silent, and silence reads the same as fixed. Nothing said
+        anything for twenty minutes on 2026-09-13 while a pump sat out and the
+        alarm sounded, because in those twenty minutes nothing had changed:
+        not being over is not an event, and it is the thing somebody wants to
+        know about.
+        """
+        every = self._store.alerts.unresolved_every_minutes
+        if not every or self._incident_since is None:
+            return
+        now = datetime.now(UTC)
+        since = self._nagged_at or self._incident_since
+        if (now - since).total_seconds() < every * 60:
+            return
+        self._nagged_at = now
+
+        went_on = round((now - self._incident_since).total_seconds() / 60)
+        where = self._store.site.where or "the pit"
+        await dispatch.tell(
+            self._pool,
+            self._store,
+            message=(
+                f"Still not right at {where}, {went_on} minutes on. {self._where_things_stand()}"
+            ),
+            severity=Severity.CRITICAL,
+            event="recovered",
+        )
+
     async def _incident_is_over(self) -> None:
         """One message saying it is finished, when it is finished.
 
@@ -647,6 +701,7 @@ class AlertEngine:
         minutes = max(1, round(went_on.total_seconds() / 60))
         self._incident_since = None
         self._incident_trips = 0
+        self._nagged_at = None
 
         where = self._store.site.where or "the pit"
         said = f"All clear at {where}. Both pumps are in the rotation and the alarm is off."

@@ -21,6 +21,23 @@
 <form method="post" action="/alerts/settings">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
+  {# Not a rule, so it sits above them rather than pretending to be one.
+
+     The rules speak when things change, which leaves the middle of a long
+     incident silent, and silence reads the same as fixed. #}
+  <section class="card">
+    <div class="field">
+      <label for="unresolved_every_minutes">Say it is still not right every
+        (minutes)</label>
+      <input type="number" id="unresolved_every_minutes" min="0" max="180"
+             name="unresolved_every_minutes" value="{{ alerts.unresolved_every_minutes }}">
+      <p class="hint">While a pump is out or the alarm is up, a message saying
+        how it stands: which pump, whether anything is pumping, whether the
+        alarm is still sounding. It stops when the all clear goes out. Zero
+        turns it off.</p>
+    </div>
+  </section>
+
   {% for spec in specs %}
   {% set rule = rules[spec.key] %}
   <section class="card rule {% if not rule.enabled %}rule-off{% endif %}">

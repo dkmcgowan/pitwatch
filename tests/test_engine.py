@@ -996,6 +996,73 @@ async def test_one_incident_is_four_messages_and_the_last_one_says_it_is_over(po
     assert "worth having the pumps looked at" in posted[3]
 
 
+async def test_it_says_where_things_stand_while_they_still_do_not(pool, sent):
+    """The middle of a long incident is silent, and silence reads as fixed.
+
+    The rules speak when things change, so twenty minutes of a pump sitting
+    out and an alarm sounding produced nothing at all on 2026-09-13: not being
+    over is not an event, and it is the thing somebody wants to know about.
+    """
+    await _a_person(pool)
+    store = _store()
+    store.alerts.unresolved_every_minutes = 10
+    store.panel_button = _wired()
+    contacts = _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
+    engine = _engine(pool, store, contacts)
+    _watching(engine)
+
+    await engine.sweep()
+    await _pressed_everything(engine)
+    assert not [body for _, _, body in sent if body.startswith("Still not right")]
+
+    # Ten minutes on, with nothing having changed.
+    engine._incident_since -= timedelta(minutes=10)
+    await engine.sweep()
+
+    said = [body for _, _, body in sent if body.startswith("Still not right")]
+    assert said, "somebody has to be told it is still going"
+    assert "10 minutes on" in said[-1]
+    assert "Pump 1 is out on overload and Pump 2 is covering" in said[-1]
+    assert "The panel alarm is still up" in said[-1]
+
+    # And not again straight away.
+    await engine.sweep()
+    assert len([b for _, _, b in sent if b.startswith("Still not right")]) == 1
+
+    # It stops when it is over, and the all clear is the last word.
+    contacts.by_channel[5] = False
+    contacts.by_channel[2] = False
+    await engine.sweep()
+    await _pressed_everything(engine)
+    engine._panel_alert_quiet_since -= timedelta(seconds=store.alerts.panel_alert.pulse_gap_s + 1)
+    await engine.sweep()
+    engine._nagged_at = None
+    await engine.sweep()
+
+    assert len([b for _, _, b in sent if b.startswith("Still not right")]) == 1
+    assert [b for _, _, b in sent if b.startswith("All clear")]
+
+
+async def test_the_reminder_can_be_turned_off(pool, sent):
+    """Zero means never. A nag nobody asked for is the thing that teaches
+    somebody to stop reading these."""
+    await _a_person(pool)
+    store = _store()
+    store.alerts.unresolved_every_minutes = 0
+    store.panel_button = _wired()
+    engine = _engine(
+        pool, store, _wire(_Contacts(), pump1_fault=True, pump2_fault=False, system_alert=True)
+    )
+    _watching(engine)
+
+    await engine.sweep()
+    await _pressed_everything(engine)
+    engine._incident_since -= timedelta(hours=3)
+    await engine.sweep()
+
+    assert not [body for _, _, body in sent if body.startswith("Still not right")]
+
+
 async def test_every_fresh_alarm_is_silenced_and_a_dealt_with_one_is_not(pool, sent):
     """Walked on the real panel on 2026-09-13, four times over.
 

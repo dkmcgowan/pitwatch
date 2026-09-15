@@ -237,7 +237,10 @@ async def test_it_clears_and_says_so_once(pool, sent):
     await engine.sweep()
 
     assert [kind for kind, _, _ in sent] == ["email", "email"], "raised, then cleared"
-    assert "Cleared" in sent[1][2]
+    # The all clear says what happened rather than opening with the word
+    # Cleared and repeating the alarm's own title. See the test that reads
+    # every rule's all clear for why that mattered.
+    assert "The top float" in sent[1][2] and "has dropped" in sent[1][2], sent[1][2]
     assert await pool.fetchval("SELECT cleared_at IS NOT NULL FROM alert LIMIT 1") is True
 
 
@@ -1558,3 +1561,50 @@ async def test_short_cycling_is_the_pits_rhythm_and_not_one_pumps(pool, sent):
     assert len(rows) == 1, f"one alert about the pit, not one per pump: {rows}"
     assert rows[0]["pump"] is None, "the pit is not a pump"
     assert "8 s" in rows[0]["detail"], rows[0]["detail"]
+
+
+async def test_every_all_clear_says_the_good_news_rather_than_the_bad(pool, sent):
+    """The other half of the wording, which nothing read either.
+
+    A rule with no all clear of its own fell back to "Cleared at the pit: " and
+    its own title, and a title that is a negation then says the opposite of
+    what happened. Six minutes of quiet raised "No pump has run", a pump ran,
+    and the good news went out as "Cleared at 822 Greenwich St: Nothing has
+    run." Read on a phone that is the alarm again, not the end of it.
+
+    Found on 2026-09-15 by reading a real one.
+    """
+    await _a_person(pool)
+    from pitwatch.domain import alerts as specs
+
+    for spec in specs.SPECS:
+        if spec.key in ("float_activity", "pump_running"):
+            continue  # Raised and cleared in one breath; there is no all clear.
+        assert spec.cleared_message, f"{spec.key} falls back to its own title"
+        said = spec.cleared_message.lower()
+        assert not said.startswith("cleared"), spec.key
+
+    # And the finished sentences, filled the way the engine fills them.
+    alerts = AlertsSettings()
+    alerts.run_too_long.longer_than_ms = 1000
+    store = _store(alerts)
+    contacts = _wire(_Contacts(), high_water=True, pump1_fault=True, pump2_run=True)
+    engine = _engine(pool, store, contacts)
+    await pool.execute(
+        "INSERT INTO pump_run (pump, started_at, started_by) "
+        "VALUES (2, now() - interval '90 seconds', 'contact')"
+    )
+    await engine.sweep()
+    raised = await pool.fetchval("SELECT count(*) FROM alert WHERE cleared_at IS NULL")
+    assert raised, "nothing was raised, so nothing can clear"
+
+    # Everything goes away at once.
+    await pool.execute("UPDATE pump_run SET ended_at = now()")
+    for channel in contacts.by_channel:
+        contacts.by_channel[channel] = False
+    await engine.sweep()
+
+    cleared = [body for _, _, body in sent if "Cleared at" in body]
+    assert not cleared, f"an all clear fell back to the generic sentence: {cleared}"
+    for _, _, body in sent:
+        assert "{" not in body and "}" not in body, body

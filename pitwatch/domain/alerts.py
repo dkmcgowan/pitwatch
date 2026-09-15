@@ -68,6 +68,7 @@ SPECS: tuple[Spec, ...] = (
         needs=CONTACTS,
         placeholders=(*COMMON, "{pumps_state}"),
         clears="the float drops",
+        cleared_message="The top float at {site} has dropped. Time {time}.",
     ),
     Spec(
         key="panel_alert",
@@ -100,6 +101,7 @@ SPECS: tuple[Spec, ...] = (
             ),
         ),
         clears="the alarm goes out",
+        cleared_message="The panel alarm at {site} has gone out. Time {time}.",
     ),
     Spec(
         key="overload",
@@ -147,6 +149,7 @@ SPECS: tuple[Spec, ...] = (
         needs=BOTH,
         placeholders=(*COMMON, "{pump}"),
         clears="current appears or the contact opens",
+        cleared_message="{pump} at {site} is drawing current again. Time {time}.",
     ),
     Spec(
         key="over_current",
@@ -172,6 +175,7 @@ SPECS: tuple[Spec, ...] = (
             ),
         ),
         clears="it drops back",
+        cleared_message="{pump} at {site} is back under its limit. Time {time}.",
     ),
     Spec(
         key="run_too_long",
@@ -186,6 +190,7 @@ SPECS: tuple[Spec, ...] = (
         placeholders=(*COMMON, "{pump}", "{duration}"),
         thresholds=(Threshold("longer_than_ms", "Longer than (ms)", step="500", minimum="1000"),),
         clears="the pump stops",
+        cleared_message="{pump} at {site} has stopped. Time {time}.",
     ),
     Spec(
         key="short_cycling",
@@ -207,6 +212,7 @@ SPECS: tuple[Spec, ...] = (
             Threshold("times_in_a_row", "this many times running", minimum="2"),
         ),
         clears="the gaps lengthen",
+        cleared_message=("The pumps at {site} have gone back to a normal rhythm. Time {time}."),
     ),
     Spec(
         key="nothing_has_run",
@@ -220,6 +226,7 @@ SPECS: tuple[Spec, ...] = (
         placeholders=(*COMMON, "{quiet}"),
         thresholds=(Threshold("quiet_minutes", "Quiet for (minutes)", minimum="5"),),
         clears="a pump runs",
+        cleared_message="A pump has run at {site}. Time {time}.",
     ),
     Spec(
         key="both_pumps",
@@ -235,6 +242,7 @@ SPECS: tuple[Spec, ...] = (
         needs=CONTACTS,
         placeholders=COMMON,
         clears="one of them stops",
+        cleared_message="Only one pump is running at {site} again. Time {time}.",
     ),
     Spec(
         key="pump_idle",
@@ -253,6 +261,7 @@ SPECS: tuple[Spec, ...] = (
         placeholders=(*COMMON, "{pump}", "{hours}"),
         thresholds=(Threshold("idle_hours", "Idle for (hours)", minimum="1"),),
         clears="it runs again",
+        cleared_message="{pump} at {site} has run again. Time {time}.",
     ),
     Spec(
         key="run_drift",
@@ -270,6 +279,7 @@ SPECS: tuple[Spec, ...] = (
         needs=CONTACTS,
         placeholders=(*COMMON, "{pump}", "{seconds}", "{was}"),
         thresholds=(Threshold("longer_by_s", "Longer by (s)", step="0.5", minimum="0.5"),),
+        cleared_message="{pump} at {site} is back to its usual run length. Time {time}.",
     ),
     Spec(
         key="load_drift",
@@ -284,6 +294,7 @@ SPECS: tuple[Spec, ...] = (
         placeholders=(*COMMON, "{pump}", "{amps}", "{was}"),
         thresholds=(Threshold("climb_amps", "Climbed by (A)", step="0.1"),),
         clears="it settles back",
+        cleared_message="{pump} at {site} is back to its usual draw. Time {time}.",
     ),
     Spec(
         key="device_offline",
@@ -297,6 +308,9 @@ SPECS: tuple[Spec, ...] = (
         needs="PitWatch itself",
         placeholders=(*COMMON, "{device}"),
         clears="it answers again",
+        cleared_message=(
+            "PitWatch is back in contact at {site} and watching the pumps again. Time {time}."
+        ),
     ),
     Spec(
         key="float_activity",

@@ -97,7 +97,14 @@ def _spell(seconds: float) -> str:
     if total < 60:
         return f"{total} s"
     minutes, rest = divmod(total, 60)
-    return f"{minutes} min {rest} s" if rest else f"{minutes} min"
+    if minutes < 60:
+        return f"{minutes} min {rest} s" if rest else f"{minutes} min"
+    # Hours, because this is used for how long a pit has been quiet as well as
+    # for how long a pump has run. Six hours of silence said "360 min" here and
+    # "0.1 h" where the rule formatted its own, and neither is how anybody says
+    # it. Seconds are dropped once there are hours: nobody reads them.
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours} h {minutes} min" if minutes else f"{hours} h"
 
 
 @dataclass(frozen=True, slots=True)
@@ -990,9 +997,13 @@ class AlertEngine:
         if last is None:
             # Nothing has ever run, which on a fresh install is not news.
             return None
-        quiet_min = (datetime.now(UTC) - last).total_seconds() / 60
-        over = quiet_min >= rule.quiet_minutes
-        return {None: Finding(values={"quiet": f"{quiet_min / 60:.1f} h"}) if over else None}
+        quiet_s = (datetime.now(UTC) - last).total_seconds()
+        over = quiet_s / 60 >= rule.quiet_minutes
+        # Spelled rather than given as a decimal fraction of an hour. Six
+        # minutes of quiet went out reading "for 0.1 h", which is a number
+        # nobody says out loud and, on a rule about a pit nobody is watching,
+        # reads like the monitor is the thing that is broken.
+        return {None: Finding(values={"quiet": _spell(quiet_s)}) if over else None}
 
     async def _check_pump_idle(self, rule) -> dict | None:
         """One pump sitting out while the other works.

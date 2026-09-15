@@ -49,15 +49,27 @@ TIMEOUT_S = 30
 # which is the wrong thing to tell somebody who has one across the street.
 SEARCH_TIMEOUT_S = 90
 
-# Water level above a vertical datum, in feet. 62611 is NAVD88 and 62610 is the
-# older NGVD29; wells carry one or the other and a few carry both, so both are
-# asked for and whichever answers is used.
+# Water level above a vertical datum, in feet, and the order matters.
+#
+# 62611 is NAVD88 and 62610 is the older NGVD29. Some wells carry one, some the
+# other, and some carry both, which is the trap: in New York the two differ by
+# about 1.09 ft, so on 2025-03-14 the reference well read 0.08 against NGVD29
+# and -1.01 against NAVD88. The same water on the same day.
+#
+# Asking for both in one request returns both as columns and leaves the caller
+# to choose, and a caller that takes whichever comes first takes NGVD29 on a
+# full record and NAVD88 on a short one. That put a foot of phantom rise into a
+# table whose entire purpose is comparing one year against another.
+#
+# So they are asked for one at a time, NAVD88 first because it is the modern
+# datum, and the second is only tried when the first comes back empty. One well
+# yields one datum, and the datum is written down beside every reading.
 #
 # Not 72019, which is depth below the land surface and therefore upside down:
 # it grows as the water table falls. Storing a number whose sign is backwards
 # from every other series here is how somebody later reads a drought as a
 # flood.
-PARAMETERS = "62611,62610"
+DATUMS: tuple[tuple[str, str], ...] = (("62611", "NAVD88"), ("62610", "NGVD29"))
 
 # How far back to ask on a routine poll.
 #
@@ -97,6 +109,10 @@ class Reading:
     ts: datetime
     level: float
     site_no: str
+    # Which vertical datum the level is against. Recorded per reading because
+    # one well can publish two of them, a foot apart, and a column that mixes
+    # them is worse than an empty one.
+    datum: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,29 +166,41 @@ async def _ask(client, url: str, params: dict) -> str:
 async def fetch(
     site_no: str, now: datetime | None = None, *, everything: bool = False
 ) -> list[Reading]:
-    """Daily water levels for one well, oldest first.
+    """Daily water levels for one well, oldest first, in one datum.
 
     `everything` asks for the whole record rather than the recent window. Used
     once when the reader starts, because the comparison against other years is
     the only reason this series is worth having and it cannot be made from two
     months of readings.
+
+    One datum at a time, in preference order, and the first that answers wins.
+    Asking for both at once returns both as columns and invites picking one by
+    position, which is how a foot of phantom groundwater rise got stored.
     """
     if not site_no:
         raise GroundwaterError("No well chosen")
     start = EVERYTHING if everything else ((now or datetime.now(UTC)) - BACK).strftime("%Y-%m-%d")
 
     async with httpx2.AsyncClient(timeout=TIMEOUT_S) as client:
-        body = await _ask(
-            client,
-            DAILY_URL,
-            {
-                "format": "rdb",
-                "sites": site_no,
-                "startDT": start,
-                "parameterCd": PARAMETERS,
-            },
-        )
+        for parameter, datum in DATUMS:
+            body = await _ask(
+                client,
+                DAILY_URL,
+                {
+                    "format": "rdb",
+                    "sites": site_no,
+                    "startDT": start,
+                    "parameterCd": parameter,
+                },
+            )
+            readings = _readings(body, site_no, datum)
+            if readings:
+                return readings
+    return []
 
+
+def _readings(body: str, site_no: str, datum: str) -> list[Reading]:
+    """One datum's worth of rows out of an RDB answer."""
     rows = _rows(body)
     if len(rows) < 2:
         return []
@@ -182,15 +210,17 @@ async def fetch(
     except ValueError as error:
         raise GroundwaterError("The USGS answered without a datetime column") from error
 
-    # The value column's name carries the series and parameter, so it cannot be
-    # named in advance. It is the first column after datetime that is not a
-    # qualifier, and qualifier columns are the ones ending in _cd.
-    value_at = next(
-        (index for index in range(when_at + 1, len(header)) if not header[index].endswith("_cd")),
-        None,
-    )
-    if value_at is None:
+    # The value column's name carries the series id, so it cannot be named in
+    # advance. With one parameter asked for there is exactly one candidate: the
+    # single column after datetime that is not a qualifier, and qualifiers are
+    # the ones ending in _cd. Anything else means the answer is not the shape
+    # this was written against, and guessing at it is what caused the mix.
+    candidates = [
+        index for index in range(when_at + 1, len(header)) if not header[index].endswith("_cd")
+    ]
+    if len(candidates) != 1:
         return []
+    value_at = candidates[0]
 
     readings: list[Reading] = []
     for parts in rows[1:]:
@@ -201,7 +231,7 @@ async def fetch(
             level = float(parts[value_at])
         except ValueError:
             continue  # a day the well was not read, which is ordinary
-        readings.append(Reading(ts=when, level=level, site_no=site_no))
+        readings.append(Reading(ts=when, level=level, site_no=site_no, datum=datum))
     readings.sort(key=lambda row: row.ts)
     return readings
 
@@ -281,11 +311,12 @@ async def nearest(latitude: float, longitude: float) -> Well:
 
 
 UPSERT = """
-INSERT INTO groundwater_reading (ts, level, site_no, fetched_at)
-VALUES ($1, $2, $3, now())
+INSERT INTO groundwater_reading (ts, level, site_no, datum, fetched_at)
+VALUES ($1, $2, $3, $4, now())
 ON CONFLICT (ts) DO UPDATE SET
     level = excluded.level,
     site_no = excluded.site_no,
+    datum = excluded.datum,
     fetched_at = now()
 """
 
@@ -293,7 +324,9 @@ ON CONFLICT (ts) DO UPDATE SET
 async def store(pool: asyncpg.Pool, readings: list[Reading]) -> int:
     if not readings:
         return 0
-    await pool.executemany(UPSERT, [(row.ts, row.level, row.site_no) for row in readings])
+    await pool.executemany(
+        UPSERT, [(row.ts, row.level, row.site_no, row.datum) for row in readings]
+    )
     await pool.execute("DELETE FROM groundwater_reading WHERE ts < now() - $1::interval", KEEP)
     return len(readings)
 
@@ -353,6 +386,7 @@ class GroundwaterReader:
 
 __all__ = [
     "BACK",
+    "DATUMS",
     "EVERYTHING",
     "EVERY_S",
     "GroundwaterError",

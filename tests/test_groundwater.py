@@ -155,8 +155,77 @@ def test_depth_below_surface_is_not_what_gets_stored():
     """72019 is depth to water, which grows as the water table falls. Storing a
     number whose sign runs backwards from every other series here is how
     somebody later reads a drought as a flood."""
-    assert "72019" not in gw.PARAMETERS
-    assert "62611" in gw.PARAMETERS, "NAVD88, which is a height"
+    codes = [code for code, _ in gw.DATUMS]
+    assert "72019" not in codes
+    assert codes[0] == "62611", "NAVD88 first, because it is the modern datum"
+
+
+# The shape that caused the bug: this well publishes against both datums, and
+# in New York they sit about 1.09 ft apart. Same well, same day, two answers.
+TWO_DATUMS = "\n".join(
+    [
+        "#",
+        "agency_cd\tsite_no\tdatetime\t348084_62610_00003\t348084_62610_00003_cd"
+        "\t355012_62611_00003\t355012_62611_00003_cd",
+        "5s\t15s\t20d\t14n\t10s\t14n\t10s",
+        "USGS\t404424074002301\t2025-03-14\t0.08\tA\t-1.01\tA",
+        "USGS\t404424074002301\t2025-09-27\t0.46\tA\t-0.63\tA",
+        # The older datum stops being published partway through and the newer
+        # one carries on. Taking the first column drops these rows entirely.
+        "USGS\t404424074002301\t2026-04-15\t\t\t-0.18\tA",
+    ]
+)
+
+
+def test_two_datums_in_one_answer_are_refused_rather_than_mixed():
+    """The bug this encodes, found within an hour of shipping the card.
+
+    The parser took the first column after datetime that was not a qualifier.
+    Over a sixty day window only NAVD88 had data, so it took NAVD88 and looked
+    correct. Over the full record both were present, so it took NGVD29, a foot
+    higher, and dropped every row where NGVD29 had stopped being published.
+    A table whose whole purpose is comparing one year against another ended up
+    holding a foot of rise that was a change of datum.
+
+    So an answer carrying two value columns is not the shape this was written
+    against, and guessing which one is meant is exactly what went wrong.
+    """
+    assert gw._readings(TWO_DATUMS, "w", "NAVD88") == []
+
+
+def test_one_datum_at_a_time_and_every_reading_says_which():
+    """Asked for singly, in preference order, so a well yields one datum. The
+    name travels with each reading because a column that mixes two is worse
+    than an empty one: nothing downstream could tell."""
+    one = "\n".join(
+        [
+            "#",
+            "agency_cd\tsite_no\tdatetime\t355012_62611_00003\t355012_62611_00003_cd",
+            "5s\t15s\t20d\t14n\t10s",
+            "USGS\t404424074002301\t2025-03-14\t-1.01\tA",
+            "USGS\t404424074002301\t2026-04-15\t-0.18\tA",
+        ]
+    )
+
+    readings = gw._readings(one, "404424074002301", "NAVD88")
+
+    assert [row.level for row in readings] == [-1.01, -0.18], "no row dropped"
+    assert {row.datum for row in readings} == {"NAVD88"}
+
+
+async def test_a_datum_reaches_the_stored_row(pool):
+    """So a later query can refuse to compare across two of them rather than
+    averaging them into a number nobody can check."""
+    await gw.store(
+        pool,
+        [
+            gw.Reading(
+                ts=datetime(2026, 8, 19, tzinfo=UTC), level=-0.38, site_no="w", datum="NAVD88"
+            )
+        ],
+    )
+
+    assert await pool.fetchval("SELECT datum FROM groundwater_reading") == "NAVD88"
 
 
 def test_the_first_pass_asks_for_the_whole_record():

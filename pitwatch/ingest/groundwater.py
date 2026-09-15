@@ -59,12 +59,21 @@ SEARCH_TIMEOUT_S = 90
 # flood.
 PARAMETERS = "62611,62610"
 
-# How far back to ask on every poll.
+# How far back to ask on a routine poll.
 #
 # Wide enough that a well which has been quiet for weeks fills in the moment it
 # catches up, and wide enough to survive this having been switched off over a
 # holiday. The rows are one a day, so asking for two months is a few kilobytes.
 BACK = timedelta(days=60)
+
+# And how far back to ask the first time, which is as far as the well goes.
+#
+# The whole value of this series is the comparison against other years, and a
+# card that can only say "-0.33 ft" says nothing at all. These wells hold two
+# decades; at one row a day that is a few thousand rows and a single request,
+# so it is asked for once when the reader starts and never again on the timer.
+# 1900 rather than a computed date because the USGS simply returns what it has.
+EVERYTHING = "1900-01-01"
 
 # How often to ask. The series moves once a day and arrives a month late, so
 # this could be daily and is hourly only because an hour is a small number to
@@ -138,11 +147,19 @@ async def _ask(client, url: str, params: dict) -> str:
     return response.text
 
 
-async def fetch(site_no: str, now: datetime | None = None) -> list[Reading]:
-    """Daily water levels for one well, oldest first."""
+async def fetch(
+    site_no: str, now: datetime | None = None, *, everything: bool = False
+) -> list[Reading]:
+    """Daily water levels for one well, oldest first.
+
+    `everything` asks for the whole record rather than the recent window. Used
+    once when the reader starts, because the comparison against other years is
+    the only reason this series is worth having and it cannot be made from two
+    months of readings.
+    """
     if not site_no:
         raise GroundwaterError("No well chosen")
-    start = ((now or datetime.now(UTC)) - BACK).strftime("%Y-%m-%d")
+    start = EVERYTHING if everything else ((now or datetime.now(UTC)) - BACK).strftime("%Y-%m-%d")
 
     async with httpx2.AsyncClient(timeout=TIMEOUT_S) as client:
         body = await _ask(
@@ -306,9 +323,17 @@ class GroundwaterReader:
             return
 
         log.info("Groundwater from well %s", settings.site_name or settings.site_no)
+        # The first pass takes the whole record and every one after it takes
+        # the recent window. A reader that has just started may be looking at
+        # an empty table, and the year on year comparison this exists for needs
+        # the years.
+        everything = True
         while not stop.is_set():
             try:
-                written = await store(self._pool, await fetch(settings.site_no))
+                readings = await fetch(settings.site_no, everything=everything)
+                written = await store(self._pool, readings)
+                if written:
+                    everything = False
                 log.debug("Wrote %d groundwater reading(s)", written)
                 await self._report(True, None)
             except GroundwaterError as error:
@@ -328,6 +353,7 @@ class GroundwaterReader:
 
 __all__ = [
     "BACK",
+    "EVERYTHING",
     "EVERY_S",
     "GroundwaterError",
     "GroundwaterReader",

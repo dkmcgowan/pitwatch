@@ -157,3 +157,38 @@ def test_depth_below_surface_is_not_what_gets_stored():
     somebody later reads a drought as a flood."""
     assert "72019" not in gw.PARAMETERS
     assert "62611" in gw.PARAMETERS, "NAVD88, which is a height"
+
+
+def test_the_first_pass_asks_for_the_whole_record():
+    """The comparison against other years is the only reason this series is
+    worth having, and it cannot be made from two months of readings. So the
+    reader's first request reaches back past the well's own beginning and every
+    one after it takes the recent window."""
+    assert gw.EVERYTHING < "1950", gw.EVERYTHING
+    assert gw.BACK.days == 60, "the routine poll stays small"
+
+
+async def test_the_year_on_year_comparison_needs_the_backfill(pool):
+    """The failure this guards against is quiet: with only recent readings
+    stored, the card renders, the level is right, and the one number that makes
+    it meaningful is simply absent. Nothing errors."""
+    newest = datetime(2026, 8, 19, tzinfo=UTC)
+    await gw.store(pool, [gw.Reading(ts=newest, level=-0.33, site_no="w")])
+
+    thin = await gw_domain.read(pool, timedelta(days=90))
+    assert thin is not None
+    assert thin.level == pytest.approx(-0.33)
+    assert thin.a_year_ago is None, "nothing to compare against yet"
+    assert thin.change is None
+
+    await gw.store(
+        pool,
+        [
+            gw.Reading(ts=newest - timedelta(days=365 + day), level=-0.60, site_no="w")
+            for day in range(-7, 8)
+        ],
+    )
+
+    filled = await gw_domain.read(pool, timedelta(days=90))
+    assert filled is not None
+    assert filled.change == pytest.approx(0.27, abs=0.01)

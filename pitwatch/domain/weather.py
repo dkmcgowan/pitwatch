@@ -109,6 +109,16 @@ class Rain:
     # Hour by hour either side of now, for the strip on the card. Oldest first.
     hours: list[tuple[datetime, float | None, bool]]
 
+    # Everything that has fallen over the last week.
+    #
+    # Here because a pit fed by groundwater answers to how charged the ground
+    # already is, not to what is falling this hour. On the reference
+    # installation 0.4 mm in one hour took the pit from 12 second runs every
+    # three minutes to 47 second runs every fifty seconds, which is not a
+    # response to 0.4 mm. It is a response to ground that was already full, and
+    # the only number on this card that can show that is the running total.
+    last_7d: float | None = None
+
     def as_json(self, units: str) -> dict:
         return {
             "now": self.now,
@@ -117,6 +127,7 @@ class Rain:
             "units": units,
             "last_24h": as_read(self.last_24h, units),
             "next_24h": as_read(self.next_24h, units),
+            "last_7d": as_read(self.last_7d, units),
             "chance": self.chance,
             "fetched_at": self.fetched_at.isoformat() if self.fetched_at else None,
             "hours": [
@@ -124,6 +135,16 @@ class Rain:
             ],
         }
 
+
+# How far back the running total reaches. A week, because that is roughly how
+# long ground stays charged, and because anything shorter is already on the
+# card as the last 24 hours.
+SOAK = timedelta(days=7)
+
+SOAKED = """
+SELECT sum(precipitation) FROM weather_hour
+WHERE ts > now() - $1::interval AND ts <= now()
+"""
 
 NOW = """
 SELECT ts, precipitation, probability, temperature, code, fetched_at
@@ -180,12 +201,22 @@ async def read(pool: asyncpg.Pool, back: timedelta, ahead: timedelta) -> Rain | 
             doing = described(row["code"])
             frozen = row["code"] in FROZEN
 
+    # A separate question from the window above, and asked separately: the
+    # card's strip is a day either side of now and the running total reaches
+    # back a week, so one query cannot answer both without drawing six days
+    # nobody asked to see.
+    try:
+        soaked = await pool.fetchval(SOAKED, SOAK)
+    except (asyncpg.PostgresError, OSError):
+        soaked = None
+
     return Rain(
         now=now_wet,
         doing=doing,
         frozen=frozen,
         last_24h=round(fell, 2),
         next_24h=round(coming, 2),
+        last_7d=round(float(soaked), 2) if soaked is not None else None,
         chance=chance,
         fetched_at=fetched,
         hours=hours,

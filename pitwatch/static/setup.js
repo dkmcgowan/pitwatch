@@ -486,3 +486,69 @@ function csrfHeader(form) {
     }
   });
 })();
+
+// The nearest monitoring well, the same shape as the gauge lookup above.
+//
+// The distance matters more here than it does for a tide gauge. Tidal water is
+// one body and a gauge a few miles along the same shore says much the same
+// thing; a water table is local, and a well on the other side of a ridge is
+// measuring different ground entirely.
+
+(function () {
+  "use strict";
+
+  const button = document.querySelector("[data-well-find]");
+  const note = document.querySelector("[data-well-note]");
+  const siteNo = document.querySelector("#groundwater_site_no");
+  const name = document.querySelector("#groundwater_site_name");
+  if (!button || !siteNo || !name) {
+    return;
+  }
+
+  function say(text) {
+    if (note) {
+      note.textContent = text;
+    }
+  }
+
+  button.addEventListener("click", async function () {
+    const form = button.closest("form");
+    if (!form) {
+      return;
+    }
+    button.disabled = true;
+    // The USGS site search is slow enough that silence reads as a broken
+    // button, so this says so rather than just going gray.
+    say("Looking, this one can take half a minute...");
+
+    try {
+      const response = await fetch("/api/groundwater/nearest", {
+        method: "POST",
+        body: new FormData(),
+        headers: csrfHeader(form),
+      });
+      let result;
+      try {
+        result = JSON.parse(await response.text());
+      } catch (error) {
+        say(
+          response.status === 401
+            ? "Sign in first."
+            : "The server returned something unexpected (" + response.status + ")."
+        );
+        return;
+      }
+      if (!result.ok) {
+        say(result.error || "Nothing found.");
+        return;
+      }
+      siteNo.value = result.site_no || "";
+      name.value = result.name || "";
+      say((result.note || "Found it.") + " Not saved yet, press Save to keep it.");
+    } catch (error) {
+      say("The request failed: " + error.message);
+    } finally {
+      button.disabled = false;
+    }
+  });
+})();

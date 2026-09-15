@@ -1282,10 +1282,56 @@ class TideSettings(BaseModel):
         return bool(self.enabled and self.station)
 
 
+class GroundwaterSettings(BaseModel):
+    """The water table under the pit, from a USGS monitoring well.
+
+    One step closer to the thing than the tide is. The tide is a proxy: it
+    moves the water table near tidal water, which is why it correlates at all,
+    but what actually comes through a failed seal is the groundwater itself,
+    and rain, season and whatever the neighbors are doing to the ground move
+    that too. The USGS runs about six hundred monitoring wells across New York
+    City alone, one of them two hundred meters from the reference
+    installation, and publishes them free with no key and no account.
+
+    **It is slow and it is late, on purpose.** Daily values, around a month
+    behind. That is no use for a lamp and exactly right for the question it
+    answers, which is not what is happening now but whether this year is
+    unusual: the reference well read a quarter foot higher in August 2026 than
+    in August 2025. Nothing here pretends the newest row is current, and the
+    card prints the date it belongs to.
+
+    Off by default, like the tide. A well somebody has not chosen is a wrong
+    answer rather than a missing one.
+    """
+
+    KEY: ClassVar[str] = "groundwater"
+
+    enabled: bool = False
+    # The USGS site number, which is fifteen digits for a well rather than the
+    # eight a river gauge carries. Found by the button on the settings page,
+    # which picks the nearest well with recent data, or typed in from
+    # waterdata.usgs.gov.
+    site_no: str = Field(default="", max_length=20)
+    # What to call it, so the page can say "Greenwich and Horatio" rather than
+    # a fifteen digit number. Cosmetic, never used to look anything up.
+    site_name: str = Field(default="", max_length=120)
+
+    @field_validator("site_no", "site_name")
+    @classmethod
+    def trimmed(cls, value: str) -> str:
+        return value.strip()
+
+    @property
+    def ready(self) -> bool:
+        """Enough to ask. A well and permission."""
+        return bool(self.enabled and self.site_no)
+
+
 SETTING_MODELS: tuple[type[BaseModel], ...] = (
     SiteSettings,
     WeatherSettings,
     TideSettings,
+    GroundwaterSettings,
     MqttSettings,
     AlertsSettings,
     PumpsSettings,

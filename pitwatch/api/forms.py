@@ -19,6 +19,7 @@ from pitwatch.schemas import (
     AlertsSettings,
     ClampSource,
     ContactInput,
+    GroundwaterSettings,
     HealthSource,
     MqttSettings,
     PanelButtonSettings,
@@ -119,6 +120,14 @@ def weather_from(form: FormData) -> WeatherSettings:
     return WeatherSettings(
         enabled=checkbox(form, "weather_enabled"),
         units=text(form, "weather_units", "in") or "in",
+    )
+
+
+def groundwater_from(form: FormData) -> GroundwaterSettings:
+    return GroundwaterSettings(
+        enabled=checkbox(form, "groundwater_enabled"),
+        site_no=text(form, "groundwater_site_no"),
+        site_name=text(form, "groundwater_site_name"),
     )
 
 

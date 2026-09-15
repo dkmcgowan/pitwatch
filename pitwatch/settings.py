@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from pitwatch.config import Config
 from pitwatch.schemas import (
     AlertsSettings,
+    GroundwaterSettings,
     MqttSettings,
     PanelButtonSettings,
     PumpsSettings,
@@ -166,6 +167,10 @@ class SettingsStore:
     @property
     def tide(self) -> TideSettings:
         return self.get(TideSettings)
+
+    @property
+    def groundwater(self) -> GroundwaterSettings:
+        return self.get(GroundwaterSettings)
 
     @property
     def panel_button(self) -> PanelButtonSettings:

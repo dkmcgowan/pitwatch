@@ -21,11 +21,13 @@ import asyncpg
 from pitwatch.domain.checkup import Scheduled
 from pitwatch.domain.engine import AlertEngine
 from pitwatch.domain.runs import RunRecorder
+from pitwatch.ingest.groundwater import GroundwaterReader
 from pitwatch.ingest.mqtt import MqttReader
 from pitwatch.ingest.sink import IoSink, LiveIo, LiveState, SampleSink, record_device_status
 from pitwatch.ingest.tides import TideReader
 from pitwatch.ingest.weather import WeatherReader
 from pitwatch.schemas import (
+    GroundwaterSettings,
     MqttSettings,
     SiteSettings,
     SummarySettings,
@@ -50,6 +52,9 @@ CHECKUP_KEYS = {SummarySettings.KEY, SiteSettings.KEY}
 # One key. The tide needs a station rather than the site's coordinates, so
 # moving the pit does not change where the water is measured.
 TIDE_KEYS = {TideSettings.KEY}
+# And one for the well, for the same reason: it is named rather than found from
+# the site's coordinates, so moving the pit does not change which well is read.
+GROUNDWATER_KEYS = {GroundwaterSettings.KEY}
 
 
 class Supervisor:
@@ -98,6 +103,7 @@ class Supervisor:
         await self._start_mqtt()
         await self._start_weather()
         await self._start_tide()
+        await self._start_groundwater()
         await self._start_checkup()
 
         self._queue = self._store.subscribe()
@@ -318,6 +324,31 @@ class Supervisor:
         self._spawn("tide", TideReader(settings, self._pool, on_status).run)
         log.info("Tide reading from station %s", settings.station_name or settings.station)
 
+    async def _start_groundwater(self) -> None:
+        """The measured water table, on a timer.
+
+        The tide's slower and more literal sibling. Where the tide is a proxy
+        that moves every six hours, this is the thing itself, one reading a
+        day, published about a month late. It answers a different question and
+        is reported the same way.
+        """
+        settings = self._store.groundwater
+
+        async def on_status(online: bool, error: str | None) -> None:
+            await record_device_status(self._pool, "groundwater", online, error)
+
+        if not settings.enabled:
+            log.info("Groundwater is off")
+            await record_device_status(self._pool, "groundwater", False, "Turned off")
+            return
+        if not settings.site_no:
+            log.info("Groundwater has nowhere to look: no well chosen")
+            await record_device_status(self._pool, "groundwater", False, "No well chosen")
+            return
+
+        self._spawn("groundwater", GroundwaterReader(settings, self._pool, on_status).run)
+        log.info("Groundwater from well %s", settings.site_name or settings.site_no)
+
     def _watch_the_clamps(self) -> None:
         """Tell the meter to look closely while a pump is turning.
 
@@ -391,6 +422,10 @@ class Supervisor:
                 log.info("Tide settings changed, restarting the poller")
                 await self._kill("tide")
                 await self._start_tide()
+            if keys & GROUNDWATER_KEYS:
+                log.info("Groundwater settings changed, restarting the poller")
+                await self._kill("groundwater")
+                await self._start_groundwater()
             if keys & CHECKUP_KEYS:
                 log.info("Health summary settings changed, restarting the schedule")
                 await self._kill("checkup")

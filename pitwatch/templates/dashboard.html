@@ -407,6 +407,15 @@
         <span class="rain-value" data-rain-coming>--</span>
         <span class="rain-label">next 24 hours</span>
       </div>
+      {# The running total, which is the one that explains a busy pit.
+         Groundwater answers to how charged the ground already is rather than
+         to what is falling this hour: on this pit 0.4 mm in one hour took the
+         calls from every three minutes to every fifty seconds, which is not a
+         response to 0.4 mm of rain. It is a response to a week of it. #}
+      <div class="rain-figure">
+        <span class="rain-value" data-rain-week>--</span>
+        <span class="rain-label">last 7 days</span>
+      </div>
     </div>
 
     <div class="rain-strip" data-rain-strip></div>
@@ -473,6 +482,64 @@
         <p>The surge is how far the water is above or below prediction. A foot
           the moon did not put there is wind or weather pushing water inshore,
           and it is what floods a cellar.</p>
+      </div>
+      <p class="note-close">Click anywhere to close</p>
+    </dialog>
+  </section>
+
+  {# The water table itself, which is what the tide card is a proxy for.
+
+     Its own card rather than a figure on the tide's, because it answers a
+     different question on a different clock. The tide says what the water is
+     doing this hour; this says where the water table has been sitting this
+     season, and it arrives weeks late. Putting a month old number beside a six
+     minute one under one heading would invite reading them as the same kind of
+     thing.
+
+     Hidden unless a well is chosen, like the tide. #}
+  <section class="board-card tide-card" data-groundwater aria-label="Groundwater" hidden>
+    <div class="card-top">
+      <svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-tide"/></svg>
+      <h2 class="card-title">Groundwater</h2>
+      <button type="button" class="info-mark" data-info="groundwater"
+              aria-label="What this shows">i</button>
+    </div>
+
+    <p class="rain-state" data-groundwater-state>&nbsp;</p>
+
+    <div class="rain-figures">
+      <div class="rain-figure">
+        <span class="rain-value" data-groundwater-level>--</span>
+        <span class="rain-label" data-groundwater-when>water table</span>
+      </div>
+      <div class="rain-figure">
+        <span class="rain-value" data-groundwater-change>--</span>
+        <span class="rain-label">vs last year</span>
+      </div>
+    </div>
+
+    <div class="rain-strip" data-groundwater-strip></div>
+    <p class="rain-foot"><span data-groundwater-range></span><span data-groundwater-age></span></p>
+
+    <dialog class="note" id="note-groundwater">
+      <h3 class="note-title">Groundwater</h3>
+      <div class="hint">
+        <p>The height of the water table at the nearest USGS monitoring well,
+          a season of daily readings with the newest at the right.</p>
+        <p>This is the thing the tide is a proxy for. A pit below the water
+          table is a hole with the water table in it, and what comes through a
+          failed seal is this water. The tide moves it near the shore, but so
+          does rain, the season, and whatever is being done to the ground
+          nearby.</p>
+        <p><strong>It runs about a month behind.</strong> The USGS publishes
+          these daily and late, so the card prints the date the reading belongs
+          to rather than implying it is current. That is fine for what it is
+          for: a water table moves over weeks, and the question here is whether
+          this season is unusual, not what the water did this morning.</p>
+        <p>"vs a year ago" compares the newest reading against the same
+          fortnight a year earlier, which is the only way a number like minus a
+          third of a foot means anything.</p>
+        <p>"Not set up" means no well has been chosen: pick one in settings.</p>
       </div>
       <p class="note-close">Click anywhere to close</p>
     </dialog>

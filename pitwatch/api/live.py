@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from pitwatch import __version__, auth, domain
 from pitwatch.api import forms
+from pitwatch.domain import groundwater as groundwater_domain
 from pitwatch.domain import tides as tide_domain
 from pitwatch.domain import weather as weather_domain
 from pitwatch.domain.history import (
@@ -25,6 +26,7 @@ from pitwatch.domain.history import (
     SignalHistory,
     Typical,
 )
+from pitwatch.ingest import groundwater as groundwater_ingest
 from pitwatch.ingest import tides as tide_ingest
 from pitwatch.ingest import weather as weather_ingest
 from pitwatch.ingest.sink import LiveIo, LiveState
@@ -52,6 +54,10 @@ RAIN_AHEAD = timedelta(hours=24)
 # high and the next one is a card somebody can read a pump record against. The
 # window is wider than the rain's because a tide cycle is twelve and a half
 # hours and half of one on screen says nothing.
+# Ninety days of the well, which is a season. Shorter says nothing, because the
+# series is one reading a day and a fortnight of it is a flat line; the whole
+# value of this number is the shape it makes over months.
+GROUNDWATER_BACK = timedelta(days=90)
 TIDE_BACK = timedelta(hours=18)
 TIDE_AHEAD = timedelta(hours=18)
 
@@ -390,10 +396,18 @@ async def build_state(app) -> dict:
     # draws differently from a low tide.
     tide = await tide_domain.read(pool, TIDE_BACK, TIDE_AHEAD) if store.tide.ready else None
 
+    # And the water table itself, which is what the tide was standing in for.
+    # Weeks behind by nature, so the card is handed the reading's own date and
+    # says it rather than implying the number is current.
+    water = (
+        await groundwater_domain.read(pool, GROUNDWATER_BACK) if store.groundwater.ready else None
+    )
+
     return {
         "site": store.site.model_dump(mode="json"),
         "rain": None if rain is None else rain.as_json(units),
         "tide": None if tide is None else tide.as_json(store.tide.units),
+        "groundwater": None if water is None else water.as_json(),
         "pumps": {"1": pump_state(1), "2": pump_state(2)},
         "panel": panel_state(inputs, live_io, closings, both_ran),
         # No list of inputs carrying nothing. The panel brings out eight
@@ -487,6 +501,41 @@ async def tide_nearest(request: Request, user: auth.SignedIn) -> JSONResponse:
             "note": (
                 f"{station.where} is the nearest gauge, about {station.miles:.0f} "
                 f"miles away. Check that is the same water as the pit before saving."
+            ),
+        }
+    )
+
+
+@router.post("/groundwater/nearest", include_in_schema=False)
+async def groundwater_nearest(request: Request, user: auth.SignedIn) -> JSONResponse:
+    """The closest USGS monitoring well to the site, without saving anything.
+
+    The same arrangement as the tide gauge, and the same reason for showing the
+    distance: a water table is local, so a well fourteen miles away is
+    measuring different ground and a person reading the number is the check.
+    """
+    store: SettingsStore = request.app.state.settings
+    site = store.site
+    if not site.has_coordinates:
+        return JSONResponse(
+            {"ok": False, "error": "Set the site coordinates first, under Site."},
+            status_code=200,
+        )
+
+    try:
+        well = await groundwater_ingest.nearest(site.latitude, site.longitude)
+    except groundwater_ingest.GroundwaterError as error:
+        return JSONResponse({"ok": False, "error": str(error)}, status_code=200)
+
+    close = f"{well.miles:.2f}" if well.miles < 1 else f"{well.miles:.0f}"
+    return JSONResponse(
+        {
+            "ok": True,
+            "site_no": well.site_no,
+            "name": well.name,
+            "note": (
+                f"{well.name} is the nearest well, about {close} miles away. "
+                f"A water table is local, so the closer the better."
             ),
         }
     )

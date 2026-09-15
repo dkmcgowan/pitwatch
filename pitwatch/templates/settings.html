@@ -277,6 +277,70 @@
   </details>
 </section>
 
+{# The water table itself, which is what the tide above is a proxy for.
+
+   Its own section rather than a field on the tide's, because it is a different
+   source answering a different question on a different clock: one reading a
+   day, published about a month late. Worth having even where the tide is not,
+   because a pit nowhere near tidal water still sits in groundwater. #}
+<section class="card settings-section">
+  <details name="settings">
+    <summary><h2>Groundwater</h2></summary>
+  <form method="post" action="/settings/groundwater" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <p class="hint">The USGS runs monitoring wells all over the country and
+      publishes what they read, free and without an account. Where one is close
+      enough, it measures the thing the tide only stands in for: the height of
+      the water table the pit sits in. Useful even a long way from the coast.</p>
+
+    <p class="hint"><strong>It runs about a month behind.</strong> These are
+      daily readings published late, so nothing here is live and the dashboard
+      card prints the date each reading belongs to. That suits the question it
+      answers, which is whether this season is unusual rather than what the
+      water is doing this morning.</p>
+
+    <div class="field">
+      <label class="check">
+        <input type="checkbox" name="groundwater_enabled"
+               {% if groundwater.enabled %}checked{% endif %}>
+        Look up the water table under the pit
+      </label>
+    </div>
+
+    <div class="grid">
+      <div class="field">
+        <label for="groundwater_site_no">USGS well</label>
+        <input type="text" id="groundwater_site_no" name="groundwater_site_no"
+               value="{{ groundwater.site_no }}" placeholder="404424074002301">
+        <p class="hint">The site number of a groundwater well, which is fifteen
+          digits rather than the eight a river gauge carries. Press Find
+          nearest, or look one up at waterdata.usgs.gov.</p>
+      </div>
+      <div class="field">
+        <label for="groundwater_site_name">Called</label>
+        <input type="text" id="groundwater_site_name" name="groundwater_site_name"
+               value="{{ groundwater.site_name }}" placeholder="Greenwich and Horatio">
+        <p class="hint">Only so the pages can name it. Nothing is looked up
+          with this.</p>
+      </div>
+    </div>
+
+    <p>
+      <button type="button" class="button secondary" data-well-find>Find nearest</button>
+      <span class="hint" data-well-note></span>
+    </p>
+
+    {% if not site.has_coordinates %}
+    <p class="hint"><strong>Nothing to find yet.</strong> Set the address or the
+      coordinates in "This site" above and save that first.</p>
+    {% endif %}
+
+    <button type="submit" class="button">Save</button>
+  </form>
+  </details>
+</section>
+
 {# Pressing the panel's own button from somewhere else.
 
    One signal, two meanings. The reference panel reads how long 24 V is held on

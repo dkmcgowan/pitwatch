@@ -98,6 +98,14 @@ class Hour:
     probability: int | None
     temperature: float | None
     code: int | None
+    # Barometric pressure at mean sea level, in hectopascals.
+    #
+    # Here because it arrives in the same request as the rain and because on a
+    # pit fed by groundwater it is not weather, it is hydrology: a falling
+    # barometer lets groundwater discharge into a void more freely. Sea level
+    # rather than station pressure, so a reading means the same thing at any
+    # altitude and two sites can be compared.
+    pressure: float | None = None
 
 
 def rounded(value: float) -> float:
@@ -167,7 +175,9 @@ async def fetch(latitude: float, longitude: float) -> list[Hour]:
     params = {
         "latitude": rounded(latitude),
         "longitude": rounded(longitude),
-        "hourly": "precipitation,precipitation_probability,temperature_2m,weather_code",
+        "hourly": (
+            "precipitation,precipitation_probability,temperature_2m,weather_code,pressure_msl"
+        ),
         "past_days": PAST_DAYS,
         "forecast_days": FORECAST_DAYS,
         "timezone": "UTC",
@@ -228,6 +238,7 @@ def _hours(body: object) -> list[Hour]:
     chance = column("precipitation_probability")
     temperature = column("temperature_2m")
     codes = column("weather_code")
+    pressure = column("pressure_msl")
 
     def at(values: list, index: int):
         return values[index] if index < len(values) else None
@@ -245,6 +256,7 @@ def _hours(body: object) -> list[Hour]:
                 probability=_whole(at(chance, index)),
                 temperature=_number(at(temperature, index)),
                 code=_whole(at(codes, index)),
+                pressure=_number(at(pressure, index)),
             )
         )
     return hours
@@ -259,13 +271,14 @@ def _whole(value: object) -> int | None:
 
 
 UPSERT = """
-INSERT INTO weather_hour (ts, precipitation, probability, temperature, code, fetched_at)
-VALUES ($1, $2, $3, $4, $5, now())
+INSERT INTO weather_hour (ts, precipitation, probability, temperature, code, pressure, fetched_at)
+VALUES ($1, $2, $3, $4, $5, $6, now())
 ON CONFLICT (ts) DO UPDATE SET
     precipitation = excluded.precipitation,
     probability   = excluded.probability,
     temperature   = excluded.temperature,
     code          = excluded.code,
+    pressure      = excluded.pressure,
     fetched_at    = now()
 """
 
@@ -288,7 +301,14 @@ async def store(pool: asyncpg.Pool, hours: list[Hour]) -> int:
     await pool.executemany(
         UPSERT,
         [
-            (hour.ts, hour.precipitation, hour.probability, hour.temperature, hour.code)
+            (
+                hour.ts,
+                hour.precipitation,
+                hour.probability,
+                hour.temperature,
+                hour.code,
+                hour.pressure,
+            )
             for hour in hours
         ],
     )

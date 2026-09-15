@@ -129,6 +129,7 @@ async def settings_page(request: Request, owner: auth.IsOwner, saved: str | None
             summary=store.summary,
             weather=store.weather,
             tide=store.tide,
+            groundwater=store.groundwater,
             panel_button=store.panel_button,
             diagnostics=await diagnostics.read(
                 request.app.state.pool, store.mqtt, store.pumps, store.site
@@ -368,6 +369,8 @@ async def settings_save(request: Request, section: str, owner: auth.IsOwner) -> 
                 await store.put(forms.weather_from(form))
             case "tide":
                 await store.put(forms.tide_from(form))
+            case "groundwater":
+                await store.put(forms.groundwater_from(form))
             case "panel_button":
                 await store.put(forms.panel_button_from(form))
             case _:
@@ -385,6 +388,7 @@ async def settings_save(request: Request, section: str, owner: auth.IsOwner) -> 
                 summary=store.summary,
                 weather=store.weather,
                 tide=store.tide,
+                groundwater=store.groundwater,
                 panel_button=store.panel_button,
                 diagnostics=await diagnostics.read(
                     request.app.state.pool, store.mqtt, store.pumps, store.site

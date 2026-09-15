@@ -287,6 +287,7 @@ def render_settings(**overrides) -> str:
     from pitwatch.domain.diagnostics import Report as Diagnostics
     from pitwatch.schemas import (
         DASHBOARD_ROLES,
+        GroundwaterSettings,
         MqttSettings,
         PanelButtonSettings,
         PumpsSettings,
@@ -309,6 +310,7 @@ def render_settings(**overrides) -> str:
         "site": SiteSettings(),
         "weather": WeatherSettings(),
         "tide": TideSettings(),
+        "groundwater": GroundwaterSettings(),
         "panel_button": PanelButtonSettings(),
         "mqtt": MqttSettings(),
         "pumps": PumpsSettings(),
@@ -822,8 +824,8 @@ def test_the_panel_lamp_tells_a_pulsing_alarm_from_a_silenced_one():
     assert 'classList.toggle("alarm"' in js
 
 
-def test_the_dashboard_is_six_sections():
-    """A pump, the other pump, then alerts, floats, rain and tide.
+def test_the_dashboard_is_seven_sections():
+    """A pump, the other pump, then alerts, floats, rain, tide and groundwater.
 
     It was six boxes once, then one box holding everything at a size that fit a
     phone without scrolling. The one box fit and could not be read: two pump
@@ -842,8 +844,16 @@ def test_the_dashboard_is_six_sections():
     tide is the water table it stands in. Both look forward, which nothing
     above them does.
 
-    Tide is the only card that can be absent. Most pits are nowhere near tidal
-    water, so it renders hidden and the script shows it when a station is set.
+    Groundwater came last and sits under the tide, which is the same argument
+    one step further again: the tide is a proxy for the water table and the
+    well measures it. Its own card rather than a figure on the tide's, because
+    it answers on a different clock. The tide is six minutes old and this is
+    about a month old, and two numbers under one heading would be read as the
+    same kind of thing.
+
+    Tide and groundwater are the only cards that can be absent. Most pits are
+    nowhere near tidal water and most have no well near them, so both render
+    hidden and the script shows each when one is configured.
 
     Layout is normally not worth a test. This is, because it has been described
     in prose and built from that description more than once, and shipped wrong
@@ -851,15 +861,18 @@ def test_the_dashboard_is_six_sections():
     """
     page = render_dashboard()
 
-    assert page.count("<section") == 6
+    assert page.count("<section") == 7
     # The banner and the two device indicators sit outside them, and nothing
     # else does.
-    assert page.count('class="board-card') == 6
-    # Rain sits under the water it explains, and tide under the rain.
+    assert page.count('class="board-card') == 7
+    # Rain sits under the water it explains, tide under the rain, and the well
+    # under the tide: each one a step further from the building than the last.
     assert page.index("rain-card") > page.index("water-card")
     assert page.index("tide-card") > page.index("rain-card")
-    # And tide starts hidden, because most pits have no station.
+    assert page.index("data-groundwater") > page.index("data-tide ")
+    # And both start hidden, because most pits have neither.
     assert 'data-tide aria-label="Tide" hidden' in page
+    assert 'data-groundwater aria-label="Groundwater" hidden' in page
     assert "history-row" not in page and "history-table" not in page
     # And nothing left of the section that went, in the markup or the
     # stylesheet, so it cannot come back by halves.
@@ -1537,11 +1550,12 @@ def test_every_long_note_is_a_dialog_opened_from_beside_its_heading():
     looks like, and Escape closes it without being told to."""
     page = render_dashboard()
 
-    # Six buttons and six notes: the two groups of lamps, the rain, the tide,
-    # and the two pump columns, the column being written once in a loop.
-    assert page.count("data-info=") == 6
-    assert page.count("<dialog") == 6
-    assert page.count("</dialog>") == 6
+    # Seven buttons and seven notes: the two groups of lamps, the rain, the
+    # tide, the well, and the two pump columns, the column being written once
+    # in a loop.
+    assert page.count("data-info=") == 7
+    assert page.count("<dialog") == 7
+    assert page.count("</dialog>") == 7
 
     # Each button names a note that exists.
     import re
@@ -1625,8 +1639,8 @@ def test_the_note_does_not_sit_in_the_flow_of_the_page():
 
     assert "card-note" not in css and "card-note" not in page
     assert "dialog.note::backdrop" in css
-    # The handle sits beside the heading it belongs to, on each of the six.
-    assert page.count('class="info-mark"') == 6
+    # The handle sits beside the heading it belongs to, on each of the seven.
+    assert page.count('class="info-mark"') == 7
 
 
 def test_the_live_reading_is_labelled_and_no_bigger_than_anything_else():

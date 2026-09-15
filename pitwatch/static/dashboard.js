@@ -761,6 +761,7 @@
     const state = card.querySelector("[data-rain-state]");
     const fell = card.querySelector("[data-rain-fell]");
     const coming = card.querySelector("[data-rain-coming]");
+    const week = card.querySelector("[data-rain-week]");
     const scale = card.querySelector("[data-rain-scale]");
     const age = card.querySelector("[data-rain-age]");
 
@@ -770,7 +771,7 @@
     if (empty) {
       empty.hidden = known;
     }
-    [strip, state, fell, coming].forEach(function (node) {
+    [strip, state, fell, coming, week].forEach(function (node) {
       if (node && node.parentElement) {
         node.parentElement.hidden = !known;
       }
@@ -803,6 +804,9 @@
     if (coming) {
       coming.textContent = rainAmount(rain.next_24h, rain.units);
     }
+    if (week) {
+      week.textContent = rainAmount(rain.last_7d, rain.units);
+    }
     if (strip) {
       drawRainStrip(strip, rain);
     }
@@ -833,6 +837,17 @@
       return "";
     }
     return when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
+  // A date rather than a clock time. The groundwater card needs one because
+  // its reading belongs to a day weeks ago, and printing a time of day against
+  // a daily average would be inventing precision the number does not have.
+  function dayAt(iso) {
+    const when = new Date(iso);
+    if (isNaN(when.getTime())) {
+      return "";
+    }
+    return when.toLocaleDateString([], { month: "short", day: "numeric" });
   }
 
   function tideLevel(value, units) {
@@ -985,6 +1000,124 @@
     }
   }
 
+  // -- the water table -------------------------------------------------------
+
+  function feet(value) {
+    if (value === null || value === undefined) {
+      return "--";
+    }
+    return value.toFixed(2) + " ft";
+  }
+
+  // A season of daily readings. A line rather than bars, same as the tide, and
+  // with no "now" marker on it: the newest reading is weeks old, so a line at
+  // the right hand edge claiming to be now would be the one misleading mark on
+  // the card.
+  function drawWellStrip(holder, water) {
+    holder.textContent = "";
+    const days = water.days || [];
+    if (days.length < 2) {
+      return;
+    }
+    const width = Math.max(200, Math.round(holder.clientWidth));
+    const height = 54;
+    const canvas = rainSvg("svg", {
+      width: width,
+      height: height,
+      role: "img",
+      "aria-label": "Water table over the last season",
+    });
+
+    const levels = days.map(function (row) {
+      return row[1];
+    });
+    let low = Math.min.apply(null, levels);
+    let high = Math.max.apply(null, levels);
+    if (high - low < 0.1) {
+      // A flat season is a real answer and should draw as a flat line through
+      // the middle, not as noise magnified to fill the box.
+      const mid = (high + low) / 2;
+      low = mid - 0.05;
+      high = mid + 0.05;
+    }
+
+    const step = width / (days.length - 1);
+    const points = days.map(function (row, index) {
+      const y = height - 3 - ((row[1] - low) / (high - low)) * (height - 6);
+      return Math.round(index * step) + "," + y.toFixed(1);
+    });
+    canvas.appendChild(
+      rainSvg("polyline", { points: points.join(" "), class: "tide-line tide-line-observed" })
+    );
+    holder.appendChild(canvas);
+  }
+
+  function renderGroundwater(water) {
+    const card = document.querySelector("[data-groundwater]");
+    if (!card) {
+      return;
+    }
+    // No well means no card, the same as the tide. Most pits have nobody
+    // measuring the ground under them.
+    card.hidden = !water;
+    if (!water) {
+      return;
+    }
+
+    const state = card.querySelector("[data-groundwater-state]");
+    const level = card.querySelector("[data-groundwater-level]");
+    const when = card.querySelector("[data-groundwater-when]");
+    const change = card.querySelector("[data-groundwater-change]");
+    const strip = card.querySelector("[data-groundwater-strip]");
+    const range = card.querySelector("[data-groundwater-range]");
+    const age = card.querySelector("[data-groundwater-age]");
+
+    if (level) {
+      level.textContent = feet(water.level);
+    }
+    // The label carries the date, because this number is not "now" and a card
+    // that lets somebody assume it is has told them something false.
+    if (when) {
+      when.textContent = water.at ? "on " + dayAt(water.at) : "water table";
+    }
+    if (change) {
+      const moved = water.change;
+      change.textContent =
+        moved === null || moved === undefined
+          ? "--"
+          : (moved > 0 ? "+" : "") + moved.toFixed(2) + " ft";
+    }
+    if (state) {
+      const moved = water.change;
+      if (moved === null || moved === undefined) {
+        state.textContent = "no reading from this time last year to compare against";
+      } else if (Math.abs(moved) < 0.05) {
+        state.textContent = "about the same as this time last year";
+      } else {
+        state.textContent =
+          Math.abs(moved).toFixed(2) +
+          " ft " +
+          (moved > 0 ? "higher" : "lower") +
+          " than the same fortnight last year";
+      }
+      state.className = "rain-state";
+    }
+    if (strip) {
+      drawWellStrip(strip, water);
+    }
+    if (range) {
+      range.textContent =
+        water.lowest === null || water.lowest === undefined
+          ? ""
+          : "record " + feet(water.lowest) + " to " + feet(water.highest);
+    }
+    // Said plainly rather than left to be worked out from the date. Around a
+    // month is normal for this series and is not a fault.
+    if (age) {
+      age.textContent = water.at ? "published " + since(water.at) : "";
+    }
+  }
+
   function renderBanner(state) {
     const banner = document.querySelector("[data-banner]");
     if (!banner) {
@@ -1057,6 +1190,7 @@
     renderHistory(state.panel);
     renderLinks(state.devices);
     renderRain(state.rain);
+    renderGroundwater(state.groundwater);
     renderTide(state.tide);
     renderBanner(state);
     document.body.classList.remove("stale");

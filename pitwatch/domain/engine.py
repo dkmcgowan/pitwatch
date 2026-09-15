@@ -1047,37 +1047,46 @@ class AlertEngine:
         return found
 
     async def _check_short_cycling(self, rule) -> dict | None:
+        """The pit refilling the moment it is emptied, counted across both
+        pumps rather than per pump.
+
+        It used to measure each pump against its own previous run, and that is
+        the wrong interval for the fault it looks for. A check valve that has
+        stopped sealing lets the column of water in the discharge pipe run back
+        into the pit, the float closes again, and a duplex panel answers by
+        calling **the other pump**, because it alternates. So the pit's own
+        rhythm is short while neither pump's individual rhythm is: each one's
+        gap spans the other one's whole run plus both intervals, which is
+        roughly double, and on the reference pit that was the difference
+        between 8 s and 44 s against a 45 s threshold.
+
+        Per pit is also the honest reading of the sentence. It says the pumps
+        are restarting within so long of stopping, which is a statement about
+        the pit, and it is the pit that the check valve is filling.
+        """
         if not rule.restart_within_ms:
             return None
-        found = {}
-        for pump in (1, 2):
-            gaps = await self._pool.fetch(
-                """
-                SELECT extract(epoch FROM started_at - lag(ended_at)
-                       OVER (ORDER BY started_at)) AS gap_s
-                FROM pump_run
-                WHERE pump = $1 AND started_at > now() - interval '2 hours'
-                ORDER BY started_at DESC LIMIT $2
-                """,
-                pump,
-                rule.times_in_a_row,
+        gaps = await self._pool.fetch(
+            """
+            SELECT extract(epoch FROM started_at - lag(ended_at)
+                   OVER (ORDER BY started_at)) AS gap_s
+            FROM pump_run
+            WHERE started_at > now() - interval '2 hours'
+            ORDER BY started_at DESC LIMIT $1
+            """,
+            rule.times_in_a_row,
+        )
+        measured = [float(row["gap_s"]) for row in gaps if row["gap_s"] is not None]
+        tight = len(measured) >= rule.times_in_a_row and all(
+            gap * 1000 <= rule.restart_within_ms for gap in measured
+        )
+        if not tight:
+            return {None: None}
+        return {
+            None: Finding(
+                values={"gap": _spell(max(measured)), "times": rule.times_in_a_row},
             )
-            measured = [row["gap_s"] for row in gaps if row["gap_s"] is not None]
-            tight = len(measured) >= rule.times_in_a_row and all(
-                gap * 1000 <= rule.restart_within_ms for gap in measured
-            )
-            found[pump] = (
-                Finding(
-                    pump=pump,
-                    values={
-                        "gap": _spell(max(measured)),
-                        "times": rule.times_in_a_row,
-                    },
-                )
-                if tight
-                else None
-            )
-        return found
+        }
 
     # -- what the clamps say ------------------------------------------------
 

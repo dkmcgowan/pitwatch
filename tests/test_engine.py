@@ -1527,3 +1527,34 @@ async def test_a_run_that_goes_long_is_noticed_when_it_does_not_a_tick_later(poo
     # Roughly the three seconds it has left, rather than the thirty second tick.
     waiting = engine._recheck_at - asyncio.get_running_loop().time()
     assert 1.5 < waiting < 3.5, waiting
+
+
+async def test_short_cycling_is_the_pits_rhythm_and_not_one_pumps(pool, sent):
+    """The fault is a check valve letting the discharge back into the pit, and
+    a duplex panel answers the refill by calling the *other* pump.
+
+    So the pit restarts every few seconds while neither pump restarts quickly
+    at all: each one's own gap spans the other one's entire run plus both
+    intervals. Measured per pump this arrangement reads as 32 s gaps and says
+    nothing; measured across the pit it is 8 s, which is the number somebody
+    would read off the panel and the number the message claims.
+    """
+    await _a_person(pool)
+    alerts = AlertsSettings()
+    alerts.short_cycling.restart_within_ms = 15_000
+    alerts.short_cycling.times_in_a_row = 3
+    # Alternating calls: twelve seconds of running, eight seconds of quiet.
+    for step in range(6):
+        await pool.execute(
+            "INSERT INTO pump_run (pump, started_at, ended_at, started_by) VALUES "
+            "($1, now() - $2::interval, now() - $2::interval + interval '12 seconds', 'contact')",
+            1 if step % 2 == 0 else 2,
+            timedelta(seconds=(6 - step) * 20),
+        )
+
+    await _engine(pool, _store(alerts), _Contacts()).sweep()
+
+    rows = await pool.fetch("SELECT pump, detail FROM alert WHERE rule = 'short_cycling'")
+    assert len(rows) == 1, f"one alert about the pit, not one per pump: {rows}"
+    assert rows[0]["pump"] is None, "the pit is not a pump"
+    assert "8 s" in rows[0]["detail"], rows[0]["detail"]

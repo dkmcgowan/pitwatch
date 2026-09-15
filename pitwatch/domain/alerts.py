@@ -192,10 +192,13 @@ SPECS: tuple[Spec, ...] = (
         title="Short cycling",
         what=(
             "A check valve that has stopped sealing lets the discharge run "
-            "back into the pit and calls the pump straight out again. Counted "
+            "back into the pit and calls a pump straight out again. Counted "
             "by how soon rather than how often, because a pit taking roof "
             "water cycles all through a storm and that is the equipment "
-            "working."
+            "working. Measured across both pumps, because the panel "
+            "alternates: the pit refills and the next call goes to the other "
+            "motor, so it is the pit's rhythm that is short and neither "
+            "pump's own."
         ),
         needs=CLAMPS,
         placeholders=(*COMMON, "{gap}", "{times}"),

@@ -161,3 +161,69 @@ def test_the_file_is_named_so_a_folder_of_them_sorts():
     when = datetime(2026, 9, 16, tzinfo=UTC)
 
     assert export.filename("30d", when) == "pitwatch-30d-2026-09-16.xlsx"
+
+
+async def test_the_amps_sheet_is_only_what_happened_during_a_run(pool):
+    """The meter reports whether or not anything is turning, and on this pit a
+    pump runs twelve seconds in every three minutes. Measured over a week, 64%
+    of the rows were the clamp watching a still motor, and a sheet that is two
+    thirds zero is one nobody reads.
+    """
+    base = datetime(2026, 9, 14, 18, 30, tzinfo=UTC)
+    await pool.execute(
+        "INSERT INTO pump_run (pump, started_at, ended_at, duration_s, started_by)"
+        " VALUES (1, $1, $2, 12.0, 'contact')",
+        base,
+        base + timedelta(seconds=12),
+    )
+    for offset, amps in ((-60, 0.0), (2, 15.1), (8, 15.2), (600, 0.0)):
+        await pool.execute(
+            "INSERT INTO em_sample (ts, channel, current) VALUES ($1, 0, $2)",
+            base + timedelta(seconds=offset),
+            amps,
+        )
+
+    sheets = await export.gather(
+        pool,
+        base - timedelta(days=1),
+        base + timedelta(days=1),
+        "UTC",
+        {1: "Pump 1", 2: "Pump 2"},
+    )
+    amps = next(one for one in sheets if one.title == "Amps")
+
+    got = [round(row[3], 1) for row in amps.rows]
+    assert got == [15.1, 15.2], f"the idle readings came through: {got}"
+    # And each one carries the run it belongs to, so a pivot can group by it.
+    assert all(row[4] is not None for row in amps.rows)
+    assert all(row[1] == "Pump 1" for row in amps.rows)
+
+
+async def test_a_motor_drawing_nothing_mid_run_is_kept(pool):
+    """The reason this is a join and not a threshold. A contactor closed on a
+    motor that is not turning reads zero *during* a run, and filtering by
+    amperage would throw away the one reading that proves it."""
+    base = datetime(2026, 9, 14, 18, 30, tzinfo=UTC)
+    await pool.execute(
+        "INSERT INTO pump_run (pump, started_at, ended_at, duration_s, started_by)"
+        " VALUES (2, $1, $2, 12.0, 'contact')",
+        base,
+        base + timedelta(seconds=12),
+    )
+    await pool.execute(
+        "INSERT INTO em_sample (ts, channel, current) VALUES ($1, 1, 0.0)",
+        base + timedelta(seconds=6),
+    )
+
+    sheets = await export.gather(
+        pool,
+        base - timedelta(days=1),
+        base + timedelta(days=1),
+        "UTC",
+        {1: "Pump 1", 2: "Pump 2"},
+    )
+    amps = next(one for one in sheets if one.title == "Amps")
+
+    assert len(amps.rows) == 1, "a zero inside a run is the diagnostic, not noise"
+    assert amps.rows[0][1] == "Pump 2"
+    assert amps.rows[0][3] == 0.0

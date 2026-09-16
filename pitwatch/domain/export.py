@@ -16,11 +16,17 @@ have no real timezone type, and a column of UTC stamps against a building that
 runs on Eastern time is a column somebody silently misreads by four hours. The
 About sheet says which zone it is, once, where it cannot be lost.
 
-**It streams.** The amps sheet is every meter reading in the window, which on
-this installation is around twelve thousand rows a day. Held in memory that is
-tens of megabytes on a machine that also has a pump to watch, so the workbook
-is written a row at a time to a temporary file and handed to the browser from
-there.
+**The amps sheet holds only what a pump was doing while it ran.** The meter
+reports whether or not anything is turning, and on this pit two readings in
+three were the clamp watching a still motor. They are joined to the run they
+belong to rather than filtered by a threshold, because a contactor closed on a
+motor that is not turning reads zero during a run and that is precisely the
+row worth keeping.
+
+**It streams.** Even trimmed, the amps sheet is thousands of rows a day. Held
+in memory that is tens of megabytes on a machine that also has a pump to
+watch, so the workbook is written a row at a time to a temporary file and
+handed to the browser from there.
 """
 
 from __future__ import annotations
@@ -67,10 +73,32 @@ FROM pump_run WHERE started_at >= $1 AND started_at < $2
 ORDER BY started_at LIMIT $3
 """
 
+# Only the readings that belong to a run.
+#
+# The meter reports whether or not anything is turning, and on this pit a pump
+# runs twelve seconds in every three minutes, so two readings in three are the
+# clamp watching a motor sit still. Measured over a week: 64% of the rows were
+# zero. A sheet that is mostly zero is a sheet somebody scrolls past.
+#
+# Joined to the run rather than filtered by a threshold, because the reading
+# worth having is sometimes the low one: a contactor closed on a motor that is
+# not turning reads zero *during a run*, and that is the whole point of the
+# contactor rule. A threshold would throw away exactly the rows that matter.
+# Two seconds either side catches the inrush that lands before the contact
+# settles and the tail after it opens.
+#
+# A run's own start comes along so the readings can be grouped by run in a
+# pivot, which is the question anybody opens this tab to ask.
 AMPS = """
-SELECT ts, channel, current
-FROM em_sample WHERE ts >= $1 AND ts < $2
-ORDER BY ts LIMIT $3
+SELECT s.ts, s.channel, s.current, r.pump, r.started_at AS run_started
+FROM em_sample s
+JOIN pump_run r
+  ON r.pump = s.channel + 1
+ AND s.ts >= r.started_at - interval '2 seconds'
+ AND s.ts <= coalesce(r.ended_at, now()) + interval '2 seconds'
+WHERE s.ts >= $1 AND s.ts < $2
+  AND r.started_at >= $1 - interval '1 hour' AND r.started_at < $2
+ORDER BY s.ts LIMIT $3
 """
 
 # Alerts are not windowed the same way. One that opened a fortnight before the
@@ -92,11 +120,6 @@ def _local(when: datetime | None, zone: str) -> datetime | None:
     if when is None:
         return None
     return clock.local(when, zone).replace(tzinfo=None)
-
-
-def _pump_of(channel: int) -> int | None:
-    """Which pump a meter channel belongs to, which is its number plus one."""
-    return channel + 1 if channel in (0, 1) else None
 
 
 async def gather(
@@ -162,17 +185,18 @@ async def gather(
         ),
         Sheet(
             title="Amps",
-            headings=("Time", "Channel", "Pump", "Amps"),
+            headings=("Time", "Pump", "Channel", "Amps", "Run started"),
             rows=[
                 (
                     _local(r["ts"], zone),
+                    names.get(r["pump"], f"Pump {r['pump']}"),
                     r["channel"],
-                    names.get(_pump_of(r["channel"]), ""),
                     r["current"],
+                    _local(r["run_started"], zone),
                 )
                 for r in amps
             ],
-            dates=(0,),
+            dates=(0, 4),
             truncated=amps_cut,
         ),
         Sheet(

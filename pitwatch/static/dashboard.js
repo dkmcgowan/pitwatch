@@ -1114,16 +1114,20 @@
     }
     if (state) {
       const moved = water.change;
+      // Short enough for a phone. These read under a card heading on a 390px
+      // screen, and the long form ran past the edge: what it compares against
+      // is the same fortnight a year back, which the note explains once
+      // instead of every line repeating it.
       if (moved === null || moved === undefined) {
-        state.textContent = "no reading from this time last year to compare against";
+        state.textContent = "nothing from last year to compare";
       } else if (Math.abs(moved) < 0.05) {
-        state.textContent = "about the same as this time last year";
+        state.textContent = "about the same as last year";
       } else {
         state.textContent =
           Math.abs(moved).toFixed(2) +
           " ft " +
           (moved > 0 ? "higher" : "lower") +
-          " than the same fortnight last year";
+          " than last year";
       }
       state.className = "rain-state";
     }

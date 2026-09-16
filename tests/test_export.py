@@ -56,7 +56,7 @@ async def test_the_workbook_has_a_tab_for_each_kind_of_thing(pool, tmp_path):
     path = tmp_path / "book.xlsx"
     export.write(str(path), sheets, [("PitWatch export", ""), ("Window", "The last 7 days")])
 
-    assert [one.title for one in sheets] == ["Contacts", "Pump runs", "Amps", "Alerts"]
+    assert [one.title for one in sheets] == ["Contacts", "Pump runs", "Running amps", "Alerts"]
     assert all(len(one.rows) == 1 for one in sheets), [len(o.rows) for o in sheets]
 
     # A real xlsx is a zip, and every sheet has to be in it.
@@ -65,7 +65,7 @@ async def test_the_workbook_has_a_tab_for_each_kind_of_thing(pool, tmp_path):
         assert any(name.endswith("workbook.xml") for name in names)
         assert len([n for n in names if "worksheets/sheet" in n]) == 5, names
         inside = book.read("xl/workbook.xml").decode()
-    for title in ("About", "Contacts", "Pump runs", "Amps", "Alerts"):
+    for title in ("About", "Contacts", "Pump runs", "Running amps", "Alerts"):
         assert title in inside, title
 
 
@@ -190,7 +190,7 @@ async def test_the_amps_sheet_is_only_what_happened_during_a_run(pool):
         "UTC",
         {1: "Pump 1", 2: "Pump 2"},
     )
-    amps = next(one for one in sheets if one.title == "Amps")
+    amps = next(one for one in sheets if one.title == "Running amps")
 
     got = [round(row[3], 1) for row in amps.rows]
     assert got == [15.1, 15.2], f"the idle readings came through: {got}"
@@ -222,7 +222,7 @@ async def test_a_motor_drawing_nothing_mid_run_is_kept(pool):
         "UTC",
         {1: "Pump 1", 2: "Pump 2"},
     )
-    amps = next(one for one in sheets if one.title == "Amps")
+    amps = next(one for one in sheets if one.title == "Running amps")
 
     assert len(amps.rows) == 1, "a zero inside a run is the diagnostic, not noise"
     assert amps.rows[0][1] == "Pump 2"

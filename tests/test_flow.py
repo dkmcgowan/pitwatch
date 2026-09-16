@@ -1176,7 +1176,7 @@ def test_the_history_window_can_be_taken_away_as_a_spreadsheet(client):
     with zipfile.ZipFile(io.BytesIO(response.content)) as book:
         assert book.testzip() is None, "a corrupt workbook"
         inside = book.read("xl/workbook.xml").decode()
-    for tab in ("About", "Contacts", "Pump runs", "Amps", "Alerts"):
+    for tab in ("About", "Contacts", "Pump runs", "Running amps", "Alerts"):
         assert tab in inside, tab
 
 

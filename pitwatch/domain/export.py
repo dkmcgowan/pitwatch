@@ -16,14 +16,14 @@ have no real timezone type, and a column of UTC stamps against a building that
 runs on Eastern time is a column somebody silently misreads by four hours. The
 About sheet says which zone it is, once, where it cannot be lost.
 
-**The amps sheet holds only what a pump was doing while it ran.** The meter
+**The running amps sheet holds only what a pump was doing while it ran.** The meter
 reports whether or not anything is turning, and on this pit two readings in
 three were the clamp watching a still motor. They are joined to the run they
 belong to rather than filtered by a threshold, because a contactor closed on a
 motor that is not turning reads zero during a run and that is precisely the
 row worth keeping.
 
-**It streams.** Even trimmed, the amps sheet is thousands of rows a day. Held
+**It streams.** Even trimmed, that sheet is thousands of rows a day. Held
 in memory that is tens of megabytes on a machine that also has a pump to
 watch, so the workbook is written a row at a time to a temporary file and
 handed to the browser from there.
@@ -184,7 +184,10 @@ async def gather(
             truncated=runs_cut,
         ),
         Sheet(
-            title="Amps",
+            # "Running amps" rather than "Amps", because that is what the tab
+            # holds and a name that oversells its contents is the reason
+            # somebody scrolls looking for readings that were never there.
+            title="Running amps",
             headings=("Time", "Pump", "Channel", "Amps", "Run started"),
             rows=[
                 (

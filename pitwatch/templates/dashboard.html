@@ -253,10 +253,10 @@
      There is nothing below this. The panel brings out eight contacts and the
      module has eight inputs, so every one of them carries a lamp or a run
      signal and there is no such thing as a leftover to list. #}
-  <section class="board-card lamp-card alert-card" data-window="month" aria-label="Alerts">
+  <section class="board-card lamp-card alert-card" data-window="month" aria-label="The panel">
     <div class="card-top">
       <svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-alert"/></svg>
-      <h2 class="card-title">Alerts</h2>
+      <h2 class="card-title">The panel</h2>
       <button type="button" class="info-mark" data-info="alerts" aria-label="What this shows">i</button>
       {# The answer to the question somebody opened the page with, beside the
          heading rather than four rows down.
@@ -276,7 +276,7 @@
         <span class="lamp-when">
           <span class="lamp-last" data-history-last title="When it was last raised">--</span>
           <span class="lamp-count"><span data-history-count
-                title="Times this month">--</span><span class="beside" data-history-average
+                title="Closures this month">--</span><span class="beside" data-history-average
                 hidden></span></span>
         </span>
       </div>
@@ -286,7 +286,7 @@
         <span class="lamp-when">
           <span class="lamp-last" data-history-last title="When it was last raised">--</span>
           <span class="lamp-count"><span data-history-count
-                title="Times this month">--</span><span class="beside" data-history-average
+                title="Closures this month">--</span><span class="beside" data-history-average
                 hidden></span></span>
         </span>
       </div>
@@ -296,7 +296,7 @@
         <span class="lamp-when">
           <span class="lamp-last" data-history-last title="When it last tripped">--</span>
           <span class="lamp-count"><span data-history-count
-                title="Times this month">--</span><span class="beside" data-history-average
+                title="Closures this month">--</span><span class="beside" data-history-average
                 hidden></span></span>
         </span>
       </div>
@@ -306,7 +306,7 @@
         <span class="lamp-when">
           <span class="lamp-last" data-history-last title="When it last tripped">--</span>
           <span class="lamp-count"><span data-history-count
-                title="Times this month">--</span><span class="beside" data-history-average
+                title="Closures this month">--</span><span class="beside" data-history-average
                 hidden></span></span>
         </span>
       </div>
@@ -322,13 +322,13 @@
         <span class="lamp-when">
           <span class="lamp-last" data-history-last title="When they last ran together">--</span>
           <span class="lamp-count"><span data-history-count
-                title="Times this month">--</span><span class="beside" data-history-average
+                title="Closures this month">--</span><span class="beside" data-history-average
                 hidden></span></span>
         </span>
       </div>
     </div>
     <dialog class="note" id="note-alerts">
-      <h3 class="note-title">Alerts</h3>
+      <h3 class="note-title">The panel</h3>
       <div class="hint">
         <p><strong>System alert</strong> is the controller's own alarm.
           Several faults raise the same contact, so it means read the
@@ -348,6 +348,13 @@
         <p>Counted by the month, because an alarm counted by the day reads zero
           forever. <strong>All clear</strong> counts only the inputs that are
           assigned and being read; a row with no input is drawn dim.</p>
+        <p><strong>This counts what the panel did, not what it told you.</strong>
+          These are closures of the panel's own contacts, which is not the same
+          as the messages on the Alerts page and will not always agree with
+          them. An overload closes the alarm contact, and the alarm alert stays
+          quiet on purpose because the overload already said it. Switch a rule
+          off and the contact still closes. Half the rules have no contact at
+          all. The lamp here is the one on the panel door.</p>
       </div>
       <p class="note-close">Click anywhere to close</p>
     </dialog>

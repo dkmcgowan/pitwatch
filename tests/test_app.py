@@ -945,8 +945,8 @@ def test_the_board_reads_top_to_bottom():
     page reading "P1:LEAD  P2:LAG". Those two words are beside the two pumps
     now, which is where somebody looking at a pump was going to look for them.
 
-    The overloads are the last two rows of Alerts rather than a section of
-    their own. They are the worst of the four, and the panel's own word for
+    The overloads are the last two rows of the panel card rather than a section
+    of their own. They are the worst of the four, and the panel's own word for
     that pump already says ERROR beside its name.
     """
     page = render_dashboard()
@@ -954,7 +954,7 @@ def test_the_board_reads_top_to_bottom():
     order = [
         'data-pump="1"',
         'data-pump="2"',
-        ">Alerts",
+        ">The panel",
         'data-lamp="system_alert"',
         'data-lamp="high_water"',
         'data-lamp="pump1_fault"',
@@ -1111,7 +1111,7 @@ def test_the_alerts_section_says_whether_anything_is_up():
     js = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
     css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
 
-    alerts = page.split('aria-label="Alerts"', 1)[1].split("</section>", 1)[0]
+    alerts = page.split('aria-label="The panel"', 1)[1].split("</section>", 1)[0]
     assert "data-alert-summary" in alerts
     # It starts as a dash, like the pumps' own badge: nothing has arrived yet
     # and a guess would be wrong.
@@ -1157,7 +1157,7 @@ def test_a_float_going_is_the_equipment_working():
     floats = page.split('aria-label="Floats"', 1)[1].split("</section>", 1)[0]
     assert floats.count("lamp lamp-green") == 2
 
-    alerts = page.split('aria-label="Alerts"', 1)[1].split("</section>", 1)[0]
+    alerts = page.split('aria-label="The panel"', 1)[1].split("</section>", 1)[0]
     # Four alarms and the pit winning, which is the fifth thing worth a red
     # bulb in that section even though no wire reports it.
     assert alerts.count("lamp lamp-red") == 5
@@ -1260,10 +1260,10 @@ def test_the_panels_word_sits_beside_the_pump_it_is_about():
     assert "data-lcd" not in page and "lcd" not in css and "lcd" not in js
 
     # One badge per pump, and it starts saying nothing rather than guessing.
-    # Counted inside the pump sections: the alerts summary is the same shape
-    # of badge in the same starting state, and it is not one of these.
+    # Counted inside the pump sections: the panel card's summary badge is the
+    # same shape in the same starting state, and it is not one of these.
     assert page.count("data-status") == 2
-    pumps = page.split('data-pump="1"', 1)[1].split('aria-label="Alerts"', 1)[0]
+    pumps = page.split('data-pump="1"', 1)[1].split('aria-label="The panel"', 1)[0]
     assert pumps.count('class="status status-none"') == 2
 
     # The three words worth a color of their own. Lag is the ordinary state and
@@ -2685,3 +2685,26 @@ def test_a_bar_chart_reads_the_bar_the_pointer_is_over():
     for dots in ('wireCursor(shape, plot, "runs"', 'wireCursor(shape, plot, "load"'):
         block = script.split(dots, 1)[1].split("});", 1)[0]
         assert "nearest(" in block, f"{dots} draws points, not bars"
+
+
+def test_the_lamp_card_does_not_call_itself_alerts():
+    """Two things on this site were called Alerts and they count different
+    things, which is indefensible however right both numbers are.
+
+    This card reads the panel's own contacts. The Alerts page reads what the
+    rules decided to send. They diverge by design: an overload closes the alarm
+    contact while the alarm alert deliberately stays quiet, because the
+    overload already said it. Switch a rule off and the contact still closes.
+    Half the rules have no contact at all.
+
+    So the page keeps the name, because it is the only thing here that is
+    actually a list of alerts, and the card says what it is.
+    """
+    page = render_dashboard()
+
+    assert 'aria-label="The panel"' in page
+    assert 'aria-label="Alerts"' not in page
+    assert ">Alerts</h2>" not in page
+    # And the counts carry their unit, so "2" is not read as two alerts.
+    assert 'title="Closures this month"' in page
+    assert 'title="Times this month"' not in page

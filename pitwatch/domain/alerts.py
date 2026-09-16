@@ -43,6 +43,20 @@ class Spec:
     # could act on: the relay has reset and the pump is still out of service.
     # Filled the same way a raised message is, so it can name the pump.
     cleared_message: str = ""
+    # Which filled-in values, if they change while the alert is open, mean this
+    # is different news rather than the same news continuing.
+    #
+    # Almost always empty, and that is deliberate. Most details change on every
+    # sweep: they carry the time, or the amps, or how many hours it has been.
+    # A rule that re-announced itself whenever its wording moved would be a
+    # rule nobody could leave switched on.
+    #
+    # It exists for the one alert whose subject is a list. "PitWatch has lost
+    # contact with the Meter" and "... with Inputs and Meter" are two different
+    # facts, and on 2026-09-16 the second one was never sent: the alert was
+    # already open about the Meter, the insert conflicted, and the X-408 going
+    # off the network was never announced to anybody.
+    renotify_on: tuple[str, ...] = ()
     placeholders: tuple[str, ...] = ()
     thresholds: tuple[Threshold, ...] = ()
     clears: str = ""
@@ -311,6 +325,7 @@ SPECS: tuple[Spec, ...] = (
         needs="PitWatch itself",
         placeholders=(*COMMON, "{device}"),
         clears="it answers again",
+        renotify_on=("device",),
         cleared_message=(
             "PitWatch is back in contact at {site} and watching the pumps again. Time {time}."
         ),

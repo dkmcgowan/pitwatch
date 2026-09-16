@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import itertools
+import json
 import logging
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -306,9 +307,10 @@ class AlertEngine:
             detail,
             _as_json(values),
         )
-        # Nothing came back, so this alert was already open. The condition is
-        # still true and that is not news.
+        # Nothing came back, so this alert was already open. Usually that is
+        # the condition still being true, which is not news.
         if alert_id is None:
+            await self._changed_while_open(key, rule, pump, spec, values, detail)
             return
 
         log.warning("ALERT %s: %s", key, detail)
@@ -322,6 +324,48 @@ class AlertEngine:
                 self._incident_since = datetime.now(UTC)
                 self._incident_trips = 0
             self._incident_trips += 1
+
+    async def _changed_while_open(self, key, rule, pump, spec, values, detail) -> None:
+        """An open alert whose subject has changed, which is different news.
+
+        Only the values a rule names in `renotify_on`, because almost every
+        detail here moves on every sweep: the time is in most of them, the amps
+        in others, and how many hours it has been in the rest. Comparing the
+        whole sentence would re-announce everything, forever.
+
+        The one that needs it is the device alert, whose subject is a list. It
+        opened about the Meter at 06:13 on 2026-09-16 and the X-408 dropped off
+        the network at 06:48, which changed the sentence from one name to two.
+        The insert conflicted, nothing was written, and nobody was ever told
+        the thing that reads the panel had gone. The dashboard showed it,
+        because the dashboard reads the devices directly, so the one part of
+        the system whose job is to speak up was the part that stayed quiet.
+        """
+        if not spec.renotify_on:
+            return
+
+        row = await self._pool.fetchrow(
+            "SELECT id, context FROM alert WHERE rule = $1"
+            " AND pump IS NOT DISTINCT FROM $2 AND cleared_at IS NULL",
+            key,
+            pump,
+        )
+        if row is None:  # pragma: no cover -- cleared between the insert and here
+            return
+
+        with contextlib.suppress(ValueError, TypeError):
+            before = json.loads(row["context"]) if isinstance(row["context"], str) else {}
+            if all(before.get(name) == values.get(name) for name in spec.renotify_on):
+                return
+
+        await self._pool.execute(
+            "UPDATE alert SET detail = $2, context = $3::jsonb WHERE id = $1",
+            row["id"],
+            detail,
+            _as_json(values),
+        )
+        log.warning("ALERT %s changed: %s", key, detail)
+        await self._notify(row["id"], "raised", rule, detail)
 
     async def _clear(self, key: str, rule, pump: int | None) -> None:
         row = await self._pool.fetchrow(

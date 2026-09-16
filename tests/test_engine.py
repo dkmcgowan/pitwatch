@@ -1707,3 +1707,62 @@ async def test_the_panel_alert_says_which_pulse_it_is_seeing(pool, sent):
     assert "pulsing slowly" in detail, detail
     assert "yearly service reminder" in detail, detail
     assert "{" not in detail and "}" not in detail, detail
+
+
+async def test_a_second_device_going_quiet_is_news_of_its_own(pool, sent):
+    """The gap that hid the X-408 going off the network on 2026-09-16.
+
+    The device alert is one row covering every device, and its subject is a
+    list. It opened about the Meter at 06:13. At 06:48 the module that reads
+    the panel dropped off the network, which changed the sentence from one name
+    to two, but the alert was already open: the insert conflicted, nothing was
+    written, and nobody was told. The dashboard showed it, because the
+    dashboard reads the devices directly, so the one part of this system whose
+    job is to speak up was the part that stayed quiet.
+    """
+    await _a_person(pool)
+    store = _store()
+    store.mqtt = MqttSettings(
+        host="broker",
+        enabled=True,
+        health=[
+            HealthSource(name="Inputs", topic="pit/in/tick", expect_s=60),
+            HealthSource(name="Meter", topic="pit/meter/tick", expect_s=60),
+        ],
+    )
+    engine = _engine(pool, store, _Contacts())
+
+    await _device(pool, "health0", True)
+    await _device(pool, "health1", False)
+    await engine.sweep()
+
+    first = await pool.fetchval("SELECT detail FROM alert WHERE rule = 'device_offline'")
+    assert "Meter" in first and "Inputs" not in first, first
+    assert len(sent) == 1, sent
+
+    # Now the other one goes too, while the alert is still open.
+    await _device(pool, "health0", False)
+    await engine.sweep()
+
+    rows = await pool.fetch("SELECT detail FROM alert WHERE rule = 'device_offline'")
+    assert len(rows) == 1, "still one alert, not two"
+    assert "Inputs" in rows[0]["detail"] and "Meter" in rows[0]["detail"], rows[0]["detail"]
+    assert len(sent) == 2, "the second device going quiet was never announced"
+
+
+async def test_an_alert_that_is_merely_still_true_says_nothing_further(pool, sent):
+    """The other half, and the reason this is opt in per rule. Almost every
+    detail here moves on every sweep: the time is in most of them, the amps in
+    others, how many hours it has been in the rest. A rule that re-announced
+    itself whenever its wording changed is one nobody could leave switched
+    on."""
+    await _a_person(pool)
+    contacts = _wire(_Contacts(), high_water=True)
+    engine = _engine(pool, _store(), contacts)
+
+    await engine.sweep()
+    await engine.sweep()
+    await engine.sweep()
+
+    assert len(sent) == 1, sent
+    assert await pool.fetchval("SELECT count(*) FROM alert WHERE rule = 'high_water'") == 1

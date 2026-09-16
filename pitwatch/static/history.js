@@ -304,6 +304,26 @@
     return best;
   }
 
+  // The bucket a moment falls inside, which on a bar chart is not the same
+  // question as which bucket start is nearest.
+  //
+  // A bar for the bucket starting at t covers t to t plus one bucket, so its
+  // whole width belongs to t. Asking `nearest` instead compares distances to
+  // the starts, which flips to the next bucket at the midpoint: the readout
+  // changed halfway across a bar and spent the second half of every column
+  // describing the one after it. Obvious once the bars are wide, which on the
+  // seven day window they are.
+  function bucketUnder(points, ms, bucketMs) {
+    let found = null;
+    points.forEach(function (point) {
+      const start = at(point[0]);
+      if (ms >= start && ms < start + bucketMs) {
+        found = point;
+      }
+    });
+    return found;
+  }
+
   // -- calls for water, and the rain that caused them -----------------------
   //
   // Two series on one chart, drawn the way a stormwater chart draws them:
@@ -460,7 +480,7 @@
 
     wireCursor(shape, plot, "calls", function (fraction) {
       const ms = from + fraction * span;
-      const point = nearest(calls, ms, data.count_bucket * 1000);
+      const point = bucketUnder(calls, ms, data.count_bucket * 1000);
       if (!point) {
         return moment(ms, data.window) + "   no calls";
       }

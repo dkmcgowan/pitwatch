@@ -2661,3 +2661,27 @@ def test_the_panel_lamp_does_not_claim_somebody_pressed_the_button():
     assert "alarm, nobody has acknowledged it" in script
     assert "alarm, pulsing slowly" in script
     assert "alarm, steady" in script
+
+
+def test_a_bar_chart_reads_the_bar_the_pointer_is_over():
+    """A bar for the bucket starting at t covers t to t plus one bucket, so the
+    whole width of it belongs to t.
+
+    Asking which bucket *start* is nearest compares distances instead, and that
+    flips at the midpoint: the readout changed halfway across a column and
+    spent the second half of every bar describing the one after it. Found by
+    David on the 7 day window, where the bars are wide enough to see it.
+
+    Runs and load are not bars, they are individual runs drawn one dot each, so
+    nearest is the right question there and they still ask it.
+    """
+    script = Path("pitwatch/static/history.js").read_text(encoding="utf-8")
+
+    assert "function bucketUnder(" in script
+    calls = script.split('wireCursor(shape, plot, "calls"', 1)[1].split("});", 1)[0]
+    assert "bucketUnder(calls" in calls, "the bar chart is still asking for the nearest start"
+    assert "nearest(" not in calls
+
+    for dots in ('wireCursor(shape, plot, "runs"', 'wireCursor(shape, plot, "load"'):
+        block = script.split(dots, 1)[1].split("});", 1)[0]
+        assert "nearest(" in block, f"{dots} draws points, not bars"

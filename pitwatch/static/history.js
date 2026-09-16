@@ -875,6 +875,18 @@
       button.classList.toggle("chip-on", button.getAttribute("data-window") === name);
       button.setAttribute("aria-pressed", button.getAttribute("data-window") === name);
     });
+    // The download follows the window the page is showing. Offering a file
+    // that covers a different span from the charts above it is how somebody
+    // ends up arguing with a plumber about which week they are both looking
+    // at. It works without this, as a plain link to the default window, which
+    // is the point of it being an href rather than a button.
+    const take = document.querySelector("[data-export]");
+    if (take) {
+      take.setAttribute(
+        "href",
+        "/api/history/export.xlsx?window=" + encodeURIComponent(name)
+      );
+    }
 
     const page = document.querySelector("[data-history]");
     if (page) {

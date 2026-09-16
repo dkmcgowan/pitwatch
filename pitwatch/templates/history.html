@@ -152,6 +152,26 @@
      list of twenty of them was the same information at the wrong resolution,
      and it was the longest thing on the page. The one run somebody wants to
      look up by name is an alert, and the alert history has it. #}
+
+  {# And the rows themselves, for whoever is not going to use this page.
+
+     A chart answers the question it was drawn for and nothing else, and the
+     person best placed to answer a question about a pit is usually not sitting
+     in front of a web application: a plumber wants the run lengths, a board
+     wants a month of call counts, and both would rather have it in the program
+     they already know.
+
+     At the bottom because it is not what the page is for. Somebody who came
+     here to look at the charts should reach the end of them before being
+     offered a file, and somebody who came for the file knows to scroll. #}
+  <section class="card export-card">
+    <h2 class="export-title">Take the numbers with you</h2>
+    <p class="hint">Everything behind this window as a spreadsheet: every
+      contact the panel closed, every pump run with its amps, every meter
+      reading, and every alert. One tab each.</p>
+    <p><a class="button secondary" data-export href="/api/history/export.xlsx">Download
+      spreadsheet</a></p>
+  </section>
 </div>
 
 {% endblock %}

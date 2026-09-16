@@ -10,13 +10,19 @@ is a row of buttons somebody will press four times in a second.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
+import os
+import tempfile
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.background import BackgroundTask
 
-from pitwatch import auth, domain
+from pitwatch import auth, clock, domain
+from pitwatch.domain import export as export_domain
 from pitwatch.domain import series
 from pitwatch.domain import weather as weather_domain
 from pitwatch.settings import SettingsStore
@@ -142,6 +148,72 @@ async def history(request: Request, user: auth.SignedIn, window: str | None = No
     payload = await build_history(app, chosen)
     cache[chosen.key] = (now, payload)
     return JSONResponse(payload)
+
+
+@router.get("/history/export.xlsx", include_in_schema=False)
+async def history_export(request: Request, user: auth.SignedIn, window: str | None = None):
+    """The window the page is drawing, as a spreadsheet.
+
+    Signed in and nothing more, which is the same as the page it comes from: a
+    chart of the last week and a table of the same week are the same
+    disclosure, and making the readable version of it harder to get than the
+    drawn one would be a rule about file formats pretending to be a rule about
+    access.
+
+    Written to a temporary file rather than assembled in memory. The amps sheet
+    is every meter reading in the window, twelve thousand a day on this
+    installation, and a monitor that pauses to build tens of megabytes of
+    spreadsheet is a monitor that is not watching the pit while it does it.
+    """
+    app = request.app
+    store: SettingsStore = app.state.settings
+    zone = store.site.timezone
+    chosen = series.window_for(window, zone)
+
+    until = datetime.now(UTC)
+    # The same span the page draws. `window_for` has already turned "today"
+    # into a span measured from the building's own midnight, so subtracting is
+    # correct for every window rather than only the rolling ones.
+    since = until - chosen.span
+
+    names = {number: pump.name for number, pump in store.pumps.by_number.items()}
+    sheets = await export_domain.gather(app.state.pool, since, until, zone, names)
+
+    about = [
+        ("PitWatch export", ""),
+        ("Window", chosen.heading),
+        ("From", clock.on_at(since, zone)),
+        ("To", clock.on_at(until, zone)),
+        ("Times are in", zone or "UTC"),
+        ("Generated", clock.on_at(until, zone)),
+    ]
+    about += [(one.title, f"{len(one.rows):,} rows") for one in sheets]
+
+    # mkstemp rather than NamedTemporaryFile, because the file has to outlive
+    # this function: the response streams it after we return and the background
+    # task removes it afterwards.
+    fileno, temp = tempfile.mkstemp(suffix=".xlsx", prefix="pitwatch-export-")
+    os.close(fileno)
+    try:
+        await asyncio.to_thread(export_domain.write, temp, sheets, about)
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.unlink(temp)
+        raise
+
+    def tidy_up() -> None:
+        # Once the response has gone out, whether or not it arrived. Without
+        # this every download leaves a spreadsheet in the container's temp
+        # directory until somebody restarts it.
+        with contextlib.suppress(OSError):
+            os.unlink(temp)
+
+    return FileResponse(
+        temp,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=export_domain.filename(chosen.key, until),
+        background=BackgroundTask(tidy_up),
+    )
 
 
 def register(app) -> None:

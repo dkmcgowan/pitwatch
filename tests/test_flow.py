@@ -1149,3 +1149,54 @@ def test_the_bell_shows_what_happened_before_it_shows_the_thresholds(client):
     assert 'class="subtabs"' in page
     # Not the settings form, which is the thing that used to be here.
     assert "Save all alerts" not in page
+
+
+def test_the_history_window_can_be_taken_away_as_a_spreadsheet(client):
+    """Through the real route, because the writer being correct and the
+    download working are two different claims.
+
+    A chart answers the question it was drawn for. The plumber and the board
+    both want the rows, in the program they already have, and neither of them
+    is going to be sitting in front of this page.
+    """
+    import io
+    import zipfile
+
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+
+    response = client.get("/api/history/export.xlsx?window=7d")
+
+    assert response.status_code == 200
+    assert "spreadsheetml" in response.headers["content-type"]
+    assert ".xlsx" in response.headers["content-disposition"]
+    assert "pitwatch-7d-" in response.headers["content-disposition"]
+
+    # It opens, and it holds the five tabs.
+    with zipfile.ZipFile(io.BytesIO(response.content)) as book:
+        assert book.testzip() is None, "a corrupt workbook"
+        inside = book.read("xl/workbook.xml").decode()
+    for tab in ("About", "Contacts", "Pump runs", "Amps", "Alerts"):
+        assert tab in inside, tab
+
+
+def test_the_spreadsheet_is_offered_where_somebody_finishes_reading(client):
+    """At the bottom, after the charts. It is not what the page is for, and
+    somebody who came for the file knows how to scroll."""
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+    become_a_watcher(client)
+
+    page = client.get("/history").text
+
+    assert "/api/history/export.xlsx" in page, "a viewer can take the numbers too"
+    assert page.index("export-card") > page.index('data-chart="hours"'), "it goes last"
+
+
+def test_a_signed_out_browser_cannot_download_the_history(client):
+    """The same door as the page it sits on."""
+    assert client.get("/api/history/export.xlsx", follow_redirects=False).status_code in (
+        401,
+        403,
+        303,
+    )

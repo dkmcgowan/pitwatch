@@ -2008,3 +2008,18 @@ form.inline { display: inline; }
 }
 
 .login-single { max-width: 24rem; }
+
+/* Taking the window away as a spreadsheet.
+
+   Quieter than the charts above it, because it is not what the page is for. A
+   secondary button and a line of explanation, at the end, where somebody who
+   came to read the charts arrives after reading them. */
+.export-card {
+  margin-top: 1.25rem;
+}
+
+.export-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+  font-weight: 650;
+}

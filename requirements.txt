@@ -11,3 +11,8 @@ argon2-cffi==25.1.0
 aiosmtplib==5.1.2
 pydantic==2.13.4
 pydantic-settings==2.15.0
+# Writing the history page's spreadsheet export. Write only, no reader, and it
+# streams a row at a time in constant memory, which matters because the amps
+# sheet is the whole meter record for the window and runs to hundreds of
+# thousands of rows.
+XlsxWriter==3.2.9

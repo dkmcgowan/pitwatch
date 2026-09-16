@@ -2625,3 +2625,39 @@ def test_a_settings_section_pads_whatever_it_holds():
 
     # The section that found it: a div rather than a form, still the only one.
     assert '<div class="diagnostics">' in page
+
+
+def test_a_card_may_be_narrower_than_the_words_in_it():
+    """A grid item will not shrink below its widest unbreakable content unless
+    it is told it may: `min-width` defaults to `auto`, not to zero.
+
+    The panel heading carries a line of nowrap text saying what the alarm is
+    doing. On 2026-09-16 that became "alarm, nobody has acknowledged it" and
+    the card refused to go under 426px, so a 390px phone scrolled sideways for
+    as long as the alarm was up and fixed itself when it cleared. The ellipsis
+    already on the heading could not help, because an element can only clip
+    what it is allowed to be narrower than.
+    """
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+
+    for rule in (".board-card {", ".card-top {", ".panel-state {"):
+        block = css.split(rule, 1)[1].split("}", 1)[0]
+        assert "min-width: 0" in block, f"{rule} can be forced wide by its contents"
+
+
+def test_the_panel_lamp_does_not_claim_somebody_pressed_the_button():
+    """It used to read "alarm, silenced" for any alarm that was not pulsing
+    fast, which states that a person acknowledged it. The page cannot know
+    that. On 2026-09-16 it said so for nine hours about a service notice
+    nothing had touched, while PitWatch had sent no press at all.
+
+    It describes the signal now. A controller that pulses slowly is a real
+    third state, measured at 2.00 s closed and 3.00 s open over 6,314 cycles,
+    and it is neither acknowledged nor unacknowledged.
+    """
+    script = Path("pitwatch/static/dashboard.js").read_text(encoding="utf-8")
+
+    assert "alarm, silenced" not in script, "the page is claiming an action it cannot observe"
+    assert "alarm, nobody has acknowledged it" in script
+    assert "alarm, pulsing slowly" in script
+    assert "alarm, steady" in script

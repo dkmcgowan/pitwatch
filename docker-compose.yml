@@ -21,6 +21,22 @@ services:
     # refresh are Community License features it does not have.
     image: timescale/timescaledb:latest-pg17
     restart: unless-stopped
+
+    # Left out of anything that updates containers on a schedule.
+    #
+    # Watchtower and its kind watch every container on the host by default and
+    # replace them when a tag moves. On 2026-09-16 that recreated this stack at
+    # 06:10 in the morning, and a fresh broker makes every device authenticate
+    # again. The Shelly failed that re-authentication and sat locked out for 54
+    # minutes, retrying and being refused, until somebody re-saved its settings
+    # by hand. It does not recover on its own.
+    #
+    # A pump monitor is the wrong thing to update unattended at four in the
+    # morning. The one hour it is down is the hour nothing is watching the pit,
+    # and the alerting that would say so runs on the same broker. Updates here
+    # should be something a person starts and then watches.
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
     environment:
       POSTGRES_DB: pitwatch
       POSTGRES_USER: pitwatch
@@ -45,6 +61,22 @@ services:
     # reach into the panel; the one thing that has to be reachable is this.
     image: eclipse-mosquitto:2
     restart: unless-stopped
+
+    # Left out of anything that updates containers on a schedule.
+    #
+    # Watchtower and its kind watch every container on the host by default and
+    # replace them when a tag moves. On 2026-09-16 that recreated this stack at
+    # 06:10 in the morning, and a fresh broker makes every device authenticate
+    # again. The Shelly failed that re-authentication and sat locked out for 54
+    # minutes, retrying and being refused, until somebody re-saved its settings
+    # by hand. It does not recover on its own.
+    #
+    # A pump monitor is the wrong thing to update unattended at four in the
+    # morning. The one hour it is down is the hour nothing is watching the pit,
+    # and the alerting that would say so runs on the same broker. Updates here
+    # should be something a person starts and then watches.
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
 
     # On the host's network, so the module can reach the broker at this
     # machine's own LAN address. Unlike the database, this one cannot be on
@@ -98,6 +130,22 @@ services:
     # version once it is watching a real pump.
     image: ghcr.io/dkmcgowan/pitwatch:latest
     restart: unless-stopped
+
+    # Left out of anything that updates containers on a schedule.
+    #
+    # Watchtower and its kind watch every container on the host by default and
+    # replace them when a tag moves. On 2026-09-16 that recreated this stack at
+    # 06:10 in the morning, and a fresh broker makes every device authenticate
+    # again. The Shelly failed that re-authentication and sat locked out for 54
+    # minutes, retrying and being refused, until somebody re-saved its settings
+    # by hand. It does not recover on its own.
+    #
+    # A pump monitor is the wrong thing to update unattended at four in the
+    # morning. The one hour it is down is the hour nothing is watching the pit,
+    # and the alerting that would say so runs on the same broker. Updates here
+    # should be something a person starts and then watches.
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
 
     # On the host's network, so this and the broker above are the same address
     # and the devices have one place to dial in to. To run it on Docker's own

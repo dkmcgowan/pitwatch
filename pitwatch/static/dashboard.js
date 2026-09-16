@@ -289,10 +289,13 @@
 
   // The panel's own lamp, on the card that presses the panel's own button.
   //
-  // Three states, the same three the lamp on the door has. Green is quiet. Red
-  // and steady is an alarm somebody has silenced and not yet cleared. Red and
-  // blinking is one nobody has touched, because this controller pulses that
-  // output at one hertz until it is acknowledged.
+  // Green is quiet. Red and blinking fast is an alarm nobody has acknowledged,
+  // because this controller pulses that output at one hertz until somebody
+  // does. Red and blinking slowly, about a five second cycle, is a different
+  // thing again: a silent service notice with no horn, measured on
+  // 2026-09-16. Red and steady is neither of those, which usually means the
+  // horn was quieted, though this page cannot see a button being pressed and
+  // does not say that it can.
   //
   // Blinking is worked out from how often the contact has changed rather than
   // read off it, and the flash itself is a CSS animation on its own clock. The
@@ -301,6 +304,14 @@
   // this lamp is here to distinguish.
   const FLIPS = [];
   const FLIPPING_WITHIN_MS = 3000;
+  // And a wider window, because this controller has more than one pulse.
+  //
+  // Measured on 2026-09-16: an unacknowledged alarm is symmetric at about one
+  // hertz, and a silent "call for service" notice is 2.00 s closed and 3.00 s
+  // open, a five second cycle it held for 6,314 turns without varying. The
+  // slow one never puts two changes inside three seconds, so it reads as
+  // steady on the window above.
+  const SLOW_WITHIN_MS = 12000;
 
   function renderPanelButton(alarm) {
     const card = document.querySelector("[data-panel-button]");
@@ -314,23 +325,37 @@
       card.classList.toggle("raised", raised);
       FLIPS.push(now);
     }
-    while (FLIPS.length && now - FLIPS[0] > FLIPPING_WITHIN_MS) {
+    while (FLIPS.length && now - FLIPS[0] > SLOW_WITHIN_MS) {
       FLIPS.shift();
     }
+    const fast = FLIPS.filter(function (at) {
+      return now - at <= FLIPPING_WITHIN_MS;
+    });
     // Two changes inside three seconds is a square wave, not somebody at the
     // panel. One is an alarm arriving or going away.
-    const pulsing = raised && FLIPS.length >= 2;
+    const pulsing = raised && fast.length >= 2;
+    // Three changes inside twelve seconds, without being fast, is the slow
+    // pattern. Two would also catch an alarm that simply arrived and left.
+    const slow = raised && !pulsing && FLIPS.length >= 3;
 
     card.classList.toggle("alarm", raised && !pulsing);
     card.classList.toggle("pulsing", pulsing);
 
     const said = card.querySelector("[data-panel-state]");
     if (said) {
+      // This used to announce that an alarm had been quieted whenever it was
+      // not pulsing fast, which asserts that a person pressed a button. The
+      // page cannot observe that. On 2026-09-16 it made that claim for nine
+      // hours about a service notice nothing had touched, while PitWatch had
+      // sent no press at all. It describes the signal now and leaves the
+      // cause to whoever is reading it.
       said.textContent = pulsing
         ? "alarm, nobody has acknowledged it"
-        : raised
-          ? "alarm, silenced"
-          : "quiet";
+        : slow
+          ? "alarm, pulsing slowly"
+          : raised
+            ? "alarm, steady"
+            : "quiet";
     }
   }
 

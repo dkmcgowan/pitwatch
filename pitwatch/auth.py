@@ -26,6 +26,7 @@ Notes on the decisions, because they are the sort that get quietly undone:
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import secrets
@@ -39,7 +40,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from fastapi import Depends, HTTPException, Request, status
 
-from pitwatch import csrf
+from pitwatch import clock, csrf
 
 log = logging.getLogger(__name__)
 
@@ -233,6 +234,73 @@ async def ensure_default_admin(pool: asyncpg.Pool) -> bool:
         DEFAULT_USERNAME,
     )
     return True
+
+
+# How long a sign in record is kept.
+#
+# Long enough that somebody coming back from a fortnight away can still see
+# what happened while they were gone, and not so long that this quietly becomes
+# the largest table in a pump monitor.
+SIGN_IN_KEPT = timedelta(days=90)
+
+# Cut, because somebody probing with a thousand character user name should not
+# get to decide how much disk this takes.
+NAME_KEPT = 120
+
+
+async def recent_sign_ins(pool: asyncpg.Pool, zone: str = "", limit: int = 25) -> list[dict]:
+    """The last attempts, newest first, for the people page.
+
+    Successes and failures together rather than a filter, because the useful
+    reading is the shape: three failures and then a success is somebody who
+    forgot their password, and thirty failures and no success is not.
+    """
+    try:
+        rows = await pool.fetch(
+            "SELECT at, username, outcome, address FROM sign_in_event ORDER BY at DESC LIMIT $1",
+            limit,
+        )
+    except (asyncpg.PostgresError, OSError) as error:
+        log.warning("Could not read the sign in log: %s", error)
+        return []
+    # Formatted here rather than in the template, on the building's own clock.
+    # There is no date filter registered for Jinja and adding one for a single
+    # table is more machinery than the table is worth.
+    return [
+        {
+            "when": clock.on_at(row["at"], zone),
+            "username": row["username"],
+            "outcome": row["outcome"],
+            "address": row["address"] or "",
+        }
+        for row in rows
+    ]
+
+
+async def record_sign_in(
+    pool: asyncpg.Pool, username: str, outcome: str, address: str | None
+) -> None:
+    """Write down that somebody tried, whether or not they got in.
+
+    The failures are the point. A success is somebody getting on with their
+    day; a run of failures against one account at four in the morning is the
+    only signal this application will ever get that somebody is trying, and
+    until now it went to standard output, which ends when the container is
+    recreated.
+
+    Never raises. An application that will not let anybody sign in because it
+    could not write down that they did is worse than one that forgets.
+    """
+    with contextlib.suppress(asyncpg.PostgresError, OSError):
+        await pool.execute(
+            "INSERT INTO sign_in_event (username, outcome, address) VALUES ($1, $2, $3)",
+            (username or "")[:NAME_KEPT],
+            outcome,
+            address,
+        )
+        await pool.execute(
+            "DELETE FROM sign_in_event WHERE at < now() - $1::interval", SIGN_IN_KEPT
+        )
 
 
 async def authenticate(pool: asyncpg.Pool, username: str, password: str) -> User | None:

@@ -136,6 +136,50 @@
 
 </section>
 
+{# Who has been trying to get in.
+
+   The failures are the point. A success is somebody getting on with their day.
+   A run of failures against one account at four in the morning is the only
+   signal this application will ever get that somebody is trying, and until
+   2026-09-16 it went to the container's standard output, which ends whenever
+   the container is recreated.
+
+   Successes and failures in one list rather than a filter, because the useful
+   reading is the shape: three failures then a success is somebody who forgot
+   their password, thirty failures and no success is not. #}
+<section class="card">
+  <h2 class="card-title">Recent sign ins</h2>
+  <p class="hint">The last {{ sign_ins|length }} attempts, newest first. Kept for
+    90 days. A failure does not say which half was wrong, here or to whoever
+    typed it.</p>
+
+  {% if sign_ins %}
+  <div class="table-wrap">
+    <table class="people">
+      <thead>
+        <tr><th>When</th><th>Tried as</th><th>From</th><th>Result</th></tr>
+      </thead>
+      <tbody>
+        {% for one in sign_ins %}
+        <tr>
+          <td>{{ one.when }}</td>
+          <td>{{ one.username }}</td>
+          <td class="dim">{{ one.address }}</td>
+          <td>
+            {% if one.outcome == 'ok' %}<span class="status status-ok">signed in</span>
+            {% elif one.outcome == 'locked' %}<span class="status status-warn">locked out</span>
+            {% else %}<span class="status status-crit">wrong</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="hint">Nothing recorded yet.</p>
+  {% endif %}
+</section>
+
 {# One dialog for every row. Which account it is about is written into it as it
    opens, so there is not a copy of this per person. #}
 <dialog class="note confirm" id="confirm">

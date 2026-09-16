@@ -68,6 +68,7 @@ async def login_submit(request: Request):
     keys = [f"user:{username.lower()}", f"host:{client}"]
     locked = max((auth.seconds_locked_out(key) for key in keys), default=0)
     if locked:
+        await auth.record_sign_in(pool, username, "locked", client)
         return _templates(request).TemplateResponse(
             request,
             "login.html",
@@ -83,6 +84,7 @@ async def login_submit(request: Request):
     if user is None:
         for key in keys:
             auth._record_failure(key)
+        await auth.record_sign_in(pool, username, "wrong", client)
         log.warning("Failed sign in for %r from %s", username, client)
         return _templates(request).TemplateResponse(
             request,
@@ -93,6 +95,7 @@ async def login_submit(request: Request):
 
     for key in keys:
         auth._clear_failures(key)
+    await auth.record_sign_in(pool, user.username, "ok", client)
     auth.sign_in(request, user)
 
     # "Remember me" is the difference between a session that ends with the
@@ -323,6 +326,7 @@ async def users_page(request: Request, admin: auth.IsAdmin, saved: str | None = 
         _context(
             request,
             users=await auth.list_users(pool),
+            sign_ins=await auth.recent_sign_ins(pool, request.app.state.settings.site.timezone),
             saved=saved,
             error=None,
             invite_link=request.session.pop("invite_link", None),
@@ -336,7 +340,12 @@ async def _list_with_error(request: Request, error: str):
         request,
         "users.html",
         _context(
-            request, users=await auth.list_users(pool), saved=None, error=error, invite_link=None
+            request,
+            users=await auth.list_users(pool),
+            sign_ins=await auth.recent_sign_ins(pool, request.app.state.settings.site.timezone),
+            saved=None,
+            error=error,
+            invite_link=None,
         ),
         status_code=400,
     )

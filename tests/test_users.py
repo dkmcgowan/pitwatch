@@ -453,8 +453,12 @@ def test_the_users_page_is_a_list_and_not_a_pile_of_forms(client):
     # state, role and status were all here and made the table wider than the
     # page. They are on the edit form, which is where somebody goes to change
     # them anyway.
+    #
+    # Checked against the accounts table alone. The sign in log below it is its
+    # own table with its own columns, and one of them is a name.
+    people = page.split("<table", 1)[1].split("</table>", 1)[0]
     for gone in ("User name", "Sign in", "Status"):
-        assert f">{gone}</th>" not in page, gone
+        assert f">{gone}</th>" not in people, gone
     # Role is back, as one box rather than nine characters of "Administrator".
     assert ">Admin</th>" in page
     # One editable form per account is exactly what this replaced, so the only
@@ -843,3 +847,42 @@ def test_the_password_link_still_sends_from_its_new_home(client):
 
     assert sent.status_code == 200
     assert "/set-password?token=" in sent.text
+
+
+def test_a_failed_sign_in_is_written_down_and_not_only_logged(client):
+    """It went to standard output, which ends whenever the container is
+    recreated, and on 2026-09-16 that happened three times in a morning.
+
+    The failures are the point. A success is somebody getting on with their
+    day; a run of failures against one account at four in the morning is the
+    only signal this application will ever get that somebody is trying.
+    """
+    sign_in_as_admin(client)
+    client.get("/logout")
+
+    client.post("/login", data={"username": "ttsang", "password": "not the password"})
+    sign_in_as_admin(client)
+
+    page = client.get("/users").text
+
+    assert "Recent sign ins" in page
+    assert "ttsang" in page
+    assert "wrong" in page
+    assert "signed in" in page, "the successes are shown too, because the shape is the reading"
+
+
+def test_the_sign_in_log_does_not_say_which_half_was_wrong(client):
+    """Same rule as the message to whoever typed it. A log that distinguishes
+    "no such user" from "bad password" is a log that confirms account names to
+    anybody who can read it."""
+    sign_in_as_admin(client)
+    client.get("/logout")
+
+    client.post("/login", data={"username": "nobody-at-all", "password": "x"})
+    sign_in_as_admin(client)
+
+    page = client.get("/users").text
+
+    assert "nobody-at-all" in page, "the name is recorded as typed, even unknown"
+    assert "no such user" not in page.lower()
+    assert "bad password" not in page.lower()

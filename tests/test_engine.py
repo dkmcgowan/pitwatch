@@ -1288,7 +1288,9 @@ async def test_a_contactor_with_no_current_fires_once_the_clamp_has_proved_itsel
     contacts = _wire(_Contacts(), pump1_run=True)
     store = _store()
     engine = _engine(pool, store, contacts)
-    engine._live = SimpleNamespace(samples={0: SimpleNamespace(current=0.0)})
+    # Reading zero, and reading it now: the clamp is answering during the run,
+    # which is what separates a stopped motor from a stopped meter.
+    engine._live = SimpleNamespace(samples={0: SimpleNamespace(current=0.0, ts=datetime.now(UTC))})
 
     await pool.execute(
         "INSERT INTO em_sample (ts, channel, current) VALUES (now() - interval '1 day', 0, 15.4)"
@@ -1395,7 +1397,8 @@ async def test_every_rule_that_can_fire_sends_a_finished_sentence(pool, sent):
         alerts,
         {"pump1_run": True},
         setup=a_dead_motor,
-        samples={0: SimpleNamespace(current=0.2)},
+        # Heard during this run, which is what gives the rule an opinion.
+        samples={0: SimpleNamespace(current=0.2, ts=datetime.now(UTC))},
     )
 
     # Drawing more than its limit.
@@ -1608,3 +1611,99 @@ async def test_every_all_clear_says_the_good_news_rather_than_the_bad(pool, sent
     assert not cleared, f"an all clear fell back to the generic sentence: {cleared}"
     for _, _, body in sent:
         assert "{" not in body and "}" not in body, body
+
+
+async def test_a_meter_that_stopped_talking_is_not_a_motor_that_stopped_turning(pool, sent):
+    """The live reading is a cache of the last thing the meter said, and it
+    does not expire.
+
+    When the meter fell off the broker on 2026-09-16 that cache held its final
+    between-runs zero, and every pump call for the next hour looked like a
+    motor sitting dead on a closed contactor. Fifteen critical alerts about two
+    pumps that were running perfectly.
+
+    A monitoring failure reported as a hardware failure is worse than no alert,
+    because somebody acts on it. The clamp has to have spoken during this run
+    to have an opinion about it.
+    """
+    await _a_person(pool)
+    store = _store()
+    contacts = _wire(_Contacts(), pump1_run=True)
+    # The clamp has proved itself in the past, which is what arms the rule.
+    await pool.execute(
+        "INSERT INTO em_sample (ts, channel, current) VALUES (now() - interval '2 days', 0, 14.0)"
+    )
+    await pool.execute(
+        "INSERT INTO pump_run (pump, started_at, started_by) "
+        "VALUES (1, now() - interval '30 seconds', 'contact')"
+    )
+
+    # A stale zero: the last thing the meter said, well before this run began.
+    stale = SimpleNamespace(current=0.0, ts=datetime.now(UTC) - timedelta(minutes=40))
+    engine = AlertEngine(pool, store, SimpleNamespace(samples={0: stale}), contacts, None, None)
+    await engine.sweep()
+
+    assert (
+        await pool.fetchval("SELECT count(*) FROM alert WHERE rule = 'contactor_no_current'") == 0
+    ), "a dead meter was reported as a dead motor"
+
+    # And the real fault still fires: the clamp answering during the run, with
+    # nothing on it.
+    live = SimpleNamespace(current=0.0, ts=datetime.now(UTC))
+    engine = AlertEngine(pool, store, SimpleNamespace(samples={0: live}), contacts, None, None)
+    await engine.sweep()
+
+    detail = await pool.fetchval("SELECT detail FROM alert WHERE rule = 'contactor_no_current'")
+    assert detail and "drawing nothing" in detail, detail
+
+
+def test_the_two_pulses_this_panel_uses_are_told_apart():
+    """One contact, more than one meaning, distinguished by rate.
+
+    An unacknowledged alarm is symmetric at about a hertz. The yearly service
+    reminder is 2.00 s closed and 3.00 s open, measured over 6,314 cycles on
+    2026-09-16 without varying by more than a hundredth. The manufacturer
+    confirmed the slow one is a maintenance prompt and not a fault.
+
+    Before this the alert offered the same guess either way, a power failure or
+    an open door, and sent somebody looking for a fault that did not exist.
+    """
+    import asyncio as _asyncio
+
+    async def cadence(period_s, count):
+        loop = _asyncio.get_running_loop()
+        now = loop.time()
+        e = _engine(None, _store(), _Contacts())
+        # Newest last, the order on_events appends them in.
+        for step in range(count, 0, -1):
+            e._alarm_edges.append(now - step * period_s)
+        return e._alarm_cadence()
+
+    async def go():
+        assert await cadence(0.5, 12) == "fast", "a one hertz alarm"
+        assert await cadence(2.5, 6) == "slow", "the five second service reminder"
+        assert await cadence(9.0, 6) == "steady", "changes too far apart to be a pulse"
+        assert await cadence(0.5, 2) == "steady", "two edges is a blip, not a rhythm"
+
+    _asyncio.run(go())
+
+
+async def test_the_panel_alert_says_which_pulse_it_is_seeing(pool, sent):
+    """The sentence is the whole value of this alert. The contact carries no
+    detail, so the one thing worth saying is what it is doing."""
+    await _a_person(pool)
+    alerts = AlertsSettings()
+    alerts.panel_alert.hold_s = 0
+    engine = _engine(pool, _store(alerts), _wire(_Contacts(), system_alert=True))
+
+    now = asyncio.get_running_loop().time()
+    for step in range(6, 0, -1):
+        engine._alarm_edges.append(now - step * 2.5)
+
+    await engine.sweep()
+
+    detail = await pool.fetchval("SELECT detail FROM alert WHERE rule = 'panel_alert'")
+    assert detail is not None
+    assert "pulsing slowly" in detail, detail
+    assert "yearly service reminder" in detail, detail
+    assert "{" not in detail and "}" not in detail, detail

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import itertools
 import logging
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -84,6 +85,24 @@ SETTLE_S = 6.0
 PULSING_WITHIN_S = 3.0
 PULSING_EDGES = 3
 HUSH_AGAIN_AFTER_S = 5.0
+
+# Telling this panel's two pulses apart.
+#
+# It puts more than one meaning on its single alarm contact and distinguishes
+# them by rate. An unacknowledged alarm is symmetric at about one hertz, half a
+# second each way. A yearly service reminder is 2.00 s closed and 3.00 s open,
+# measured on 2026-09-16 over 6,314 cycles without varying by more than a
+# hundredth. The manufacturer confirmed the slow one is a maintenance prompt,
+# deliberately kept too short to trip anything that would stop the pumps.
+#
+# The two are far enough apart that a threshold between them needs no care:
+# gaps of half a second against gaps of two to three. Fourteen seconds of
+# window catches five or six edges of the slow pattern, which is enough to
+# take a median and not be fooled by one stray transition.
+CADENCE_WINDOW_S = 14.0
+CADENCE_EDGES = 4
+FAST_GAP_S = 1.2
+SLOW_GAP_S = 4.0
 
 
 def _spell(seconds: float) -> str:
@@ -522,6 +541,29 @@ class AlertEngine:
         recent = [at for at in self._alarm_edges if now - at <= PULSING_WITHIN_S]
         return len(recent) >= PULSING_EDGES
 
+    def _alarm_cadence(self) -> str:
+        """What the alarm output is doing: "fast", "slow" or "steady".
+
+        Measured from the edges rather than read off the contact, for the same
+        reason the dashboard lamp is: a dropped frame looks exactly like a
+        pulse that stopped, and the difference between these two patterns is
+        the difference between a flood and a postcard.
+        """
+        try:
+            now = asyncio.get_running_loop().time()
+        except RuntimeError:  # pragma: no cover -- called outside a loop
+            return "steady"
+        recent = [at for at in self._alarm_edges if now - at <= CADENCE_WINDOW_S]
+        if len(recent) < CADENCE_EDGES:
+            return "steady"
+        gaps = sorted(b - a for a, b in itertools.pairwise(recent))
+        middle = gaps[len(gaps) // 2]
+        if middle <= FAST_GAP_S:
+            return "fast"
+        if middle <= SLOW_GAP_S:
+            return "slow"
+        return "steady"
+
     def _silence_the_alarm(self) -> None:
         """Stop the horn, while it is still asking to be stopped.
 
@@ -879,7 +921,29 @@ class AlertEngine:
                     """
                 )
             )
-        return {None: None if self._panel_alert_explained else Finding()}
+        if self._panel_alert_explained:
+            return {None: None}
+        return {None: Finding(values={"pattern": self._pattern_note()})}
+
+    def _pattern_note(self) -> str:
+        """What the alarm looks like, said plainly, because on this panel the
+        rate is the only thing that carries any meaning at all.
+
+        Before this the message offered one guess, a power failure or an open
+        door, whatever the contact was doing. On 2026-09-16 that guess went out
+        about a yearly service reminder and sent somebody looking for a fault
+        that did not exist.
+        """
+        cadence = self._alarm_cadence()
+        if cadence == "fast":
+            return "It is flashing, which means nobody has acknowledged it yet."
+        if cadence == "slow":
+            return (
+                "It is pulsing slowly, about five seconds. On this controller "
+                "that is the yearly service reminder rather than a fault, and "
+                "it is cleared at the panel."
+            )
+        return "It is steady, which is often a power failure or the panel door left open."
 
     # Float activity and a pump starting are not swept. They are moments, not
     # conditions: there is nothing to be true later and nothing to clear, so a
@@ -1110,6 +1174,21 @@ class AlertEngine:
         above the running threshold is far more likely to be a CT nobody fitted
         than a pump that has never once worked, and firing on an unfitted CT
         every time the pump runs is how somebody learns to ignore this.
+
+        **And it stays quiet when the clamp has stopped talking**, which is the
+        same argument and was only half implemented. The live reading is a
+        cache of the last thing the meter said, with no expiry: when the meter
+        went off the broker on 2026-09-16 that cache held its final between
+        runs zero, and every pump call afterwards looked like a motor sitting
+        dead on a closed contactor. Fifteen critical alerts in an hour, about
+        two pumps that were running perfectly.
+
+        A monitoring failure reported as a hardware failure is worse than no
+        alert at all, because somebody acts on it. So the clamp has to have
+        spoken *during this run* to have an opinion about it. That needs no
+        timeout to tune: the meter is asked every second while a pump turns, so
+        a run with nothing from the clamp is a clamp that is not answering, and
+        the device offline rule is the one that should be speaking then.
         """
         found = {}
         for pump in (1, 2):
@@ -1125,17 +1204,28 @@ class AlertEngine:
             if not proven:
                 continue
 
-            open_since = await self._pool.fetchval(
-                "SELECT extract(epoch FROM now() - started_at) FROM pump_run"
-                " WHERE pump = $1 AND ended_at IS NULL",
+            run = await self._pool.fetchrow(
+                "SELECT started_at, extract(epoch FROM now() - started_at) AS open_s"
+                " FROM pump_run WHERE pump = $1 AND ended_at IS NULL",
                 pump,
             )
             sample = self._live.samples.get(channel)
+            heard_this_run = (
+                sample is not None and run is not None and sample.ts >= run["started_at"]
+            )
+            if running and run is not None and run["open_s"] >= SETTLE_S and not heard_this_run:
+                # The contact says it is turning and the clamp has said nothing
+                # since before it started. That is a meter that has stopped, not
+                # a motor that has.
+                found[pump] = None
+                continue
+
             amps = sample.current if sample else None
             dead = (
                 running
-                and open_since is not None
-                and open_since >= SETTLE_S
+                and run is not None
+                and run["open_s"] >= SETTLE_S
+                and heard_this_run
                 and amps is not None
                 and amps < domain.RUNNING_AMPS
             )

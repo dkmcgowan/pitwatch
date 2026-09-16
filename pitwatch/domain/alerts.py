@@ -78,10 +78,13 @@ SPECS: tuple[Spec, ...] = (
             "failure, an open panel door and half a dozen faults all raise the "
             "same contact. This waits briefly to see whether something that "
             "does carry detail explains it, and stays quiet if one does, so "
-            "one event does not arrive as two alerts."
+            "one event does not arrive as two alerts. What it can say is what "
+            "the contact is doing: this controller flashes at about a hertz "
+            "for an alarm nobody has acknowledged, and pulses slowly, about "
+            "five seconds, for its yearly service reminder."
         ),
         needs=CONTACTS,
-        placeholders=COMMON,
+        placeholders=(*COMMON, "{pattern}"),
         thresholds=(
             Threshold(
                 "hold_s",

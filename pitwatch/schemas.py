@@ -788,10 +788,7 @@ class AlertsSettings(BaseModel):
     panel_alert: PanelAlertRule = Field(
         default_factory=lambda: PanelAlertRule(
             severity=Severity.CRITICAL,
-            message=(
-                "Panel alert at {site} and nothing here explains it. Often a "
-                "power failure or the panel door left open. Time {time}."
-            ),
+            message=("Panel alert at {site} and nothing here explains it. {pattern} Time {time}."),
         )
     )
     overload: AlertRule = Field(

@@ -154,8 +154,13 @@
     typed it.</p>
 
   {% if sign_ins %}
-  <div class="table-wrap">
-    <table class="people">
+  {# table-scroll, not a wrapper of my own invention. `.table-scroll` is the
+     one with `overflow-x: auto` on it, and `table.users` carries the 30rem
+     minimum that makes a table readable rather than crushed. Without them this
+     table had no scroll container and no styling, so on a narrow screen it
+     pushed the whole page sideways and the header did not follow. #}
+  <div class="table-scroll">
+    <table class="users">
       <thead>
         <tr><th>When</th><th>Tried as</th><th>From</th><th>Result</th></tr>
       </thead>

@@ -1381,7 +1381,22 @@ table.signals td:last-child, table.signals th:last-child { width: 1%; white-spac
 
 /* Wide tables scroll inside their own box. The page body never scrolls
    sideways, which on a phone is the difference between usable and not. */
-.table-scroll { overflow-x: auto; margin-bottom: 1rem; }
+.table-scroll {
+  overflow-x: auto;
+  margin-bottom: 1rem;
+
+  /* And the overflow stays inside this box.
+     `overflow-x: auto` makes the table scroll within the div, which it did,
+     and on its own that was not enough: the table's width still counted
+     towards the page's own scrollable area, so the whole page slid sideways
+     228px on a 390px phone and the header, which is only as wide as the
+     viewport, left a blank strip behind it. Reported on the users page, where
+     the accounts table carries a 30rem minimum.
+     `contain: paint` makes this a containment context, so what overflows here
+     is this element's business and not the document's. The table still scrolls
+     inside, which is the part somebody needs. */
+  contain: paint;
+}
 
 table {
   border-collapse: collapse;

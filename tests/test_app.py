@@ -2708,3 +2708,42 @@ def test_the_lamp_card_does_not_call_itself_alerts():
     # And the counts carry their unit, so "2" is not read as two alerts.
     assert 'title="Closures this month"' in page
     assert 'title="Times this month"' not in page
+
+
+def test_a_wide_table_scrolls_itself_and_not_the_whole_page():
+    """`overflow-x: auto` was not enough on its own.
+
+    The accounts table carries a 30rem minimum so its columns stay readable,
+    and it does scroll inside its div. But its width still counted towards the
+    document's scrollable area, so on a 390px phone the whole page slid
+    sideways 228px and the header, being only as wide as the viewport, left a
+    blank strip behind it. Reported on the users page on 2026-09-17.
+
+    `contain: paint` makes the scroller a containment context, so what
+    overflows is its own business rather than the document's.
+    """
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+
+    # Anchored at the start of a line, because `.table-card .table-scroll`
+    # appears earlier and is a different rule.
+    block = css.split("\n.table-scroll {", 1)[1].split("}", 1)[0]
+    assert "overflow-x: auto" in block, "the table has to scroll somewhere"
+    assert "contain: paint" in block, "its overflow will widen the whole page"
+
+
+def test_the_sign_in_table_uses_the_classes_that_exist():
+    """Both tables on the users page use `table-scroll` and `table.users`.
+
+    The sign in table shipped with `table-wrap` and `table.people`, which I
+    invented and which appear nowhere in the stylesheet, so it had no scroll
+    container and no styling at all.
+    """
+    page = Path("pitwatch/templates/users.html").read_text(encoding="utf-8")
+    css = Path("pitwatch/static/style.css").read_text(encoding="utf-8")
+
+    assert "table-wrap" not in page
+    assert 'table class="people"' not in page
+    assert page.count('class="table-scroll"') == 2, "accounts and sign ins"
+    assert page.count('<table class="users">') == 2
+    for name in (".table-scroll", "table.users"):
+        assert name in css, name

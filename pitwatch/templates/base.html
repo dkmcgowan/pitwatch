@@ -16,6 +16,35 @@
 {% include "_icons.html" %}
 <header class="topbar">
   {% include "_brand.html" %}
+  {# Which building. PitWatch's owner sees this always, one building or ten,
+     because it is how they know which one they are looking at. A site
+     administrator or viewer never sees it at all: they look after one
+     basement and should not learn there is a concept of a second. The
+     decision is in pitwatch.domain.sites.switcher, which hands an empty list
+     when it should not be drawn.
+
+     It submits on change wherever there is JavaScript to do it, because a
+     picker plus a button is three clicks for a one click decision; the
+     button is what is left for somebody who has none. #}
+  {% if sites %}
+  <form method="post" action="/site/switch" class="site-switch">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="visually-hidden" for="site-switch">Building</label>
+    {# No inline handler: the Content Security Policy is `script-src 'self'`
+     and blocks one silently. static/switcher.js wires the change event and
+     hides the button below, which is what somebody with no JavaScript at
+     all uses instead. #}
+    <select id="site-switch" name="site_id">
+      {% for choice in sites %}
+      <option value="{{ choice.id }}" {% if choice.id == site_id %}selected{% endif %}>
+      {{ choice.name }}
+      </option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="button">Go</button>
+  </form>
+  {% endif %}
+
   {# Icons rather than words. Four text links plus a name, a password link and
      a sign out button wrapped onto two lines on a phone, and this is a page
      somebody reads on a phone in a basement. Each one keeps a title and an
@@ -74,34 +103,6 @@
     </a>
     {% endif %}
 
-    {# Which building. PitWatch's owner sees this always, one building or ten,
-       because it is how they know which one they are looking at. A site
-       administrator or viewer never sees it at all: they look after one
-       basement and should not learn there is a concept of a second. The
-       decision is in pitwatch.domain.sites.switcher, which hands an empty list
-       when it should not be drawn.
-
-       It submits on change wherever there is JavaScript to do it, because a
-       picker plus a button is three clicks for a one click decision; the
-       button is what is left for somebody who has none. #}
-    {% if sites %}
-    <form method="post" action="/site/switch" class="site-switch">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label class="visually-hidden" for="site-switch">Building</label>
-      {# No inline handler: the Content Security Policy is `script-src 'self'`
-         and blocks one silently. static/switcher.js wires the change event and
-         hides the button below, which is what somebody with no JavaScript at
-         all uses instead. #}
-      <select id="site-switch" name="site_id">
-        {% for choice in sites %}
-        <option value="{{ choice.id }}" {% if choice.id == site_id %}selected{% endif %}>
-          {{ choice.name }}
-        </option>
-        {% endfor %}
-      </select>
-      <button type="submit" class="button">Go</button>
-    </form>
-    {% endif %}
   </nav>
 </header>
 

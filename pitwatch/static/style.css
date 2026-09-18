@@ -143,18 +143,35 @@ body {
   gap: 0.25rem;
   flex-wrap: wrap;
   flex: none;
+  /* `flex: none` is `flex: 0 0 auto`, so this never shrinks and its width is
+     whatever its contents add up to. With the building picker in it that came
+     to 377px, which runs off any screen narrower than about 395 and sat 4px
+     from the edge at 390. The cap lets it wrap instead of overflow. */
+  max-width: 100%;
 }
 
 /* Which building, on installations that have more than one. Sized to the name
    rather than to the row: a select that stretched would push the icons off a
    phone, and one clipped to nothing would make two addresses on the same
    street indistinguishable. */
+/* Sits before the nav in the markup and after it on screen.
+
+   The markup order is what a phone uses: the header wraps, and a picker that
+   came after seven icons took a third row of its own, 111px of an 844px
+   screen on every page. Before them it shares the brand's row, which has the
+   space, and the header stays at two. `order` puts it back on the right on a
+   screen wide enough for one row, so nothing moves on a desktop. */
 .site-switch {
   display: flex;
   align-items: center;
+  order: 3;
   margin-left: 0.5rem;
   min-width: 0;
 }
+
+/* Pushed right so the picker and the icons stay together against the edge
+   rather than the three children spreading across the bar. */
+.topbar nav { margin-left: auto; }
 
 /* The no JavaScript fallback. Hidden by static/switcher.js the moment it
    runs, so in a normal browser this is never seen; sized anyway, because the
@@ -2073,8 +2090,21 @@ form.inline { display: inline; }
    finds out what it is, and it was being hidden to buy room the icons could
    give up instead. */
 @media (max-width: 30rem) {
-  .topbar { padding: 0.4rem 0.55rem; gap: 0.25rem; }
+  .topbar { padding: 0.4rem 0.7rem; gap: 0.25rem; }
   .topbar nav { gap: 0; }
+
+  /* On a phone the picker rides the brand's row, which is where the space is.
+     Seven icons come to 241px and the picker to 153px: 394px of content in
+     the 298px a 320px screen has, so they cannot share a line. Beside the
+     brand there is room for the whole building name, and the header stays two
+     rows rather than three. */
+  .site-switch {
+    order: 0;
+    margin-left: auto;
+    min-width: 0;
+  }
+
+  .site-switch select { max-width: 100%; }
   .icon-link { width: 2.15rem; height: 2.15rem; }
   .icon-link svg { width: 19px; height: 19px; }
   .brand { font-size: 0.85rem; gap: 0.35rem; }

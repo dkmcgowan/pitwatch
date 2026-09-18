@@ -179,6 +179,33 @@ def panel_state(
     for role, title in DASHBOARD_ROLES:
         channel = inputs.channel_for(role)
         history = closings.get(channel) if channel else None
+
+        # When it last closed, taken from whichever source saw it more
+        # recently.
+        #
+        # The lamp comes off the live contact and changes the instant the panel
+        # does. The history beside it is read from the database behind a sixty
+        # second cache, so the float would light, go out, and the line under it
+        # would still say two minutes ago for another minute. Two numbers about
+        # the same event, disagreeing, on the same row.
+        #
+        # The live view is not simply preferred, because it only knows what has
+        # happened since this process started: after a restart it has nothing
+        # and the database has everything. The later of the two is right in
+        # both cases.
+        #
+        # Which is exactly what `_with_live_rise` below already does for the
+        # pump run counts. The same fault existed on the lamps and went unseen
+        # for longer, because a run's clock is read once and a float's is read
+        # every few minutes.
+        seen_live = live_io.came_on_at(channel) if channel else None
+        last_on = history.last_on if history else None
+        if seen_live is not None and (last_on is None or seen_live > last_on):
+            last_on = seen_live
+
+        told = (history or Closings()).as_json()
+        told["last_on"] = last_on.isoformat() if last_on else None
+
         lamps[role] = {
             "title": title,
             "channel": channel,
@@ -191,7 +218,7 @@ def panel_state(
             # When this contact last closed and how often it has lately, which
             # is the part a lamp cannot say: a lamp that is off now looks the
             # same whether it went twenty times today or never.
-            "history": (history or Closings()).as_json(),
+            "history": told,
         }
 
     first, second = lead_and_lag(inputs, live_io)

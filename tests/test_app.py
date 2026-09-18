@@ -2747,3 +2747,56 @@ def test_the_sign_in_table_uses_the_classes_that_exist():
     assert page.count('<table class="users">') == 2
     for name in (".table-scroll", "table.users"):
         assert name in css, name
+
+
+def test_a_lamp_and_its_timestamp_agree_about_when_it_closed():
+    """The lamp reads the live contact and changes the instant the panel does.
+    The line under it was read from the database behind a sixty second cache,
+    so the lead float would light, go out, and the text would still say two
+    minutes ago for another minute. Two numbers about the same event
+    disagreeing on the same row, which David saw on the dashboard.
+
+    The live view is not simply preferred: it only knows what has happened
+    since the process started, so after a restart it has nothing and the
+    database has everything. The later of the two is right either way.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.api.live import panel_state
+    from pitwatch.domain.history import Closings
+    from pitwatch.ingest.sink import LiveIo
+    from pitwatch.schemas import ContactInput, MqttSettings
+
+    now = datetime.now(UTC)
+    inputs = MqttSettings(inputs=[ContactInput(channel=5, role="lead_float", topic="pit/in/5")])
+    live = LiveIo()
+    live.last_on[5] = now - timedelta(seconds=4)
+    # What the cache last saw, a minute out of date.
+    stale = {5: Closings(last_on=now - timedelta(minutes=2), today=9, month=40, known=True)}
+
+    lamps = panel_state(inputs, live, stale)
+    said = lamps["lead_float"]["history"]["last_on"]
+
+    assert said == (now - timedelta(seconds=4)).isoformat(), "the page is showing the stale one"
+    # And the counts still come from the cache, which is what it is for.
+    assert lamps["lead_float"]["history"]["month"] == 40
+
+
+def test_a_restart_falls_back_to_what_the_database_remembers():
+    """The other half. A process that has just started has seen no contacts,
+    and a lamp that then claims a float has never closed would be worse than a
+    minute of staleness."""
+    from datetime import UTC, datetime, timedelta
+
+    from pitwatch.api.live import panel_state
+    from pitwatch.domain.history import Closings
+    from pitwatch.ingest.sink import LiveIo
+    from pitwatch.schemas import ContactInput, MqttSettings
+
+    now = datetime.now(UTC)
+    inputs = MqttSettings(inputs=[ContactInput(channel=5, role="lead_float", topic="pit/in/5")])
+    remembered = {5: Closings(last_on=now - timedelta(minutes=9), known=True)}
+
+    lamps = panel_state(inputs, LiveIo(), remembered)
+
+    assert lamps["lead_float"]["history"]["last_on"] == (now - timedelta(minutes=9)).isoformat()

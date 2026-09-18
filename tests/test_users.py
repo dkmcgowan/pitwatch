@@ -849,6 +849,60 @@ def test_the_password_link_still_sends_from_its_new_home(client):
     assert "/set-password?token=" in sent.text
 
 
+def test_the_list_offers_a_fresh_link_without_opening_the_form(client):
+    """The button existed only on a person's own edit page.
+
+    A link lasts three days, so the common case is somebody whose invitation
+    went stale before they got to it, and the fix was three clicks into a form
+    that exists for changing their phone number. Sending them another one is a
+    row action, next to the others.
+    """
+    sign_in_as_admin(client)
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
+    user_id = user_id_of(client, "super")
+
+    page = client.get("/users").text
+
+    assert f'action="/users/{user_id}/invite"' in page
+    assert "icon-envelope" in page
+    # Worded for somebody who has never set one. The other wording is for
+    # somebody who has and has forgotten it.
+    assert "Resend the invitation to Building Super" in page
+
+
+def test_a_person_with_no_address_is_not_offered_a_link(client):
+    """There is nowhere to send it, and the route refuses it anyway. A button
+    that always answers with an error is worse than no button."""
+    sign_in_as_admin(client)
+    # The key has to be absent rather than empty: `forms.checkbox` reads a
+    # checkbox as ticked when the browser sent the name at all, which is what a
+    # browser does, and an empty string is still the name being sent.
+    no_email = {k: v for k, v in SUPER.items() if k not in ("email", "notify_email")}
+    client.post("/users/new", data=no_email)
+    user_id = user_id_of(client, "super")
+
+    page = client.get("/users").text
+
+    assert f'action="/users/{user_id}/invite"' not in page
+
+
+def test_sending_a_link_says_it_was_sent_rather_than_saved(client):
+    """Nothing was saved, and on an install with no mail server nothing was
+    sent either, which the notice below already explains. Saying "Saved." over
+    the top of that contradicts it."""
+    sign_in_as_admin(client)
+    client.post("/users/new", data=SUPER | {"send_invite": ""})
+    user_id = user_id_of(client, "super")
+
+    page = client.post(f"/users/{user_id}/invite").text
+
+    # No SMTP here, so the link is shown instead and the banner stays quiet
+    # about having emailed anything.
+    assert "Send this link yourself" in page
+    assert "on its way" not in page
+    assert "Saved." not in page
+
+
 def test_a_failed_sign_in_is_written_down_and_not_only_logged(client):
     """It went to standard output, which ends whenever the container is
     recreated, and on 2026-09-16 that happened three times in a morning.

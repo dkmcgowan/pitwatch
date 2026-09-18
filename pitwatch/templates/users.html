@@ -6,6 +6,13 @@
 
 {% if error %}
 <p class="error" role="alert">{{ error }}</p>
+{# "Saved." is wrong for a link that was emailed, and doubly wrong when it
+   could not be: the notice below says so and this would contradict it. So an
+   invitation says what happened, or says nothing and lets the notice speak. #}
+{% elif saved == 'invited' %}
+{% if not invite_link %}
+<p class="saved" role="status">A link to set a password is on its way.</p>
+{% endif %}
 {% elif saved %}
 <p class="saved" role="status">Saved.</p>
 {% endif %}
@@ -101,6 +108,27 @@
              aria-label="Edit {{ person.name or person.username }}">
             <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-pencil"/></svg>
           </a>
+          {# A fresh link to set a password, for anybody with an address to send
+             it to.
+
+             The route has always existed and had no button, so the only way to
+             re-invite somebody whose link had expired was to delete them and
+             add them again. A link lasts three days and issuing a new one
+             cancels the old, so pressing this twice is safe.
+
+             Offered to people who already have a password as well: it is the
+             only way somebody who has forgotten one gets back in, and the mail
+             goes to their own address rather than to whoever pressed it. #}
+          {% if person.email %}
+          <form method="post" action="/users/{{ person.id }}/invite" class="inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="icon-button"
+                    title="{% if person.has_password %}Email {{ person.name or person.username }} a link to set a new password{% else %}Resend the invitation to {{ person.name or person.username }}{% endif %}"
+                    aria-label="{% if person.has_password %}Email {{ person.name or person.username }} a link to set a new password{% else %}Resend the invitation to {{ person.name or person.username }}{% endif %}">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-envelope"/></svg>
+            </button>
+          </form>
+          {% endif %}
           {# Neither of these is offered for your own account. An install with
              nobody who can change anything needs the database edited by hand
              to recover, and the server refuses it too. #}

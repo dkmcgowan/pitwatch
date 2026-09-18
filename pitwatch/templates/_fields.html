@@ -217,7 +217,7 @@
 {% endmacro %}
 
 
-{% macro site_fields(site) %}
+{% macro site_fields(site, site_id=None) %}
 <div class="grid">
   <div class="field">
     <label for="site_name">Building</label>
@@ -225,6 +225,24 @@
     <p class="hint">Which pumps these are. Goes in every alert, so an address
       beats a nickname at two in the morning.</p>
   </div>
+  {% if site_id %}
+  {# Shown, not editable, and deliberately carrying no name attribute so it
+     posts nothing back. The database assigns it and nothing may change it: it
+     is on every reading, event and alert this building owns. Here because it
+     is the number you would put in front of an MQTT topic or into a device's
+     config, and there was otherwise nowhere to read it off. #}
+  <div class="field">
+    <label for="site_id_shown">Site ID</label>
+    {# No inline handler. The Content Security Policy is `script-src 'self'` and
+       blocks one silently, which is how the site switcher shipped broken. #}
+    <input type="text" id="site_id_shown" class="readonly-value" value="{{ site_id }}"
+           readonly>
+    <p class="hint">Assigned by PitWatch and fixed for the life of the
+      building. Every reading, contact and alert here carries it. Use it if you
+      ever need to name this site somewhere else, such as in front of an MQTT
+      topic.</p>
+  </div>
+  {% endif %}
   <div class="field">
     <label for="site_timezone">Timezone</label>
     <select id="site_timezone" name="site_timezone">

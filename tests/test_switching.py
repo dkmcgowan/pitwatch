@@ -71,23 +71,25 @@ def _sign_in(client, username: str):
 # -- one building, which is every installation today -------------------------
 
 
-def test_one_building_shows_no_switcher_at_all(client):
-    """The case that must not regress.
+def test_the_owner_sees_the_picker_even_with_one_building(client):
+    """Always, one building or ten.
 
-    Somebody who looks after one basement should never learn that PitWatch has
-    a concept of a second one. A picker with a single entry is not harmless: it
-    is a control that does nothing, on a page read at two in the morning.
+    It was drawn only when there was somewhere to go, which meant the control
+    appeared the day a second building was added and the first one was the
+    hardest to find. For the person who owns PitWatch the picker is how they
+    know which building they are looking at, and a control that comes and goes
+    is worse than one that sometimes has a single entry.
     """
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     page = client.get("/").text
 
-    assert "site-switch" not in page, "a picker was drawn with nothing to pick"
-    assert "/site/switch" not in page
+    assert "site-switch" in page
+    assert "Basement pit" in page
 
 
-def test_the_switcher_appears_only_once_there_is_somewhere_to_go(client):
+def test_the_picker_grows_as_buildings_are_added(client):
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
     client.post("/settings/sites/new", data={"new_site_name": "14 Bank St"})
@@ -272,6 +274,46 @@ def test_an_admin_at_one_address_cannot_switch_to_another(client, sql):
     page = client.get("/")
     assert "14 Bank St" not in page.text
     assert "site-switch" not in page.text
+
+
+def test_a_site_administrator_never_sees_the_picker_even_in_two_buildings(client, sql):
+    """The other half of the rule, and the half worth a test of its own.
+
+    Being in two buildings is not the same as being allowed to move between
+    them from the header. The picker belongs to whoever owns PitWatch. An
+    administrator who looks after two addresses still gets the header they had
+    before any of this existed, and reaches the second one by signing in to
+    whatever the owner has pointed them at.
+    """
+    sign_in_as_admin(client)
+    client.post("/setup", data=SETUP_FORM)
+    client.post("/settings/sites/new", data={"new_site_name": "14 Bank St"})
+    first = sql("SELECT min(id) FROM site", fetch=True)
+    second = sql("SELECT id FROM site WHERE name = '14 Bank St'", fetch=True)
+
+    sql(
+        "INSERT INTO app_user (username, name, email, notify_email, min_severity, role,"
+        " enabled, password_hash, must_change_password)"
+        " VALUES ('pat', 'Pat', 'pat@example.com', true, 'info', 'viewer', true, $1, false)",
+        auth.hash_password(NEW_PASSWORD),
+    )
+    who = sql("SELECT id FROM app_user WHERE username = 'pat'", fetch=True)
+    for site in (first, second):
+        sql(
+            "INSERT INTO site_member (site_id, user_id, role) VALUES ($1, $2, 'admin')",
+            site,
+            who,
+        )
+
+    client.post("/logout")
+    _sign_in(client, "pat")
+    page = client.get("/").text
+
+    assert "site-switch" not in page, "a non owner was offered the building picker"
+    assert "/site/switch" not in page
+    # And they are still in both buildings, so the absence is the rule and not
+    # a side effect of having nothing to pick.
+    assert sql("SELECT count(*) FROM site_member WHERE user_id = $1", who, fetch=True) == 2
 
 
 def test_a_switch_survives_the_next_page_load(client, sql):

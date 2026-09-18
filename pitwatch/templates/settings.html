@@ -31,7 +31,7 @@
     <summary><h2>Site</h2></summary>
   <form method="post" action="/settings/site">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    {{ fields.site_fields(site) }}
+    {{ fields.site_fields(site, site_id) }}
     <button type="submit" class="button">Save</button>
   </form>
   </details>
@@ -697,7 +697,7 @@
 
     <ul class="watchouts">
       {% for choice in all_sites %}
-      <li class="allgood">{{ choice.name }}{% if choice.id == site_id %} &mdash; the one you are editing{% endif %}</li>
+      <li class="allgood">{{ choice.name }}{% if choice.id == site_id %} (the one you are editing){% endif %}</li>
       {% endfor %}
     </ul>
 

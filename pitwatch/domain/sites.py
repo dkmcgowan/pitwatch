@@ -147,16 +147,21 @@ def store_for(request):
 def switcher(request) -> dict:
     """What the header needs to draw the building picker, if it draws one.
 
-    `sites` is empty on a one building installation, which is the signal the
-    template uses to draw nothing at all. That is the normal case and it should
-    look exactly the way it looked before any of this existed: somebody
-    watching one pit should never learn that PitWatch has a concept of a second
-    one.
+    The picker is PitWatch's owner's and nobody else's. They get it always, one
+    building or ten, because it is how they know which building they are
+    looking at and it should not appear and disappear as buildings come and go.
+
+    Everybody else never sees it, whatever they are a member of. An empty
+    `sites` is the signal the template uses to draw nothing at all. A site
+    administrator or viewer looks after one basement and should not learn that
+    PitWatch has a concept of a second one: for them the header must look
+    exactly the way it looked before any of this existed.
     """
     known = list(getattr(request.state, "sites", None) or ())
     here = getattr(request.state, "site_id", None)
+    user = getattr(request.state, "user", None)
     return {
-        "sites": known if len(known) > 1 else [],
+        "sites": known if (user is not None and user.is_owner) else [],
         "site_id": here,
         # The name off the `site` row, which a building has from the moment it
         # is created. The settings have one too and it is the one the pages

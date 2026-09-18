@@ -820,11 +820,11 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   /* The building picker, narrowed to what fits.
 
      It costs the header a second row on a phone, which the comment above
-     .brand-name says to avoid, and that trade is deliberate here: the rule
-     exists so a row is not charged to every page, and this row is charged
-     only to an installation with more than one building. On one of those,
-     which building you are looking at is the most important thing on the
-     screen and the dashboard is unreadable without it.
+     .brand-name says to avoid. That trade is deliberate and it is worth being
+     honest about who pays it: the picker is drawn for PitWatch's owner on
+     every page whether there is one building or ten, so on a phone the owner's
+     header is 75px where everybody else's is 48px. Nobody else ever sees it,
+     which is most of the people reading this page in a basement.
 
      8rem measured rather than guessed: at 390px, 9rem and up push the row
      past the viewport and the page scrolls sideways. A truncated address is
@@ -910,6 +910,22 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
    with one site, where it is a label on a page nobody compares to anything,
    and load bearing on one with several: the sections below it are shared, and
    changing one changes every building at once. */
+/* A value the database owns and nobody may edit. Greyed and in the monospace
+   face the amp readings use, so it does not read as a box somebody forgot to
+   fill in: a readonly input styled like an editable one is an invitation to
+   type into it and wonder why Save did nothing. */
+/* `input.readonly-value` and not `.readonly-value`: the base rule above is
+   `input[type="text"]`, which is an element plus an attribute and outranks a
+   bare class, so the plain version silently lost and the field rendered
+   exactly like an editable one. */
+input.readonly-value {
+  background: var(--surface-2);
+  border-style: dashed;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  cursor: default;
+}
+
 .settings-group {
   display: flex;
   align-items: baseline;

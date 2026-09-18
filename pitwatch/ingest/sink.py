@@ -139,9 +139,13 @@ class LiveIo:
 
 
 class SampleSink:
-    def __init__(self, pool: asyncpg.Pool, live: LiveState) -> None:
+    def __init__(self, pool: asyncpg.Pool, live: LiveState, site_id: int) -> None:
         self._pool = pool
         self._live = live
+        # Which building these readings belong to. Held rather than looked up,
+        # because this is the hot path: a clamp answering every second while a
+        # pump turns should not ask the settings store which site it is.
+        self._site_id = site_id
         self._queue: asyncio.Queue[EmSample] = asyncio.Queue(maxsize=QUEUE_LIMIT)
         self._dropped = 0
         self._written = 0
@@ -210,12 +214,12 @@ class SampleSink:
         return batch
 
     async def _write(self, batch: list[EmSample]) -> None:
-        rows = [(s.ts, s.channel, s.current) for s in batch]
+        rows = [(self._site_id, s.ts, s.channel, s.current) for s in batch]
         try:
             await self._pool.executemany(
                 """
-                INSERT INTO em_sample (ts, channel, current)
-                VALUES ($1, $2, $3)
+                INSERT INTO em_sample (site_id, ts, channel, current)
+                VALUES ($1, $2, $3, $4)
                 """,
                 rows,
             )
@@ -233,9 +237,10 @@ class SampleSink:
             """
             SELECT DISTINCT ON (channel) ts, channel, current
             FROM em_sample
-            WHERE ts > now() - interval '1 hour'
+            WHERE site_id = $1 AND ts > now() - interval '1 hour'
             ORDER BY channel, ts DESC
-            """
+            """,
+            self._site_id,
         )
         for row in rows:
             self._live.update(
@@ -246,18 +251,19 @@ class SampleSink:
 
 
 async def record_device_status(
-    pool: asyncpg.Pool, device: str, online: bool, error: str | None
+    pool: asyncpg.Pool, site_id: int, device: str, online: bool, error: str | None
 ) -> None:
     await pool.execute(
         """
-        INSERT INTO device_status (device, online, last_seen, last_error, updated_at)
-        VALUES ($1, $2, CASE WHEN $2 THEN now() END, $3, now())
-        ON CONFLICT (device) DO UPDATE SET
+        INSERT INTO device_status (site_id, device, online, last_seen, last_error, updated_at)
+        VALUES ($1, $2, $3, CASE WHEN $3 THEN now() END, $4, now())
+        ON CONFLICT (site_id, device) DO UPDATE SET
             online     = excluded.online,
             last_seen  = COALESCE(excluded.last_seen, device_status.last_seen),
             last_error = excluded.last_error,
             updated_at = now()
         """,
+        site_id,
         device,
         online,
         error,
@@ -273,9 +279,10 @@ class IoSink:
     trip would be trading the wrong thing.
     """
 
-    def __init__(self, pool: asyncpg.Pool, live: LiveIo) -> None:
+    def __init__(self, pool: asyncpg.Pool, live: LiveIo, site_id: int) -> None:
         self._pool = pool
         self._live = live
+        self._site_id = site_id
 
     async def submit(self, events: list[IoEvent]) -> None:
         for event in events:
@@ -284,23 +291,24 @@ class IoSink:
             async with self._pool.acquire() as connection, connection.transaction():
                 await connection.executemany(
                     """
-                    INSERT INTO io_event (ts, channel, label, state, raw)
-                    VALUES ($1, $2, $3, $4, $5)
+                    INSERT INTO io_event (site_id, ts, channel, label, state, raw)
+                    VALUES ($1, $2, $3, $4, $5, $6)
                     """,
-                    [(e.ts, e.channel, e.label, e.state, e.raw) for e in events],
+                    [(self._site_id, e.ts, e.channel, e.label, e.state, e.raw) for e in events],
                 )
                 await connection.executemany(
                     """
-                    INSERT INTO io_state (channel, label, state, raw, changed_at, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, now())
-                    ON CONFLICT (channel) DO UPDATE SET
+                    INSERT INTO io_state
+                        (site_id, channel, label, state, raw, changed_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, now())
+                    ON CONFLICT (site_id, channel) DO UPDATE SET
                         label      = excluded.label,
                         state      = excluded.state,
                         raw        = excluded.raw,
                         changed_at = excluded.changed_at,
                         updated_at = now()
                     """,
-                    [(e.channel, e.label, e.state, e.raw, e.ts) for e in events],
+                    [(self._site_id, e.channel, e.label, e.state, e.raw, e.ts) for e in events],
                 )
         except (asyncpg.PostgresError, OSError) as error:
             # The in memory state is already updated, so the dashboard and the
@@ -315,7 +323,10 @@ class IoSink:
         a fresh transition, while a contact that genuinely changed during the
         outage still registers as one.
         """
-        rows = await self._pool.fetch("SELECT channel, label, state, raw, changed_at FROM io_state")
+        rows = await self._pool.fetch(
+            "SELECT channel, label, state, raw, changed_at FROM io_state WHERE site_id = $1",
+            self._site_id,
+        )
         known = {}
         for row in rows:
             known[row["channel"]] = row["state"]
@@ -333,9 +344,10 @@ class IoSink:
             """
             SELECT DISTINCT ON (channel) channel, ts
             FROM io_event
-            WHERE state
+            WHERE site_id = $1 AND state
             ORDER BY channel, ts DESC
-            """
+            """,
+            self._site_id,
         ):
             self._live.last_on[row["channel"]] = row["ts"]
 

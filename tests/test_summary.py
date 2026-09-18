@@ -17,6 +17,7 @@ from pitwatch import summary
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
 from pitwatch.schemas import (
+    AiSettings,
     ClampSource,
     MqttSettings,
     SiteSettings,
@@ -111,13 +112,13 @@ async def test_a_wet_day_and_a_busy_day_are_the_same_day(pool, store):
     await _rain(pool, evening, 8.0)
     await pool.execute(
         """
-        INSERT INTO pump_run (pump, started_at, ended_at, duration_s, role, started_by)
-        VALUES (1, $1::timestamptz, $1::timestamptz + interval '12 seconds', 12, 'lead', 'contact')
+        INSERT INTO pump_run (site_id, pump, started_at, ended_at, duration_s, role, started_by)
+        VALUES (1, 1, $1::timestamptz, $1::timestamptz + interval '12 seconds', 12, 'lead', 'contact')
         """,
         evening,
     )
 
-    numbers = await summary.facts(_app(pool, store))
+    numbers = await summary.facts(_app(pool, store), store)
 
     rain_days = {day["day"] for day in numbers["rain"]["days"] if day["rain"]}
     run_days = {day["day"] for pump in numbers["pumps"] for day in pump["days"] if day.get("runs")}
@@ -132,7 +133,7 @@ async def test_the_page_the_model_gets_names_no_place(pool, store):
     await store.put(WeatherSettings(enabled=True))
     await _rain(pool, datetime.now(UTC) - timedelta(hours=5), 3.0)
 
-    numbers = await summary.facts(_app(pool, store))
+    numbers = await summary.facts(_app(pool, store), store)
     body = summary.messages(store.summary, numbers)[1]["content"]
 
     for leaked in ("Example Street", "Brooklyn", "40.68", "-73.99", "latitude"):
@@ -151,15 +152,15 @@ async def test_a_device_error_stays_on_the_diagnostics_page(pool, store):
     await pool.execute("DELETE FROM device_status WHERE device <> 'health0'")
     await pool.execute(
         """
-        INSERT INTO device_status (device, online, last_seen, last_error)
-        VALUES ('health0', false, now(), $1)
-        ON CONFLICT (device) DO UPDATE SET online = false, last_seen = now(),
+        INSERT INTO device_status (site_id, device, online, last_seen, last_error)
+        VALUES (1, 'health0', false, now(), $1)
+        ON CONFLICT (site_id, device) DO UPDATE SET online = false, last_seen = now(),
                                            last_error = excluded.last_error
         """,
         "[Errno 111] Connect call failed ('10.136.1.36', 1884)",
     )
 
-    numbers = await summary.facts(_app(pool, store))
+    numbers = await summary.facts(_app(pool, store), store)
     body = summary.messages(store.summary, numbers)[1]["content"]
 
     assert numbers["devices"] == [{"device": "health0", "online": False, "last_seen": mock.ANY}]
@@ -170,8 +171,8 @@ async def test_a_device_error_stays_on_the_diagnostics_page(pool, store):
 async def _write(pool, body: str, context: str, minutes_ago: int) -> int:
     return await pool.fetchval(
         """
-        INSERT INTO summary (created_at, window_key, model, body, facts, context, written_by)
-        VALUES (now() - make_interval(mins => $1), '7d', 'gpt-4o-mini', $2, '{}'::jsonb, $3, 'david')
+        INSERT INTO summary (site_id, created_at, window_key, model, body, facts, context, written_by)
+        VALUES (1, now() - make_interval(mins => $1), '7d', 'gpt-4o-mini', $2, '{}'::jsonb, $3, 'david')
         RETURNING id
         """,
         minutes_ago,
@@ -185,7 +186,7 @@ async def test_writing_one_clears_out_the_ones_before_it(pool, store, monkeypatc
     still in em_sample and pump_run, which is where a question about last month
     is answered from anyway."""
     await _site(store)
-    await store.put(SummarySettings(api_key="k", model="m"))
+    await store.put(AiSettings(api_key="k", model="m"))
     await _write(pool, "Older.", "Some words.", 300)
     await _write(pool, "Old.", "Some words.", 200)
 
@@ -193,19 +194,19 @@ async def test_writing_one_clears_out_the_ones_before_it(pool, store, monkeypatc
         return "The newest one."
 
     monkeypatch.setattr(summary, "ask", answer)
-    await summary.write(_App(pool, store), "david")
+    await summary.write(_App(pool, store), store, "david")
 
     rows = await pool.fetch("SELECT body FROM summary")
     assert [row["body"] for row in rows] == ["The newest one."]
 
 
-async def test_what_a_check_was_told_is_still_kept_even_though_no_page_shows_it(pool):
+async def test_what_a_check_was_told_is_still_kept_even_though_no_page_shows_it(pool, store):
     """The prompt came off both pages on 2026-09-09 and is still stored, which
     is not an oversight: a reading a month old is an opinion unless what it was
     looking at, numbers and description alike, is beside it."""
     await _write(pool, "Both pumps look normal.", "Two pumps in a pit.", 60)
 
-    assert (await summary.latest(pool))["context"] == "Two pumps in a pit."
+    assert (await summary.latest(pool, store.site_id))["context"] == "Two pumps in a pit."
 
 
 # -- the scheduled one --------------------------------------------------------
@@ -231,7 +232,8 @@ class _App:
 async def test_the_schedule_does_nothing_until_it_is_switched_on(pool, store):
     from pitwatch.domain.checkup import Scheduled
 
-    await store.put(SummarySettings(api_key="sk-test", model="m", schedule="off"))
+    await store.put(AiSettings(api_key="sk-test", model="m"))
+    await store.put(SummarySettings(schedule="off"))
 
     assert await Scheduled(_App(pool, store)).tick(_at(9)) is False
 
@@ -242,9 +244,8 @@ async def test_the_schedule_waits_for_the_hour_on_the_buildings_clock(pool, stor
     from pitwatch.domain.checkup import Scheduled
 
     await _site(store)
-    await store.put(
-        SummarySettings(api_key="sk-test", model="m", schedule="weekly", schedule_at="07:00")
-    )
+    await store.put(AiSettings(api_key="sk-test", model="m"))
+    await store.put(SummarySettings(schedule="weekly", schedule_at="07:00"))
 
     assert await Scheduled(_App(pool, store)).tick(_at(6, 30)) is False
 
@@ -256,9 +257,8 @@ async def test_whether_one_is_due_is_decided_by_the_last_one_not_by_a_timer(pool
     from pitwatch.domain.checkup import Scheduled
 
     await _site(store)
-    await store.put(
-        SummarySettings(api_key="sk-test", model="m", schedule="weekly", schedule_at="07:00")
-    )
+    await store.put(AiSettings(api_key="sk-test", model="m"))
+    await store.put(SummarySettings(schedule="weekly", schedule_at="07:00"))
     await _write(pool, "This morning's.", "Two pumps in a pit.", 60)
 
     assert await Scheduled(_App(pool, store)).tick(_at(9)) is False
@@ -270,9 +270,8 @@ async def test_one_whose_hour_passed_while_it_was_down_still_runs(pool, store, m
     from pitwatch.domain.checkup import Scheduled
 
     await _site(store)
-    await store.put(
-        SummarySettings(api_key="sk-test", model="m", schedule="weekly", schedule_at="07:00")
-    )
+    await store.put(AiSettings(api_key="sk-test", model="m"))
+    await store.put(SummarySettings(schedule="weekly", schedule_at="07:00"))
     await _write(pool, "Last week's.", "Two pumps in a pit.", 60 * 24 * 8)
 
     async def answer(settings, payload):
@@ -284,7 +283,7 @@ async def test_one_whose_hour_passed_while_it_was_down_still_runs(pool, store, m
 
     assert await Scheduled(_App(pool, store)).tick(_at(9)) is True
 
-    written = await summary.latest(pool)
+    written = await summary.latest(pool, store.site_id)
     assert written["body"] == "Both pumps look normal."
     assert written["written_by"] == "the schedule", "no account ran it, so none is named"
 
@@ -295,17 +294,18 @@ async def test_a_scheduled_one_is_emailed_and_not_texted(pool, store, monkeypatc
     from pitwatch.domain.checkup import Scheduled
 
     await _site(store)
-    await store.put(
-        SummarySettings(
-            api_key="sk-test", model="m", schedule="weekly", schedule_at="07:00", notify=True
-        )
-    )
-    await pool.execute(
+    await store.put(AiSettings(api_key="sk-test", model="m"))
+    await store.put(SummarySettings(schedule="weekly", schedule_at="07:00", notify=True))
+    who = await pool.fetchval(
         """
         INSERT INTO app_user (username, name, email, phone, notify_email, notify_sms,
                               min_severity, enabled)
         VALUES ('super', 'Alex', 'alex@example.com', '+12125550142', true, true, 'info', true)
+        RETURNING id
         """
+    )
+    await pool.execute(
+        "INSERT INTO site_member (site_id, user_id, role) VALUES (1, $1, 'admin')", who
     )
 
     async def answer(settings, payload):
@@ -356,21 +356,17 @@ def test_a_key_is_needed_wherever_the_model_is():
     includes the bearer token, so deciding that a private address needs no
     credential decides something about somebody's setup from the wrong side of
     it."""
-    on_this_network = SummarySettings(
-        model="llama3", base_url="http://127.0.0.1:8080/v1", api_key=""
-    )
+    on_this_network = AiSettings(model="llama3", base_url="http://127.0.0.1:8080/v1", api_key="")
     assert not on_this_network.ready
 
-    assert SummarySettings(
-        model="llama3", base_url="http://127.0.0.1:8080/v1", api_key="a-key"
-    ).ready
+    assert AiSettings(model="llama3", base_url="http://127.0.0.1:8080/v1", api_key="a-key").ready
 
 
 def test_a_fresh_install_is_not_ready():
     """The model and the address are filled in by default and the key is the one
     thing nobody has typed."""
-    assert not SummarySettings().ready
-    assert SummarySettings().model and SummarySettings().base_url
+    assert not AiSettings().ready
+    assert AiSettings().model and AiSettings().base_url
 
 
 def test_the_window_is_named_as_the_end_of_the_sentence_it_lands_in():
@@ -411,9 +407,8 @@ async def test_a_weekly_one_waits_a_week_and_a_monthly_one_thirty_days(pool, sto
     monkeypatch.setattr(summary, "ask", answer)
 
     for schedule, days, due_after in (("weekly", 7, 6), ("monthly", 30, 29)):
-        await store.put(
-            SummarySettings(api_key="k", model="m", schedule=schedule, schedule_at="07:00")
-        )
+        await store.put(AiSettings(api_key="sk-test", model="m"))
+        await store.put(SummarySettings(schedule=schedule, schedule_at="07:00"))
         assert store.summary.every_days == days
 
         await pool.execute("DELETE FROM summary")
@@ -430,11 +425,8 @@ async def test_the_schedule_reads_the_window_it_was_given(pool, store, monkeypat
     from pitwatch.domain.checkup import Scheduled
 
     await _site(store)
-    await store.put(
-        SummarySettings(
-            api_key="k", model="m", schedule="weekly", schedule_at="07:00", schedule_window="30d"
-        )
-    )
+    await store.put(AiSettings(api_key="k", model="m"))
+    await store.put(SummarySettings(schedule="weekly", schedule_at="07:00", schedule_window="30d"))
 
     async def answer(settings, payload):
         return "Both pumps look normal."
@@ -442,7 +434,7 @@ async def test_the_schedule_reads_the_window_it_was_given(pool, store, monkeypat
     monkeypatch.setattr(summary, "ask", answer)
     assert await Scheduled(_App(pool, store)).tick(_at(9)) is True
 
-    assert (await summary.latest(pool))["window_key"] == "30d"
+    assert (await summary.latest(pool, store.site_id))["window_key"] == "30d"
 
 
 def test_a_week_read_weekly_is_where_the_settings_start():

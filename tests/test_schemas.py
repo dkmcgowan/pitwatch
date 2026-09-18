@@ -16,7 +16,8 @@ from pydantic import ValidationError
 from pitwatch import domain
 from pitwatch.schemas import (
     ALERT_ORDER,
-    SETTING_MODELS,
+    APP_SETTINGS,
+    SITE_SETTINGS,
     AlertsSettings,
     ClampSource,
     ContactInput,
@@ -102,7 +103,7 @@ def test_every_settings_model_survives_a_save_and_a_load():
     This runs without a database, which is where the equivalent failure was
     caught late twice.
     """
-    for model in SETTING_MODELS:
+    for model in APP_SETTINGS + SITE_SETTINGS:
         fresh = model()
         # json.dumps and back, because that is literally the round trip the
         # setting table performs, and it catches types that only look fine.
@@ -117,7 +118,7 @@ def test_every_settings_model_loads_from_nothing():
     This is the state of every setting on a fresh install, so a model that
     cannot be built from `{}` is one the wizard can never render.
     """
-    for model in SETTING_MODELS:
+    for model in APP_SETTINGS + SITE_SETTINGS:
         assert model.model_validate({}) == model()
 
 
@@ -133,7 +134,7 @@ def test_every_property_on_every_settings_model_actually_works():
     So: touch every property on every settings model, with defaults and with
     values, and let an exception be an exception.
     """
-    for model in SETTING_MODELS:
+    for model in APP_SETTINGS + SITE_SETTINGS:
         for instance in (model(), model.model_validate(_filled(model))):
             for name in dir(type(instance)):
                 if name.startswith("_") or name in model.model_fields:
@@ -467,3 +468,47 @@ def test_every_rule_has_prose_and_every_prose_has_a_rule():
         rule = getattr(AlertsSettings(), spec.key)
         for threshold in spec.thresholds:
             assert threshold.field in type(rule).model_fields, (spec.key, threshold.field)
+
+
+def test_every_settings_model_says_which_table_it_lives_in():
+    """Two tables, because a nullable site on one would let two application
+    wide rows share a key: Postgres counts NULLs as distinct and nothing would
+    complain.
+
+    The scope is declared on the model rather than worked out at each call
+    site. A setting read from the wrong table is one silently shared between
+    buildings, or silently not shared at all, and neither shows up as an error.
+    """
+    from pitwatch.schemas import APP_SETTINGS, SITE_SETTINGS
+
+    for model in APP_SETTINGS:
+        assert model.SCOPE == "app", model.__name__
+    for model in SITE_SETTINGS:
+        assert model.SCOPE == "site", model.__name__
+
+    # And no model is in both lists, or in neither by accident.
+    keys = [m.KEY for m in APP_SETTINGS + SITE_SETTINGS]
+    assert len(keys) == len(set(keys)), keys
+
+
+def test_the_account_is_pitwatchs_and_the_description_is_a_buildings():
+    """The summary settings straddled the line and were split rather than
+    assigned. The key, the model and the address they are sent to are one
+    account serving every building. The description of a pit, the schedule it
+    is read on and whether to send it are about one building and one set of
+    people.
+
+    Left together it would have meant either a key per site, or one building's
+    administrator able to read another's credentials.
+    """
+    from pitwatch.schemas import AiSettings, SummarySettings
+
+    assert set(AiSettings.model_fields) == {"api_key", "model", "base_url"}
+    for gone in ("api_key", "model", "base_url"):
+        assert gone not in SummarySettings.model_fields, gone
+    for kept in ("description", "schedule", "notify"):
+        assert kept in SummarySettings.model_fields, kept
+
+    # Readiness is about the account, so it moved with it.
+    assert hasattr(AiSettings, "ready")
+    assert not hasattr(SummarySettings, "ready")

@@ -78,10 +78,13 @@ class Scheduled:
     async def tick(self, now: datetime | None = None) -> bool:
         """One look at the clock. True when a summary was written."""
         settings = self._settings
-        if not (settings.scheduled and settings.ready):
+        store: SettingsStore = self._app.state.settings
+        # Scheduled is this building's choice; ready is whether PitWatch has an
+        # account to write through at all. Both, and they live in different
+        # places now.
+        if not (settings.scheduled and store.ai.ready):
             return False
 
-        store: SettingsStore = self._app.state.settings
         zone = store.site.timezone
         now = now or datetime.now(UTC)
         here = clock.local(now, zone)
@@ -89,7 +92,7 @@ class Scheduled:
         if (here.hour, here.minute) < (hour, minute):
             return False
 
-        last = await summaries.latest(self._app.state.pool)
+        last = await summaries.latest(self._app.state.pool, store.site_id)
         if last is not None:
             since = (here.date() - clock.local(last["created_at"], zone).date()).days
             if since < settings.every_days:
@@ -98,7 +101,7 @@ class Scheduled:
         window = series.window_for(settings.schedule_window, zone)
         log.info("Writing the scheduled health summary over %s", window.title)
         try:
-            written = await summaries.write(self._app, BY, window)
+            written = await summaries.write(self._app, store, BY, window)
         except summaries.SummaryError as error:
             # Not retried until the next tick, deliberately: a model that
             # refused once will refuse again in five minutes, and a schedule

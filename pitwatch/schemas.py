@@ -59,6 +59,7 @@ class PumpSettings(BaseModel):
 
 class PumpsSettings(BaseModel):
     KEY: ClassVar[str] = "pumps"
+    SCOPE: ClassVar[str] = "site"
 
     pump1: PumpSettings = Field(default_factory=lambda: PumpSettings(name="Pump 1"))
     pump2: PumpSettings = Field(default_factory=lambda: PumpSettings(name="Pump 2"))
@@ -71,6 +72,7 @@ class PumpsSettings(BaseModel):
 
 class SmtpSettings(BaseModel):
     KEY: ClassVar[str] = "smtp"
+    SCOPE: ClassVar[str] = "app"
 
     enabled: bool = False
     host: str = ""
@@ -133,6 +135,7 @@ class SummarySettings(BaseModel):
     """
 
     KEY: ClassVar[str] = "summary"
+    SCOPE: ClassVar[str] = "site"
 
     # No length limit. There was one, four thousand characters, which is about
     # a page: enough for a paragraph about a pit and not enough for somebody who
@@ -159,18 +162,6 @@ class SummarySettings(BaseModel):
     # and four paragraphs of prose is several text messages, on a channel that
     # exists here for two in the morning.
     notify: bool = False
-
-    api_key: str = ""
-    # Any model name the account can reach. A field rather than a list,
-    # because the list changes faster than this application does and a
-    # dropdown that has gone stale is a page that cannot be used at all.
-    model: str = "gpt-4o-mini"
-    base_url: str = "https://api.openai.com/v1"
-
-    @field_validator("api_key", "model", "base_url")
-    @classmethod
-    def trim(cls, value: str) -> str:
-        return value.strip()
 
     @field_validator("schedule_at")
     @classmethod
@@ -204,22 +195,10 @@ class SummarySettings(BaseModel):
         """
         return SCHEDULE_DAYS.get(self.schedule, 0)
 
-    @property
-    def ready(self) -> bool:
-        """Enough to ask: a key, a model, and somewhere to ask.
-
-        The key is not optional and is not conditional on where the address
-        points. A server on this network can want one exactly as much as a
-        server on the internet does, which is the case here: llama.cpp speaks
-        the OpenAI protocol and that includes the bearer token. Deciding for
-        somebody that their own hardware needs no credential is deciding
-        something about their setup from the wrong side of it.
-        """
-        return bool(self.api_key and self.model and self.base_url)
-
 
 class SmsSettings(BaseModel):
     KEY: ClassVar[str] = "sms"
+    SCOPE: ClassVar[str] = "app"
 
     enabled: bool = False
     # Where the message actually goes.
@@ -425,6 +404,7 @@ class MqttSettings(BaseModel):
     """
 
     KEY: ClassVar[str] = "mqtt"
+    SCOPE: ClassVar[str] = "site"
 
     enabled: bool = False
 
@@ -778,6 +758,7 @@ class LoadDriftRule(AlertRule):
 
 class AlertsSettings(BaseModel):
     KEY: ClassVar[str] = "alerts"
+    SCOPE: ClassVar[str] = "site"
 
     high_water: AlertRule = Field(
         default_factory=lambda: AlertRule(
@@ -978,6 +959,7 @@ ALERT_ORDER: tuple[str, ...] = (
 
 class SiteSettings(BaseModel):
     KEY: ClassVar[str] = "site"
+    SCOPE: ClassVar[str] = "site"
 
     # The building. An address or a name, whichever somebody woken at two in the
     # morning would recognize: "123 Main St".
@@ -1103,6 +1085,7 @@ class WeatherSettings(BaseModel):
     """
 
     KEY: ClassVar[str] = "weather"
+    SCOPE: ClassVar[str] = "site"
 
     enabled: bool = True
     # Inches or millimeters. Stored in millimeters either way; this decides
@@ -1137,6 +1120,7 @@ class PanelButtonSettings(BaseModel):
     """
 
     KEY: ClassVar[str] = "panel_button"
+    SCOPE: ClassVar[str] = "site"
 
     enabled: bool = False
     # The Shelly's RPC topic, which is its device id with /rpc on the end.
@@ -1254,6 +1238,7 @@ class TideSettings(BaseModel):
     """
 
     KEY: ClassVar[str] = "tide"
+    SCOPE: ClassVar[str] = "site"
 
     enabled: bool = False
     # The NOAA station, as its numeric id. Found by the button on the settings
@@ -1302,6 +1287,7 @@ class GroundwaterSettings(BaseModel):
     """
 
     KEY: ClassVar[str] = "groundwater"
+    SCOPE: ClassVar[str] = "site"
 
     enabled: bool = False
     # The USGS site number, which is fifteen digits for a well rather than the
@@ -1324,7 +1310,56 @@ class GroundwaterSettings(BaseModel):
         return bool(self.enabled and self.site_no)
 
 
-SETTING_MODELS: tuple[type[BaseModel], ...] = (
+class AiSettings(BaseModel):
+    """The account a summary is written through, which is PitWatch's and not a
+    building's.
+
+    Split out of the summary settings when sites arrived. The description of a
+    pit, the schedule it is read on and whether to send it are all about one
+    building; the key, the model and the address they are sent to are one
+    account serving every building there is. Leaving them together would mean
+    either a key per site or one building's administrator reading another's
+    credentials.
+    """
+
+    KEY: ClassVar[str] = "ai"
+    SCOPE: ClassVar[str] = "app"
+
+    api_key: str = ""
+    # Any model name the account can reach. A field rather than a list,
+    # because the list changes faster than this application does and a
+    # dropdown that has gone stale is a page that cannot be used at all.
+    model: str = "gpt-4o-mini"
+    base_url: str = "https://api.openai.com/v1"
+
+    @field_validator("api_key", "model", "base_url")
+    @classmethod
+    def trim(cls, value: str) -> str:
+        return value.strip()
+
+    @property
+    def ready(self) -> bool:
+        """Enough to ask: a key, a model, and somewhere to ask.
+
+        The key is not optional and is not conditional on where the address
+        points. A server on this network can want one exactly as much as a
+        server on the internet does, which is the case here: llama.cpp speaks
+        the OpenAI protocol and that includes the bearer token. Deciding for
+        somebody that their own hardware needs no credential is deciding
+        something about their setup from the wrong side of it.
+        """
+        return bool(self.api_key and self.model and self.base_url)
+
+
+# Which of the two tables a settings model lives in.
+#
+# `setting` is PitWatch's own: the mail server, the Twilio account, the model
+# key. `site_setting` is one building's: its panel, its pumps, its rules. The
+# split is declared on the model rather than worked out at each call site,
+# because a setting read from the wrong table is a setting silently shared
+# between buildings or silently not shared at all.
+APP_SETTINGS: tuple[type[BaseModel], ...] = (SmtpSettings, SmsSettings, AiSettings)
+SITE_SETTINGS: tuple[type[BaseModel], ...] = (
     SiteSettings,
     WeatherSettings,
     TideSettings,
@@ -1332,6 +1367,6 @@ SETTING_MODELS: tuple[type[BaseModel], ...] = (
     MqttSettings,
     AlertsSettings,
     PumpsSettings,
-    SmtpSettings,
-    SmsSettings,
+    PanelButtonSettings,
+    SummarySettings,
 )

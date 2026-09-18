@@ -194,6 +194,17 @@ class AlertEngine:
 
     # -- when it runs -------------------------------------------------------
 
+    @property
+    def _site_id(self) -> int | None:
+        """Which building these rules are about.
+
+        Off the store rather than held, so one place decides. Every query below
+        that searches rather than addressing a row by its id carries it: an id
+        is unique across the installation, a rule name and a pump number are
+        not.
+        """
+        return self._store.site_id
+
     def nudge(self) -> None:
         """Something changed on the panel, so sweep now rather than on the
         tick. Called from the ingest path, which must not be made to wait."""
@@ -295,11 +306,12 @@ class AlertEngine:
 
         alert_id = await self._pool.fetchval(
             """
-            INSERT INTO alert (rule, severity, pump, title, detail, context)
-            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+            INSERT INTO alert (site_id, rule, severity, pump, title, detail, context)
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
             ON CONFLICT DO NOTHING
             RETURNING id
             """,
+            self._site_id,
             key,
             rule.severity.value,
             pump,
@@ -345,8 +357,9 @@ class AlertEngine:
             return
 
         row = await self._pool.fetchrow(
-            "SELECT id, context FROM alert WHERE rule = $1"
-            " AND pump IS NOT DISTINCT FROM $2 AND cleared_at IS NULL",
+            "SELECT id, context FROM alert WHERE site_id = $1 AND rule = $2"
+            " AND pump IS NOT DISTINCT FROM $3 AND cleared_at IS NULL",
+            self._site_id,
             key,
             pump,
         )
@@ -371,9 +384,11 @@ class AlertEngine:
         row = await self._pool.fetchrow(
             """
             UPDATE alert SET cleared_at = now()
-            WHERE rule = $1 AND pump IS NOT DISTINCT FROM $2 AND cleared_at IS NULL
+            WHERE site_id = $1 AND rule = $2 AND pump IS NOT DISTINCT FROM $3
+              AND cleared_at IS NULL
             RETURNING id, detail
             """,
+            self._site_id,
             key,
             pump,
         )
@@ -514,9 +529,10 @@ class AlertEngine:
             await self._pool.fetchval(
                 """
                 SELECT count(*) FROM alert
-                WHERE rule = 'overload' AND pump = $1
-                  AND raised_at > now() - ($2::int * interval '1 minute')
+                WHERE site_id = $1 AND rule = 'overload' AND pump = $2
+                  AND raised_at > now() - ($3::int * interval '1 minute')
                 """,
+                self._site_id,
                 pump,
                 button.within_minutes,
             )
@@ -784,8 +800,9 @@ class AlertEngine:
         if self._faults_out() or self._panel_alert_since is not None:
             return
         if await self._pool.fetchval(
-            "SELECT EXISTS (SELECT 1 FROM alert WHERE cleared_at IS NULL "
-            "AND severity IN ('warning', 'critical'))"
+            "SELECT EXISTS (SELECT 1 FROM alert WHERE site_id = $1 AND cleared_at IS NULL "
+            "AND severity IN ('warning', 'critical'))",
+            self._site_id,
         ):
             return
 
@@ -959,10 +976,11 @@ class AlertEngine:
                     """
                     SELECT EXISTS (
                         SELECT 1 FROM alert
-                        WHERE cleared_at IS NULL AND rule <> 'panel_alert'
+                        WHERE site_id = $1 AND cleared_at IS NULL AND rule <> 'panel_alert'
                           AND severity IN ('warning', 'critical')
                     )
-                    """
+                    """,
+                    self._site_id,
                 )
             )
         if self._panel_alert_explained:
@@ -1045,10 +1063,11 @@ class AlertEngine:
 
         alert_id = await self._pool.fetchval(
             """
-            INSERT INTO alert (rule, severity, title, detail, context, cleared_at)
-            VALUES ($1, $2, $3, $4, $5::jsonb, now())
+            INSERT INTO alert (site_id, rule, severity, title, detail, context, cleared_at)
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb, now())
             RETURNING id
             """,
+            self._site_id,
             key,
             rule.severity.value,
             specs.BY_KEY[key].title,
@@ -1065,8 +1084,9 @@ class AlertEngine:
         rows = await self._pool.fetch(
             """
             SELECT pump, extract(epoch FROM now() - started_at) AS running_s
-            FROM pump_run WHERE ended_at IS NULL
-            """
+            FROM pump_run WHERE site_id = $1 AND ended_at IS NULL
+            """,
+            self._site_id,
         )
         running = {row["pump"]: row["running_s"] for row in rows}
         found = {}
@@ -1101,7 +1121,9 @@ class AlertEngine:
     async def _check_nothing_has_run(self, rule) -> dict | None:
         if not rule.quiet_minutes:
             return None
-        last = await self._pool.fetchval("SELECT max(started_at) FROM pump_run")
+        last = await self._pool.fetchval(
+            "SELECT max(started_at) FROM pump_run WHERE site_id = $1", self._site_id
+        )
         if last is None:
             # Nothing has ever run, which on a fresh install is not news.
             return None
@@ -1136,11 +1158,14 @@ class AlertEngine:
         if not rule.idle_hours:
             return None
         rows = await self._pool.fetch(
-            "SELECT pump, max(started_at) AS last FROM pump_run GROUP BY pump"
+            "SELECT pump, max(started_at) AS last FROM pump_run WHERE site_id = $1 GROUP BY pump",
+            self._site_id,
         )
         last = {row["pump"]: row["last"] for row in rows}
         # The oldest run on record, which is how far back the evidence goes.
-        watching_since = await self._pool.fetchval("SELECT min(started_at) FROM pump_run")
+        watching_since = await self._pool.fetchval(
+            "SELECT min(started_at) FROM pump_run WHERE site_id = $1", self._site_id
+        )
         now = datetime.now(UTC)
         found = {}
         for pump in (1, 2):
@@ -1190,9 +1215,10 @@ class AlertEngine:
             SELECT extract(epoch FROM started_at - lag(ended_at)
                    OVER (ORDER BY started_at)) AS gap_s
             FROM pump_run
-            WHERE started_at > now() - interval '2 hours'
-            ORDER BY started_at DESC LIMIT $1
+            WHERE site_id = $1 AND started_at > now() - interval '2 hours'
+            ORDER BY started_at DESC LIMIT $2
             """,
+            self._site_id,
             rule.times_in_a_row,
         )
         measured = [float(row["gap_s"]) for row in gaps if row["gap_s"] is not None]
@@ -1241,7 +1267,9 @@ class AlertEngine:
             if running is None or channel is None:
                 continue
             proven = await self._pool.fetchval(
-                "SELECT EXISTS (SELECT 1 FROM em_sample WHERE channel = $1 AND current >= $2)",
+                "SELECT EXISTS (SELECT 1 FROM em_sample"
+                " WHERE site_id = $1 AND channel = $2 AND current >= $3)",
+                self._site_id,
                 channel,
                 domain.RUNNING_AMPS,
             )
@@ -1250,7 +1278,8 @@ class AlertEngine:
 
             run = await self._pool.fetchrow(
                 "SELECT started_at, extract(epoch FROM now() - started_at) AS open_s"
-                " FROM pump_run WHERE pump = $1 AND ended_at IS NULL",
+                " FROM pump_run WHERE site_id = $1 AND pump = $2 AND ended_at IS NULL",
+                self._site_id,
                 pump,
             )
             sample = self._live.samples.get(channel)
@@ -1284,8 +1313,10 @@ class AlertEngine:
             if not limit or channel is None:
                 continue
             rows = await self._pool.fetch(
-                "SELECT current FROM em_sample WHERE channel = $1 AND current IS NOT NULL"
-                " ORDER BY ts DESC LIMIT $2",
+                "SELECT current FROM em_sample"
+                " WHERE site_id = $1 AND channel = $2 AND current IS NOT NULL"
+                " ORDER BY ts DESC LIMIT $3",
+                self._site_id,
                 channel,
                 rule.readings,
             )
@@ -1308,7 +1339,9 @@ class AlertEngine:
             channel = self._store.mqtt.clamp_for_pump.get(pump)
             if channel is None:
                 continue
-            typical = await self._history.typical(self._pool, channel, domain.RUNNING_AMPS)
+            typical = await self._history.typical(
+                self._pool, self._site_id, channel, domain.RUNNING_AMPS
+            )
             climbed = typical.drift is not None and typical.drift >= rule.climb_amps
             found[pump] = (
                 Finding(
@@ -1332,7 +1365,9 @@ class AlertEngine:
         for pump in (1, 2):
             if not self._store.mqtt.channel_for(f"pump{pump}_run"):
                 continue
-            recent = await self._recent.from_contacts(self._pool, pump, self._store.site.timezone)
+            recent = await self._recent.from_contacts(
+                self._pool, self._site_id, pump, self._store.site.timezone
+            )
             moved = recent.duration_drift_s
             longer = moved is not None and moved >= rule.longer_by_s
             found[pump] = (
@@ -1360,7 +1395,9 @@ class AlertEngine:
         watched = self._watched_devices()
         if not watched:
             return None
-        rows = await self._pool.fetch("SELECT device, online FROM device_status")
+        rows = await self._pool.fetch(
+            "SELECT device, online FROM device_status WHERE site_id = $1", self._site_id
+        )
         gone = [
             watched[row["device"]] for row in rows if row["device"] in watched and not row["online"]
         ]

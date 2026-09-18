@@ -100,7 +100,8 @@ WITH readings AS (
            row_number() OVER (ORDER BY ts) AS nth,
            count(*)     OVER ()            AS total
     FROM em_sample
-    WHERE channel = $1
+    WHERE site_id = $4
+      AND channel = $1
       AND ts >= $2::timestamptz
       AND ts <= $3::timestamptz
       AND current IS NOT NULL
@@ -130,6 +131,16 @@ class RunRecorder:
     def __init__(self, pool: asyncpg.Pool, store) -> None:
         self._pool = pool
         self._store = store
+
+    @property
+    def _site_id(self) -> int | None:
+        """Which building's runs these are.
+
+        Read off the store rather than held, because the store is the one
+        thing that knows, and a copy taken at construction would go stale the
+        day a request can change it.
+        """
+        return self._store.site_id
 
     # -- what the settings say --------------------------------------------
 
@@ -166,7 +177,9 @@ class RunRecorder:
     async def _begin(self, pump: int, at: datetime) -> None:
         async with self._pool.acquire() as connection, connection.transaction():
             open_run = await connection.fetchval(
-                "SELECT id FROM pump_run WHERE pump = $1 AND ended_at IS NULL", pump
+                "SELECT id FROM pump_run WHERE site_id = $1 AND pump = $2 AND ended_at IS NULL",
+                self._site_id,
+                pump,
             )
             if open_run is not None:
                 # The panel said start twice with no stop between. Believe the
@@ -186,14 +199,17 @@ class RunRecorder:
                 )
 
             cycle_id = await connection.fetchval(
-                "SELECT id FROM pump_cycle WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1"
+                "SELECT id FROM pump_cycle WHERE site_id = $1 AND ended_at IS NULL"
+                " ORDER BY started_at DESC LIMIT 1",
+                self._site_id,
             )
             if cycle_id is None:
                 cycle_id = await connection.fetchval(
                     """
-                    INSERT INTO pump_cycle (started_at, first_pump)
-                    VALUES ($1, $2) RETURNING id
+                    INSERT INTO pump_cycle (site_id, started_at, first_pump)
+                    VALUES ($1, $2, $3) RETURNING id
                     """,
+                    self._site_id,
                     at,
                     pump,
                 )
@@ -215,9 +231,10 @@ class RunRecorder:
 
             await connection.execute(
                 """
-                INSERT INTO pump_run (cycle_id, pump, started_at, role, started_by)
-                VALUES ($1, $2, $3, $4, 'contact')
+                INSERT INTO pump_run (site_id, cycle_id, pump, started_at, role, started_by)
+                VALUES ($1, $2, $3, $4, $5, 'contact')
                 """,
+                self._site_id,
                 cycle_id,
                 pump,
                 at,
@@ -230,8 +247,9 @@ class RunRecorder:
             run = await connection.fetchrow(
                 """
                 SELECT id, cycle_id, started_at FROM pump_run
-                WHERE pump = $1 AND ended_at IS NULL
+                WHERE site_id = $1 AND pump = $2 AND ended_at IS NULL
                 """,
+                self._site_id,
                 pump,
             )
             if run is None:
@@ -335,7 +353,7 @@ class RunRecorder:
         channel = self._clamp_for(pump)
         if channel is None:
             return {}
-        row = await connection.fetchrow(RUN_STATS, channel, started_at, ended_at)
+        row = await connection.fetchrow(RUN_STATS, channel, started_at, ended_at, self._site_id)
         return dict(row) if row else {}
 
     async def _close_cycle(self, connection, cycle_id: int | None, at: datetime) -> None:
@@ -360,7 +378,7 @@ class RunRecorder:
                     """
                     SELECT EXISTS (
                         SELECT 1 FROM io_event
-                        WHERE channel = $1 AND state
+                        WHERE site_id = $4 AND channel = $1 AND state
                           AND ts >= (SELECT started_at FROM pump_cycle WHERE id = $2)
                           AND ts <= $3
                     )
@@ -368,6 +386,7 @@ class RunRecorder:
                     high_channel,
                     cycle_id,
                     at,
+                    self._site_id,
                 )
             )
 

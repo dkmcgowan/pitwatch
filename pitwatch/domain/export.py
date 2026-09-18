@@ -61,16 +61,25 @@ class Sheet:
     truncated: bool = False
 
 
+# Every ORDER BY below carries a tiebreaker, and they are not decoration.
+#
+# `ORDER BY ts` alone leaves rows that share an instant in whatever order the
+# plan happens to produce, and this panel produces ties: the X-408 reports the
+# pump run contact and the lead float in the same millisecond, five times in
+# the first fortnight of real data. Two downloads of the same window then
+# differ, which is exactly what somebody diffing two spreadsheets is trying to
+# rule out. Found by exporting the same production window from two builds and
+# comparing cell by cell.
 CONTACTS = """
 SELECT ts, channel, label, state
-FROM io_event WHERE ts >= $1 AND ts < $2
-ORDER BY ts LIMIT $3
+FROM io_event WHERE site_id = $4 AND ts >= $1 AND ts < $2
+ORDER BY ts, channel LIMIT $3
 """
 
 RUNS = """
 SELECT started_at, ended_at, pump, duration_s, peak_current, steady_current, started_by
-FROM pump_run WHERE started_at >= $1 AND started_at < $2
-ORDER BY started_at LIMIT $3
+FROM pump_run WHERE site_id = $4 AND started_at >= $1 AND started_at < $2
+ORDER BY started_at, pump LIMIT $3
 """
 
 # Only the readings that belong to a run.
@@ -93,12 +102,13 @@ AMPS = """
 SELECT s.ts, s.channel, s.current, r.pump, r.started_at AS run_started
 FROM em_sample s
 JOIN pump_run r
-  ON r.pump = s.channel + 1
+  ON r.site_id = s.site_id
+ AND r.pump = s.channel + 1
  AND s.ts >= r.started_at - interval '2 seconds'
  AND s.ts <= coalesce(r.ended_at, now()) + interval '2 seconds'
-WHERE s.ts >= $1 AND s.ts < $2
+WHERE s.site_id = $4 AND s.ts >= $1 AND s.ts < $2
   AND r.started_at >= $1 - interval '1 hour' AND r.started_at < $2
-ORDER BY s.ts LIMIT $3
+ORDER BY s.ts, s.channel, r.started_at LIMIT $3
 """
 
 # Alerts are not windowed the same way. One that opened a fortnight before the
@@ -106,8 +116,8 @@ ORDER BY s.ts LIMIT $3
 # it because it started too early would be the one omission somebody acts on.
 ALERTS = """
 SELECT raised_at, cleared_at, rule, pump, severity, title, detail
-FROM alert WHERE cleared_at IS NULL OR raised_at >= $1
-ORDER BY raised_at LIMIT $2
+FROM alert WHERE site_id = $3 AND (cleared_at IS NULL OR raised_at >= $1)
+ORDER BY raised_at, rule, pump LIMIT $2
 """
 
 
@@ -123,13 +133,18 @@ def _local(when: datetime | None, zone: str) -> datetime | None:
 
 
 async def gather(
-    pool: asyncpg.Pool, since: datetime, until: datetime, zone: str, names: dict[int, str]
+    pool: asyncpg.Pool,
+    site_id: int,
+    since: datetime,
+    until: datetime,
+    zone: str,
+    names: dict[int, str],
 ) -> list[Sheet]:
     """Every sheet in the workbook, in the order they should be read."""
-    contacts = await pool.fetch(CONTACTS, since, until, ROW_LIMIT + 1)
-    runs = await pool.fetch(RUNS, since, until, ROW_LIMIT + 1)
-    amps = await pool.fetch(AMPS, since, until, ROW_LIMIT + 1)
-    alerts = await pool.fetch(ALERTS, since, ROW_LIMIT + 1)
+    contacts = await pool.fetch(CONTACTS, since, until, ROW_LIMIT + 1, site_id)
+    runs = await pool.fetch(RUNS, since, until, ROW_LIMIT + 1, site_id)
+    amps = await pool.fetch(AMPS, since, until, ROW_LIMIT + 1, site_id)
+    alerts = await pool.fetch(ALERTS, since, ROW_LIMIT + 1, site_id)
 
     def cut(rows):
         return rows[:ROW_LIMIT], len(rows) > ROW_LIMIT

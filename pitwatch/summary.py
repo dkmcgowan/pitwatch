@@ -28,7 +28,7 @@ from pitwatch.domain import series
 from pitwatch.domain import tides as tide_domain
 from pitwatch.domain import weather as weather_domain
 from pitwatch.domain.history import CurrentHistory
-from pitwatch.schemas import SummarySettings
+from pitwatch.schemas import AiSettings, SummarySettings
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ SELECT time_bucket('1 day', ts, timezone => $4::text)  AS day,
        avg(current) FILTER (WHERE current >= $3)       AS running_mean,
        count(*)     FILTER (WHERE current >= $3)       AS running_samples
 FROM em_sample
-WHERE channel = $1 AND ts > now() - $2::interval
+WHERE site_id = $5 AND channel = $1 AND ts > now() - $2::interval
 GROUP BY 1
 ORDER BY 1
 """
@@ -84,7 +84,7 @@ SELECT time_bucket('1 day', started_at, timezone => $3::text) AS day,
        round(avg(duration_s)::numeric, 1) AS mean_duration_s,
        round(max(duration_s)::numeric, 1) AS longest_s
 FROM pump_run
-WHERE pump = $1 AND started_at > now() - $2::interval
+WHERE site_id = $4 AND pump = $1 AND started_at > now() - $2::interval
 GROUP BY 1
 ORDER BY 1
 """
@@ -102,7 +102,7 @@ FROM (
     SELECT started_at, both_ran, high_water,
            lag(started_at) OVER (ORDER BY started_at) AS previous
     FROM pump_cycle
-    WHERE started_at > now() - $1::interval
+    WHERE site_id = $2 AND started_at > now() - $1::interval
 ) spaced
 """
 
@@ -202,14 +202,13 @@ async def tide(pool, store: SettingsStore, window: series.Window, zone: str) -> 
     }
 
 
-async def facts(app, window: series.Window = WINDOW) -> dict:
+async def facts(app, store: SettingsStore, window: series.Window = WINDOW) -> dict:
     """The week in numbers, in the shape the model is given it.
 
     Deliberately small. A week of raw readings is tens of thousands of rows and
     says nothing a daily figure does not; the point of this is to be checkable
     by somebody reading it later, not to be exhaustive.
     """
-    store: SettingsStore = app.state.settings
     pool: asyncpg.Pool = app.state.pool
     clamp = store.mqtt.clamp_for_pump
     history: CurrentHistory | None = getattr(app.state, "history", None)
@@ -219,8 +218,10 @@ async def facts(app, window: series.Window = WINDOW) -> dict:
     for number, pump in store.pumps.by_number.items():
         channel = clamp[number]
         try:
-            rows = await pool.fetch(DAILY, channel, window.span, domain.RUNNING_AMPS, zone)
-            run_rows = await pool.fetch(DAILY_RUNS, number, window.span, zone)
+            rows = await pool.fetch(
+                DAILY, channel, window.span, domain.RUNNING_AMPS, zone, store.site_id
+            )
+            run_rows = await pool.fetch(DAILY_RUNS, number, window.span, zone, store.site_id)
         except (asyncpg.PostgresError, OSError) as error:
             log.warning("Could not read the daily figures: %s", error)
             rows, run_rows = [], []
@@ -254,7 +255,7 @@ async def facts(app, window: series.Window = WINDOW) -> dict:
 
         typical = None
         if history is not None:
-            measured = await history.typical(pool, channel, domain.RUNNING_AMPS)
+            measured = await history.typical(pool, store.site_id, channel, domain.RUNNING_AMPS)
             if measured.median is not None:
                 typical = {
                     "this_week_amps": round(measured.median, 2),
@@ -277,7 +278,7 @@ async def facts(app, window: series.Window = WINDOW) -> dict:
         )
 
     try:
-        called = await pool.fetchrow(CALLS, window.span)
+        called = await pool.fetchrow(CALLS, window.span, store.site_id)
     except (asyncpg.PostgresError, OSError) as error:
         log.warning("Could not read the week's calls: %s", error)
         called = None
@@ -292,7 +293,9 @@ async def facts(app, window: series.Window = WINDOW) -> dict:
 
     inputs = store.mqtt
     assigned = list(inputs.used_channels)
-    spans = await series.contact_spans(pool, [mapped.channel for mapped in assigned], window)
+    spans = await series.contact_spans(
+        pool, store.site_id, [mapped.channel for mapped in assigned], window
+    )
     contacts = [
         {
             "name": mapped.title,
@@ -312,7 +315,10 @@ async def facts(app, window: series.Window = WINDOW) -> dict:
     # for the person fixing it.
     devices = []
     try:
-        rows = await pool.fetch("SELECT device, online, last_seen FROM device_status")
+        rows = await pool.fetch(
+            "SELECT device, online, last_seen FROM device_status WHERE site_id = $1",
+            store.site_id,
+        )
     except (asyncpg.PostgresError, OSError):
         rows = []
     for row in rows:
@@ -362,7 +368,7 @@ class SummaryError(RuntimeError):
     """Something a person can act on, ready to put on the page."""
 
 
-async def ask(settings: SummarySettings, payload: list[dict]) -> str:
+async def ask(settings: AiSettings, payload: list[dict]) -> str:
     """One call, and whatever it says back.
 
     Nothing but the model and the messages is sent. Every other knob has been
@@ -406,22 +412,26 @@ async def ask(settings: SummarySettings, payload: list[dict]) -> str:
     return written
 
 
-async def write(app, username: str, window: series.Window | None = None) -> dict:
+async def write(
+    app, store: SettingsStore, username: str, window: series.Window | None = None
+) -> dict:
     """Build the numbers, ask, and keep both."""
-    store: SettingsStore = app.state.settings
+    # Two scopes. What to say about this building, and whose account says it.
     settings = store.summary
+    account = store.ai
     window = window or WINDOW
-    numbers = await facts(app, window)
-    body = await ask(settings, messages(settings, numbers))
+    numbers = await facts(app, store, window)
+    body = await ask(account, messages(settings, numbers))
 
     row = await app.state.pool.fetchrow(
         """
-        INSERT INTO summary (window_key, model, body, facts, context, written_by)
-        VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+        INSERT INTO summary (site_id, window_key, model, body, facts, context, written_by)
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
         RETURNING id, created_at, window_key, model, body, context, written_by
         """,
+        store.site_id,
         window.key,
-        settings.model,
+        account.model,
         body,
         json.dumps(numbers),
         settings.description.strip(),
@@ -431,19 +441,23 @@ async def write(app, username: str, window: series.Window | None = None) -> dict
     # the page, so a row nothing can reach is a row nothing should keep: the
     # readings it was built from are still in em_sample and pump_run, which is
     # where a question about last month is answered from anyway.
-    await app.state.pool.execute("DELETE FROM summary WHERE id <> $1", row["id"])
-    log.info("%s wrote a summary over %s with %s", username, window.title, settings.model)
+    await app.state.pool.execute(
+        "DELETE FROM summary WHERE site_id = $1 AND id <> $2", store.site_id, row["id"]
+    )
+    log.info("%s wrote a summary over %s with %s", username, window.title, account.model)
     return dict(row)
 
 
-async def latest(pool: asyncpg.Pool) -> dict | None:
+async def latest(pool: asyncpg.Pool, site_id: int) -> dict | None:
     row = await pool.fetchrow(
         """
         SELECT id, created_at, window_key, model, body, context, written_by
         FROM summary
+        WHERE site_id = $1
         ORDER BY created_at DESC
         LIMIT 1
-        """
+        """,
+        site_id,
     )
     return dict(row) if row else None
 

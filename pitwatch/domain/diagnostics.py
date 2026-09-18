@@ -47,9 +47,10 @@ FROM io_state s
 LEFT JOIN (
     SELECT channel, count(*) AS events
     FROM io_event
-    WHERE ts > now() - $1::interval
+    WHERE site_id = $2 AND ts > now() - $1::interval
     GROUP BY channel
 ) e ON e.channel = s.channel
+WHERE s.site_id = $2
 """
 
 CLAMPS = """
@@ -59,11 +60,11 @@ SELECT channel,
        max(current)  AS peak,
        avg(current)  AS mean
 FROM em_sample
-WHERE ts > now() - $1::interval
+WHERE site_id = $2 AND ts > now() - $1::interval
 GROUP BY channel
 """
 
-HEALTH = "SELECT device, online, last_seen, last_error FROM device_status"
+HEALTH = "SELECT device, online, last_seen, last_error FROM device_status WHERE site_id = $1"
 
 
 @dataclass
@@ -103,7 +104,11 @@ def _amps(value: float | None) -> str:
 
 
 async def read(
-    pool: asyncpg.Pool, mqtt: MqttSettings, pumps: PumpsSettings, site: SiteSettings
+    pool: asyncpg.Pool,
+    site_id: int,
+    mqtt: MqttSettings,
+    pumps: PumpsSettings,
+    site: SiteSettings,
 ) -> Report:
     """Every configured source, beside what has arrived on it."""
     report = Report()
@@ -112,9 +117,9 @@ async def read(
         return report
 
     try:
-        input_rows = {row["channel"]: row for row in await pool.fetch(INPUTS, WINDOW)}
-        clamp_rows = {row["channel"]: row for row in await pool.fetch(CLAMPS, WINDOW)}
-        health_rows = {row["device"]: row for row in await pool.fetch(HEALTH)}
+        input_rows = {row["channel"]: row for row in await pool.fetch(INPUTS, WINDOW, site_id)}
+        clamp_rows = {row["channel"]: row for row in await pool.fetch(CLAMPS, WINDOW, site_id)}
+        health_rows = {row["device"]: row for row in await pool.fetch(HEALTH, site_id)}
     except (asyncpg.PostgresError, OSError) as error:  # pragma: no cover -- reported, not raised
         report.watchouts.append(f"Could not read what has arrived: {error}")
         return report

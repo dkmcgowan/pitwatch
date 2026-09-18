@@ -16,6 +16,7 @@ from starlette.datastructures import FormData
 from pitwatch.ingest import weather
 from pitwatch.schemas import (
     ALERT_ORDER,
+    AiSettings,
     AlertsSettings,
     ClampSource,
     ContactInput,
@@ -287,14 +288,7 @@ def smtp_from(form: FormData, existing: SmtpSettings) -> SmtpSettings:
 
 
 def summary_from(form: FormData, existing: SummarySettings) -> SummarySettings:
-    # Same rule as every other secret: never rendered back to the browser, so an
-    # empty box means leave it alone and there is a checkbox for clearing it.
-    key = text(form, "summary_api_key")
-    if checkbox(form, "summary_clear_key"):
-        key = ""
-    elif not key:
-        key = existing.api_key
-
+    """What this building asks for, and how often."""
     return SummarySettings(
         description=text(form, "summary_description"),
         schedule=text(form, "summary_schedule", existing.schedule) or existing.schedule,
@@ -304,6 +298,25 @@ def summary_from(form: FormData, existing: SummarySettings) -> SummarySettings:
         ),
         schedule_at=text(form, "summary_schedule_at", existing.schedule_at) or existing.schedule_at,
         notify=checkbox(form, "summary_notify"),
+    )
+
+
+def ai_from(form: FormData, existing: AiSettings) -> AiSettings:
+    """The account it is asked through, which is PitWatch's own.
+
+    Split from the form above when sites arrived. One key serves every
+    building, and a key per building would be either a cost or a way for one
+    building's administrator to read another's credentials.
+    """
+    # Same rule as every other secret: never rendered back to the browser, so an
+    # empty box means leave it alone and there is a checkbox for clearing it.
+    key = text(form, "summary_api_key")
+    if checkbox(form, "summary_clear_key"):
+        key = ""
+    elif not key:
+        key = existing.api_key
+
+    return AiSettings(
         api_key=key,
         model=text(form, "summary_model", existing.model) or existing.model,
         base_url=text(form, "summary_base_url", existing.base_url) or existing.base_url,

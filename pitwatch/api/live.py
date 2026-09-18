@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from pitwatch import __version__, auth, domain
 from pitwatch.api import forms
 from pitwatch.domain import groundwater as groundwater_domain
+from pitwatch.domain import sites
 from pitwatch.domain import tides as tide_domain
 from pitwatch.domain import weather as weather_domain
 from pitwatch.domain.history import (
@@ -257,7 +258,7 @@ def _with_live_rise(recent: Recent, rose_at) -> dict:
     return payload
 
 
-async def build_state(app) -> dict:
+async def build_state(app, store) -> dict:
     """Everything the dashboard needs, in one snapshot.
 
     One payload rather than several because the pieces have to agree with each
@@ -268,7 +269,6 @@ async def build_state(app) -> dict:
     Shared by the GET endpoint below and by the websocket in api/stream.py, so
     the first paint and every update are built the same way.
     """
-    store: SettingsStore = app.state.settings
     live: LiveState = app.state.live
     live_io: LiveIo = app.state.live_io
     pool = app.state.pool
@@ -305,7 +305,7 @@ async def build_state(app) -> dict:
             "last_seen": row["last_seen"].isoformat() if row["last_seen"] else None,
             "last_error": row["last_error"] if configured.get(row["device"]) else None,
         }
-        for row in await pool.fetch("SELECT * FROM device_status")
+        for row in await pool.fetch("SELECT * FROM device_status WHERE site_id = $1", store.site_id)
     }
 
     clamp = mqtt.clamp_for_pump
@@ -322,7 +322,7 @@ async def build_state(app) -> dict:
         typical[number] = (
             Typical()
             if history is None
-            else await history.typical(pool, clamp[number], domain.RUNNING_AMPS)
+            else await history.typical(pool, store.site_id, clamp[number], domain.RUNNING_AMPS)
         )
         # The site's own timezone, because today is a word about where the pit
         # is and not about where the server is.
@@ -335,10 +335,12 @@ async def build_state(app) -> dict:
         if counter is None:
             recent[number] = Recent()
         elif store.mqtt.channel_for(f"pump{number}_run"):
-            recent[number] = await counter.from_contacts(pool, number, store.site.timezone)
+            recent[number] = await counter.from_contacts(
+                pool, store.site_id, number, store.site.timezone
+            )
         else:
             recent[number] = await counter.recent(
-                pool, clamp[number], domain.RUNNING_AMPS, store.site.timezone
+                pool, store.site_id, clamp[number], domain.RUNNING_AMPS, store.site.timezone
             )
 
     def running_now(number: int, drawing: bool) -> bool:
@@ -402,6 +404,7 @@ async def build_state(app) -> dict:
     closings = (
         await signals.closings(
             pool,
+            store.site_id,
             sorted(assigned),
             store.site.timezone,
             store.alerts.panel_alert.pulse_gap_s,
@@ -409,7 +412,7 @@ async def build_state(app) -> dict:
         if signals
         else {}
     )
-    both_ran = await signals.both_ran(pool) if signals else None
+    both_ran = await signals.both_ran(pool, store.site_id) if signals else None
 
     # The rain, which on an ejector pit is the cause and everything else on
     # this page is the effect. None when nothing has been stored, which the
@@ -456,7 +459,7 @@ async def build_state(app) -> dict:
 
 @router.get("/state", include_in_schema=False)
 async def state(request: Request) -> JSONResponse:
-    return JSONResponse(await build_state(request.app))
+    return JSONResponse(await build_state(request.app, sites.store_for(request)))
 
 
 @router.post("/geocode", include_in_schema=False)
@@ -507,7 +510,7 @@ async def tide_nearest(request: Request, user: auth.SignedIn) -> JSONResponse:
     into the boxes and saving the form is what commits it, so a gauge forty
     miles up the wrong estuary is caught by a person reading the name.
     """
-    store: SettingsStore = request.app.state.settings
+    store: SettingsStore = sites.store_for(request)
     site = store.site
     if not site.has_coordinates:
         return JSONResponse(
@@ -541,7 +544,7 @@ async def groundwater_nearest(request: Request, user: auth.SignedIn) -> JSONResp
     distance: a water table is local, so a well fourteen miles away is
     measuring different ground and a person reading the number is the check.
     """
-    store: SettingsStore = request.app.state.settings
+    store: SettingsStore = sites.store_for(request)
     site = store.site
     if not site.has_coordinates:
         return JSONResponse(
@@ -589,7 +592,7 @@ async def panel_press(request: Request, user: auth.SignedIn) -> JSONResponse:
     separate is that somebody should look at a motor that has overloaded before
     it runs again.
     """
-    store: SettingsStore = request.app.state.settings
+    store: SettingsStore = sites.store_for(request)
     settings = store.panel_button
 
     action = forms.text(await request.form(), "action")
@@ -629,7 +632,7 @@ async def test_email(request: Request, user: auth.SignedIn) -> JSONResponse:
     whether what you have just typed works, before committing it. Always behind
     a sign in, because this one makes the server send mail on request.
     """
-    store: SettingsStore = request.app.state.settings
+    store: SettingsStore = sites.store_for(request)
     form = await request.form()
 
     try:
@@ -674,7 +677,7 @@ async def test_email(request: Request, user: auth.SignedIn) -> JSONResponse:
 @router.post("/test/sms", include_in_schema=False)
 async def test_sms(request: Request, user: auth.SignedIn) -> JSONResponse:
     """Send one real text to one number, using the form as it stands."""
-    store: SettingsStore = request.app.state.settings
+    store: SettingsStore = sites.store_for(request)
     form = await request.form()
 
     try:

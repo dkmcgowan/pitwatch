@@ -70,7 +70,7 @@ WITH readings AS (
     -- previous run and no start would ever be recognized.
     SELECT ts, current, lag(current) OVER (ORDER BY ts) AS previous
     FROM em_sample
-    WHERE channel = $1 AND ts > now() - $4::interval
+    WHERE site_id = $5 AND channel = $1 AND ts > now() - $4::interval
 ), running AS (
     SELECT ts, current
     FROM readings
@@ -134,8 +134,10 @@ class CurrentHistory:
     def __init__(self) -> None:
         self._cache: dict[tuple[int, float], tuple[datetime, Typical]] = {}
 
-    async def typical(self, pool: asyncpg.Pool, channel: int, running_amps: float) -> Typical:
-        key = (channel, running_amps)
+    async def typical(
+        self, pool: asyncpg.Pool, site_id: int, channel: int, running_amps: float
+    ) -> Typical:
+        key = (site_id, channel, running_amps)
         now = datetime.now(UTC)
         cached = self._cache.get(key)
         if cached is not None and now - cached[0] < REFRESH:
@@ -147,7 +149,7 @@ class CurrentHistory:
         self._cache[key] = (now, cached[1] if cached else Typical())
 
         try:
-            row = await pool.fetchrow(QUERY, channel, running_amps, RECENT, EARLIER)
+            row = await pool.fetchrow(QUERY, channel, running_amps, RECENT, EARLIER, site_id)
         except (asyncpg.PostgresError, OSError) as error:
             # A dashboard that loses this still shows live amps and every lamp.
             # Failing the whole payload over a history number would take the
@@ -220,7 +222,7 @@ RUNS_QUERY = """
 WITH readings AS (
     SELECT ts, current, lag(current) OVER (ORDER BY ts) AS previous
     FROM em_sample
-    WHERE channel = $1 AND ts > now() - $4::interval
+    WHERE site_id = $5 AND channel = $1 AND ts > now() - $4::interval
 ), edges AS (
     SELECT ts, current >= $2 AND (previous IS NULL OR previous < $2) AS started
     FROM readings
@@ -313,7 +315,7 @@ SELECT
     min(started_at)          AS first_seen,
     (
         SELECT duration_s FROM pump_run
-        WHERE pump = $1 AND ended_at IS NOT NULL
+        WHERE site_id = $5 AND pump = $1 AND ended_at IS NOT NULL
         ORDER BY started_at DESC LIMIT 1
     )                        AS last_duration_s,
     -- How long a run usually lasts, this week against the weeks before it.
@@ -331,7 +333,7 @@ SELECT
         FILTER (WHERE ended_at IS NOT NULL
                   AND started_at <= now() - $4::interval)    AS earlier_duration_s
 FROM pump_run
-WHERE pump = $1 AND started_at > now() - $3::interval
+WHERE site_id = $5 AND pump = $1 AND started_at > now() - $3::interval
 """
 
 
@@ -347,9 +349,11 @@ class RecentRuns:
     def __init__(self) -> None:
         self._cache: dict[tuple, tuple[datetime, Recent]] = {}
 
-    async def from_contacts(self, pool: asyncpg.Pool, pump: int, timezone: str = "UTC") -> Recent:
+    async def from_contacts(
+        self, pool: asyncpg.Pool, site_id: int, pump: int, timezone: str = "UTC"
+    ) -> Recent:
         """What the panel said this pump did."""
-        key = ("contact", pump, timezone)
+        key = ("contact", site_id, pump, timezone)
         now = datetime.now(UTC)
         cached = self._cache.get(key)
         if cached is not None and now - cached[0] < REFRESH_RUNS:
@@ -357,7 +361,9 @@ class RecentRuns:
         self._cache[key] = (now, cached[1] if cached else Recent())
 
         try:
-            row = await pool.fetchrow(CONTACT_RUNS_QUERY, pump, timezone, RUN_BASELINE, RECENT)
+            row = await pool.fetchrow(
+                CONTACT_RUNS_QUERY, pump, timezone, RUN_BASELINE, RECENT, site_id
+            )
         except (asyncpg.PostgresError, OSError) as error:
             log.warning("Could not count recent runs for pump %d: %s", pump, error)
             return self._cache[key][1]
@@ -376,11 +382,12 @@ class RecentRuns:
     async def recent(
         self,
         pool: asyncpg.Pool,
+        site_id: int,
         channel: int,
         running_amps: float,
         timezone: str = "UTC",
     ) -> Recent:
-        key = ("clamp", channel, running_amps, timezone)
+        key = ("clamp", site_id, channel, running_amps, timezone)
         now = datetime.now(UTC)
         cached = self._cache.get(key)
         if cached is not None and now - cached[0] < REFRESH_RUNS:
@@ -388,7 +395,9 @@ class RecentRuns:
         self._cache[key] = (now, cached[1] if cached else Recent())
 
         try:
-            row = await pool.fetchrow(RUNS_QUERY, channel, running_amps, timezone, RUN_BASELINE)
+            row = await pool.fetchrow(
+                RUNS_QUERY, channel, running_amps, timezone, RUN_BASELINE, site_id
+            )
         except (asyncpg.PostgresError, OSError) as error:
             log.warning("Could not count recent runs for clamp %d: %s", channel, error)
             return self._cache[key][1]
@@ -446,7 +455,7 @@ WITH edges AS (
            lead(ts)    OVER (PARTITION BY channel ORDER BY ts) AS next_ts,
            lead(state) OVER (PARTITION BY channel ORDER BY ts) AS next_state
     FROM io_event
-    WHERE channel = ANY($1::smallint[])
+    WHERE site_id = $5 AND channel = ANY($1::smallint[])
 ), rises AS (
     -- Every closing, and whether it begins something or continues something.
     --
@@ -496,9 +505,10 @@ WITH edges AS (
 ), seen AS (
     -- Every input there is any evidence PitWatch has read. Either source is
     -- enough: a current state, or a transition in the log.
-    SELECT channel FROM io_state WHERE channel = ANY($1::smallint[])
+    SELECT channel FROM io_state WHERE site_id = $5 AND channel = ANY($1::smallint[])
     UNION
-    SELECT DISTINCT channel FROM io_event WHERE channel = ANY($1::smallint[])
+    SELECT DISTINCT channel FROM io_event
+    WHERE site_id = $5 AND channel = ANY($1::smallint[])
 )
 -- Driven off what has been read rather than off the closings, so an input that
 -- is being watched and has simply never closed gets a row of zeros instead of
@@ -528,11 +538,11 @@ SELECT
     count(*) FILTER (WHERE started_at > now() - $1::interval)      AS month,
     (
         SELECT extract(epoch FROM ended_at - started_at) FROM pump_cycle
-        WHERE both_ran AND ended_at IS NOT NULL
+        WHERE site_id = $2 AND both_ran AND ended_at IS NOT NULL
         ORDER BY started_at DESC LIMIT 1
     )                                                              AS last_held_s
 FROM pump_cycle
-WHERE both_ran
+WHERE site_id = $2 AND both_ran
 """
 
 
@@ -580,19 +590,29 @@ class SignalHistory:
         # Part of the cache key: change the gap on the settings page and the
         # counts have to be recounted, not served from the last answer.
         self._gap: timedelta | None = None
+        # And the building, so one site's counts are never served to another.
+        # One process reads one site today, but a cache that ignores the
+        # question it was asked is the kind of thing that stops being true
+        # quietly.
+        self._site: int | None = None
         self._by_channel: dict[int, Closings] = {}
         self._both_at: datetime | None = None
+        self._both_site: int | None = None
         self._both = Closings()
 
-    async def both_ran(self, pool: asyncpg.Pool) -> Closings:
+    async def both_ran(self, pool: asyncpg.Pool, site_id: int) -> Closings:
         """Calls for water that took both pumps, in the shape a lamp reads."""
         now = datetime.now(UTC)
-        if self._both_at is not None and now - self._both_at < REFRESH_RUNS:
+        if (
+            self._both_at is not None
+            and now - self._both_at < REFRESH_RUNS
+            and self._both_site == site_id
+        ):
             return self._both
 
-        self._both_at = now
+        self._both_at, self._both_site = now, site_id
         try:
-            row = await pool.fetchrow(BOTH_RAN_QUERY, SIGNAL_MONTH)
+            row = await pool.fetchrow(BOTH_RAN_QUERY, SIGNAL_MONTH, site_id)
         except (asyncpg.PostgresError, OSError) as error:
             log.warning("Could not read the cycles that took both pumps: %s", error)
             return self._both
@@ -610,6 +630,7 @@ class SignalHistory:
     async def closings(
         self,
         pool: asyncpg.Pool,
+        site_id: int,
         channels: list[int],
         timezone: str = "UTC",
         gap_s: float = 2.0,
@@ -626,15 +647,17 @@ class SignalHistory:
             and now - self._at < REFRESH_RUNS
             and self._zone == timezone
             and self._gap == gap
+            and self._site == site_id
         ):
             return self._by_channel
         if not channels:
-            self._at, self._zone, self._gap, self._by_channel = now, timezone, gap, {}
+            self._at, self._zone, self._gap, self._site = now, timezone, gap, site_id
+            self._by_channel = {}
             return self._by_channel
 
-        self._at, self._zone, self._gap = now, timezone, gap
+        self._at, self._zone, self._gap, self._site = now, timezone, gap, site_id
         try:
-            rows = await pool.fetch(SIGNAL_QUERY, channels, timezone, SIGNAL_MONTH, gap)
+            rows = await pool.fetch(SIGNAL_QUERY, channels, timezone, SIGNAL_MONTH, gap, site_id)
         except (asyncpg.PostgresError, OSError) as error:
             log.warning("Could not read the contact history: %s", error)
             return self._by_channel

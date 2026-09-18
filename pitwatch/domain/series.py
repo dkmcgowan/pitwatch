@@ -140,7 +140,7 @@ SELECT time_bucket($2::interval, started_at, timezone => $3::text) AS bucket,
        count(*) FILTER (WHERE both_ran)         AS both_ran,
        count(*) FILTER (WHERE high_water)       AS high_water
 FROM pump_cycle
-WHERE started_at > now() - $1::interval
+WHERE site_id = $4 AND started_at > now() - $1::interval
 GROUP BY 1
 ORDER BY 1
 """
@@ -154,7 +154,7 @@ SELECT started_at,
        both_ran,
        high_water
 FROM pump_cycle
-WHERE started_at > now() - $1::interval - $2::interval
+WHERE site_id = $3 AND started_at > now() - $1::interval - $2::interval
 ORDER BY started_at
 """
 
@@ -174,7 +174,7 @@ SELECT r.started_at,
        coalesce(c.high_water, false) AS high_water
 FROM pump_run r
 LEFT JOIN pump_cycle c ON c.id = r.cycle_id
-WHERE r.started_at > now() - $1::interval
+WHERE r.site_id = $2 AND r.started_at > now() - $1::interval
 ORDER BY r.started_at
 """
 
@@ -190,7 +190,7 @@ HOURS = """
 SELECT extract(hour FROM started_at AT TIME ZONE $2::text)::int AS hour,
        count(*) AS calls
 FROM pump_cycle
-WHERE started_at > now() - $1::interval
+WHERE site_id = $3 AND started_at > now() - $1::interval
 GROUP BY 1
 ORDER BY 1
 """
@@ -198,7 +198,9 @@ ORDER BY 1
 # Whether this clamp has ever, in all of the readings kept, seen current. A
 # channel with no CT fitted reads zero all day and is indistinguishable from a
 # motor that never turns, except by this.
-CLAMP_FITTED = "SELECT EXISTS (SELECT 1 FROM em_sample WHERE channel = $1 AND current >= $2)"
+CLAMP_FITTED = (
+    "SELECT EXISTS (SELECT 1 FROM em_sample WHERE site_id = $3 AND channel = $1 AND current >= $2)"
+)
 
 # Every change inside the window, and the state going into it. The second one
 # matters: a float that closed an hour before the window opened and is still
@@ -212,14 +214,14 @@ CLAMP_FITTED = "SELECT EXISTS (SELECT 1 FROM em_sample WHERE channel = $1 AND cu
 CONTACT_EVENTS = """
 SELECT channel, ts, state
 FROM io_event
-WHERE channel = ANY($1::smallint[]) AND ts > now() - $2::interval
+WHERE site_id = $3 AND channel = ANY($1::smallint[]) AND ts > now() - $2::interval
 ORDER BY channel, ts
 """
 
 CONTACT_BEFORE = """
 SELECT DISTINCT ON (channel) channel, state
 FROM io_event
-WHERE channel = ANY($1::smallint[]) AND ts <= now() - $2::interval
+WHERE site_id = $3 AND channel = ANY($1::smallint[]) AND ts <= now() - $2::interval
 ORDER BY channel, ts DESC
 """
 
@@ -273,24 +275,28 @@ async def _fetch(pool: asyncpg.Pool, what: str, query: str, *args) -> list:
 
 
 async def calls_series(
-    pool: asyncpg.Pool, window: Window, zone: str
+    pool: asyncpg.Pool, site_id: int, window: Window, zone: str
 ) -> list[tuple[datetime, int, int, int]]:
     """Calls for water per bucket: how many, how many took both pumps, and how
     many reached the high float."""
-    rows = await _fetch(pool, "the call history", CALLS, window.span, window.count_bucket, zone)
+    rows = await _fetch(
+        pool, "the call history", CALLS, window.span, window.count_bucket, zone, site_id
+    )
     return [
         (row["bucket"], int(row["calls"]), int(row["both_ran"]), int(row["high_water"]))
         for row in rows
     ]
 
 
-async def call_gaps(pool: asyncpg.Pool, window: Window) -> list[tuple[datetime, float, bool, bool]]:
+async def call_gaps(
+    pool: asyncpg.Pool, site_id: int, window: Window
+) -> list[tuple[datetime, float, bool, bool]]:
     """Every call in the window with the minutes since the one before it.
 
     The first call of all has nothing before it and is left out rather than
     given a made up gap.
     """
-    rows = await _fetch(pool, "the call spacing", GAPS, window.span, LEAD_IN)
+    rows = await _fetch(pool, "the call spacing", GAPS, window.span, LEAD_IN, site_id)
     start = datetime.now(UTC) - window.span
     return [
         (row["started_at"], float(row["gap_s"]), row["both_ran"], row["high_water"])
@@ -313,8 +319,8 @@ class Run:
     high_water: bool
 
 
-async def runs_series(pool: asyncpg.Pool, window: Window) -> list[Run]:
-    rows = await _fetch(pool, "the run history", RUNS, window.span)
+async def runs_series(pool: asyncpg.Pool, site_id: int, window: Window) -> list[Run]:
+    rows = await _fetch(pool, "the run history", RUNS, window.span, site_id)
     return [
         Run(
             started_at=row["started_at"],
@@ -332,23 +338,25 @@ async def runs_series(pool: asyncpg.Pool, window: Window) -> list[Run]:
     ]
 
 
-async def hour_profile(pool: asyncpg.Pool, window: Window, zone: str) -> dict[int, int]:
+async def hour_profile(
+    pool: asyncpg.Pool, site_id: int, window: Window, zone: str
+) -> dict[int, int]:
     """Calls by hour of the local day, as {hour: calls}."""
-    rows = await _fetch(pool, "the daily pattern", HOURS, window.span, zone)
+    rows = await _fetch(pool, "the daily pattern", HOURS, window.span, zone, site_id)
     return {int(row["hour"]): int(row["calls"]) for row in rows}
 
 
-async def clamp_fitted(pool: asyncpg.Pool, channel: int, running_amps: float) -> bool:
+async def clamp_fitted(pool: asyncpg.Pool, site_id: int, channel: int, running_amps: float) -> bool:
     """Whether this channel has ever read above the running threshold."""
     try:
-        return bool(await pool.fetchval(CLAMP_FITTED, channel, running_amps))
+        return bool(await pool.fetchval(CLAMP_FITTED, channel, running_amps, site_id))
     except (asyncpg.PostgresError, OSError) as error:
         log.warning("Could not check clamp %d: %s", channel, error)
         return False
 
 
 async def contact_spans(
-    pool: asyncpg.Pool, channels: list[int], window: Window
+    pool: asyncpg.Pool, site_id: int, channels: list[int], window: Window
 ) -> dict[int, list[tuple[datetime, datetime]]]:
     """When each contact was closed, as spans clipped to the window.
 
@@ -361,8 +369,12 @@ async def contact_spans(
 
     now = datetime.now(UTC)
     start = now - window.span
-    before = await _fetch(pool, "the contact history", CONTACT_BEFORE, channels, window.span)
-    events = await _fetch(pool, "the contact history", CONTACT_EVENTS, channels, window.span)
+    before = await _fetch(
+        pool, "the contact history", CONTACT_BEFORE, channels, window.span, site_id
+    )
+    events = await _fetch(
+        pool, "the contact history", CONTACT_EVENTS, channels, window.span, site_id
+    )
 
     spans: dict[int, list[tuple[datetime, datetime]]] = {channel: [] for channel in channels}
     opened: dict[int, datetime | None] = {

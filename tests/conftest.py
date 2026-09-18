@@ -67,6 +67,38 @@ async def pool(database_url):
 
 
 @pytest.fixture
+def sql(client, database_url):
+    """Run one statement against the test database from a synchronous test.
+
+    The HTTP tests are synchronous and the pool is not, so a test that needs to
+    look at a row -- or to set up a second building before signing in -- has no
+    way to reach it. This opens its own connection for the one statement, which
+    is slow and completely fine for the handful of places that need it.
+
+    Depends on `client` rather than on `pool` so that the schema is already
+    built and the application is already connected: a statement run before that
+    would be rolled away by the rebuild.
+    """
+    import asyncio
+
+    import asyncpg
+
+    def run(statement: str, *args, fetch: bool = False):
+        async def go():
+            connection = await asyncpg.connect(dsn=database_url)
+            try:
+                if fetch:
+                    return await connection.fetchval(statement, *args)
+                return await connection.execute(statement, *args)
+            finally:
+                await connection.close()
+
+        return asyncio.run(go())
+
+    return run
+
+
+@pytest.fixture
 async def store(pool):
     from pitwatch.settings import SettingsStore
 

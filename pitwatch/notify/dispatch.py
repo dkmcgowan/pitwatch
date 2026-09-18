@@ -33,21 +33,37 @@ RANK = {Severity.INFO: 0, Severity.WARNING: 1, Severity.CRITICAL: 2}
 EVERY_CHANNEL = ("email", "sms")
 
 
-async def audience(pool: asyncpg.Pool, severity: Severity, admins_only: bool) -> list:
-    """Everybody whose own level is at or below this one, and who is reachable."""
+async def audience(
+    pool: asyncpg.Pool, site_id: int | None, severity: Severity, admins_only: bool
+) -> list:
+    """Everybody at this building whose own level is at or below this one.
+
+    Scoped to the building, which is the difference between a text about a pump
+    and a text about somebody else's pump. Membership is the test rather than
+    the account existing: PitWatch's owner is reachable everywhere by being a
+    member everywhere, and an administrator at one address is not woken at two
+    in the morning by the address next door.
+
+    Whether somebody counts as an administrator is also asked of the building.
+    `admins_only` marks the messages that are about the equipment rather than
+    about the water, and the person who can act on that is whoever administers
+    *that* panel.
+    """
     try:
         return await pool.fetch(
             """
-            SELECT name, email, phone, notify_email, notify_sms
-            FROM app_user
-            WHERE enabled
-              AND (NOT $1::boolean OR role IN ('admin', 'owner'))
-              AND CASE min_severity
+            SELECT u.name, u.email, u.phone, u.notify_email, u.notify_sms
+            FROM app_user u JOIN site_member m ON m.user_id = u.id
+            WHERE m.site_id = $3
+              AND u.enabled
+              AND (NOT $1::boolean OR m.role IN ('admin', 'owner'))
+              AND CASE u.min_severity
                       WHEN 'info' THEN 0 WHEN 'warning' THEN 1 ELSE 2
                   END <= $2::int
             """,
             admins_only,
             RANK[severity],
+            site_id,
         )
     except (asyncpg.PostgresError, OSError) as error:
         log.error("Could not work out who to tell: %s", error)
@@ -66,7 +82,7 @@ async def tell(
     subject: str | None = None,
     channels: tuple[str, ...] = EVERY_CHANNEL,
 ) -> None:
-    for person in await audience(pool, severity, admins_only):
+    for person in await audience(pool, store.site_id, severity, admins_only):
         if "email" in channels and person["notify_email"] and person["email"]:
             await send(pool, store, alert_id, event, "email", person["email"], message, subject)
         if "sms" in channels and person["notify_sms"] and person["phone"]:
@@ -84,11 +100,15 @@ async def send(
     subject: str | None = None,
 ) -> None:
     """One message to one person, written down before it is attempted."""
+    # The building comes off the store rather than the alert, because a
+    # notification that is not about an alert at all, the written summary and
+    # the incident all clear, still belongs to somebody's building.
     note_id = await pool.fetchval(
         """
-        INSERT INTO notification (alert_id, event, channel, target, status, attempts)
-        VALUES ($1, $2, $3, $4, 'pending', 1) RETURNING id
+        INSERT INTO notification (site_id, alert_id, event, channel, target, status, attempts)
+        VALUES ($1, $2, $3, $4, $5, 'pending', 1) RETURNING id
         """,
+        store.site_id,
         alert_id,
         event,
         channel,

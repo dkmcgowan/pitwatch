@@ -13,7 +13,7 @@ has, and is why the README does not suggest putting this on the internet.
 from __future__ import annotations
 
 import logging
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -23,7 +23,7 @@ from pitwatch import auth, clock
 from pitwatch import summary as summaries
 from pitwatch.api import forms
 from pitwatch.domain import alerts as alert_specs
-from pitwatch.domain import diagnostics, series
+from pitwatch.domain import diagnostics, series, sites
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
 from pitwatch.schemas import DASHBOARD_ROLES, SCHEDULE_CHOICES, SUMMARY_WINDOWS
@@ -35,10 +35,11 @@ router = APIRouter()
 
 
 def _context(request: Request, **extra) -> dict:
-    store: SettingsStore = request.app.state.settings
+    store: SettingsStore = sites.store_for(request)
     return {
         "site": store.site,
         "user": auth.current_user(request),
+        **sites.switcher(request),
         # The eight things the dashboard can draw, which is the list the input
         # rows pick from. Here rather than passed by each caller, because every
         # page that renders those rows needs it and forgetting it renders eight
@@ -62,7 +63,7 @@ def _templates(request: Request):
 
 @router.get("/setup", include_in_schema=False)
 async def setup_page(request: Request, owner: auth.IsOwner):
-    store: SettingsStore = request.app.state.settings
+    store: SettingsStore = sites.store_for(request)
     if await store.is_setup_complete():
         return RedirectResponse("/settings", status_code=303)
     return _templates(request).TemplateResponse(
@@ -79,7 +80,7 @@ async def setup_page(request: Request, owner: auth.IsOwner):
 
 @router.post("/setup", include_in_schema=False)
 async def setup_submit(request: Request, owner: auth.IsOwner):
-    store: SettingsStore = request.app.state.settings
+    store: SettingsStore = sites.store_for(request)
     form = await request.form()
 
     try:
@@ -101,6 +102,7 @@ async def setup_submit(request: Request, owner: auth.IsOwner):
 
     for value in (site, mqtt, pumps):
         await store.put(value)
+    await _rename_site(request, store, site)
 
     # The person doing the setup is the first person alerts should reach, and
     # asking again on a profile page afterwards is asking twice.
@@ -111,31 +113,53 @@ async def setup_submit(request: Request, owner: auth.IsOwner):
     return RedirectResponse("/", status_code=303)
 
 
+async def _rename_site(request: Request, store: SettingsStore, settings) -> None:
+    """Keep the `site` row's name in step with the settings.
+
+    The name lives in two places and has to agree in both: the settings are
+    what the pages print, and the `site` row is what the switcher lists and
+    what orders it. A building named on setup but left as "This site" in the
+    table is one name in the header and another on the page.
+    """
+    if store.site_id is None or not settings.name.strip():
+        return
+    await request.app.state.pool.execute(
+        "UPDATE site SET name = $2 WHERE id = $1", store.site_id, settings.name.strip()[:120]
+    )
+
+
 # -- settings ---------------------------------------------------------------
 
 
 @router.get("/settings", include_in_schema=False)
-async def settings_page(request: Request, owner: auth.IsOwner, saved: str | None = None):
-    store: SettingsStore = request.app.state.settings
+async def settings_page(
+    request: Request, owner: auth.IsOwner, saved: str | None = None, error: str | None = None
+):
+    store: SettingsStore = sites.store_for(request)
     return _templates(request).TemplateResponse(
         request,
         "settings.html",
         _context(
             request,
+            # Every building, not only the ones the header would offer. The
+            # switcher hides itself when there is one; this list is how a
+            # second one gets made, so it has to show the first.
+            all_sites=await sites.all_sites(request.app.state.pool),
             mqtt=store.mqtt,
             pumps=store.pumps,
             smtp=store.smtp,
             sms=store.sms,
             summary=store.summary,
+            ai=store.ai,
             weather=store.weather,
             tide=store.tide,
             groundwater=store.groundwater,
             panel_button=store.panel_button,
             diagnostics=await diagnostics.read(
-                request.app.state.pool, store.mqtt, store.pumps, store.site
+                request.app.state.pool, store.site_id, store.mqtt, store.pumps, store.site
             ),
             saved=saved,
-            error=None,
+            error=error,
         ),
     )
 
@@ -179,7 +203,8 @@ async def alert_history(request: Request, user: auth.SignedIn):
     wanting to know whether the pit did anything last night.
     """
     pool = request.app.state.pool
-    zone = request.app.state.settings.site.timezone
+    site_id = sites.store_for(request).site_id
+    zone = sites.store_for(request).site.timezone
 
     def shape(row, *, ended):
         lasted = row["cleared_at"] - row["raised_at"] if ended else None
@@ -195,15 +220,18 @@ async def alert_history(request: Request, user: auth.SignedIn):
     rows = await pool.fetch(
         """
         SELECT severity, title, detail, raised_at, cleared_at
-        FROM alert ORDER BY raised_at DESC LIMIT 200
-        """
+        FROM alert WHERE site_id = $1 ORDER BY raised_at DESC LIMIT 200
+        """,
+        site_id,
     )
     sent = await pool.fetch(
         """
         SELECT n.channel, n.target, n.status, n.error, n.created_at, a.detail
         FROM notification n LEFT JOIN alert a ON a.id = n.alert_id
+        WHERE n.site_id = $1
         ORDER BY n.created_at DESC LIMIT 50
-        """
+        """,
+        site_id,
     )
     return _templates(request).TemplateResponse(
         request,
@@ -230,7 +258,7 @@ async def alert_history(request: Request, user: auth.SignedIn):
 
 @router.get("/alerts/settings", include_in_schema=False)
 async def alerts_page(request: Request, admin: auth.IsAdmin, saved: str | None = None):
-    store: SettingsStore = request.app.state.settings
+    store: SettingsStore = sites.store_for(request)
     return _templates(request).TemplateResponse(
         request,
         "alerts.html",
@@ -248,7 +276,7 @@ async def alerts_page(request: Request, admin: auth.IsAdmin, saved: str | None =
 
 @router.post("/alerts/settings", include_in_schema=False)
 async def alerts_save(request: Request, admin: auth.IsAdmin):
-    store: SettingsStore = request.app.state.settings
+    store: SettingsStore = sites.store_for(request)
     form = await request.form()
     try:
         await store.put(forms.alerts_from(form, store.alerts))
@@ -292,8 +320,8 @@ async def history_page(request: Request, user: auth.SignedIn):
 # pointed at a model running on the same network.
 @router.get("/summary", include_in_schema=False)
 async def summary_page(request: Request, user: auth.SignedIn, error: str | None = None):
-    store: SettingsStore = request.app.state.settings
-    last = await summaries.latest(request.app.state.pool)
+    store: SettingsStore = sites.store_for(request)
+    last = await summaries.latest(request.app.state.pool, store.site_id)
     return _templates(request).TemplateResponse(
         request,
         "summary.html",
@@ -307,7 +335,9 @@ async def summary_page(request: Request, user: auth.SignedIn, error: str | None 
             # The one it last read, so pressing again repeats rather than
             # silently going back to a week.
             chosen=(last["window_key"] if last else summaries.WINDOW.key),
-            ready=store.summary.ready,
+            # Whether PitWatch has an account to ask through at all, which
+            # is not a fact about this building.
+            ready=store.ai.ready,
             error=error,
         ),
     )
@@ -329,7 +359,7 @@ def _read_over(key: str) -> str:
 @router.post("/summary", include_in_schema=False)
 async def summary_write(request: Request, user: auth.SignedIn):
     form = await request.form()
-    store: SettingsStore = request.app.state.settings
+    store: SettingsStore = sites.store_for(request)
     # Today is resolved against the building's clock here, the same as it is for
     # the history page, so the two mean the same day.
     asked = str(form.get("window") or "")
@@ -337,7 +367,7 @@ async def summary_write(request: Request, user: auth.SignedIn):
         asked if asked in SUMMARY_WINDOWS else summaries.WINDOW.key, store.site.timezone
     )
     try:
-        await summaries.write(request.app, user.username, window)
+        await summaries.write(request.app, store, user.username, window)
     except summaries.SummaryError as error:
         # Straight back to the page with what went wrong on it. The one thing
         # somebody needs after a failed call is the reason, and the model's own
@@ -348,13 +378,15 @@ async def summary_write(request: Request, user: auth.SignedIn):
 
 @router.post("/settings/{section}", include_in_schema=False)
 async def settings_save(request: Request, section: str, owner: auth.IsOwner) -> HTMLResponse:
-    store: SettingsStore = request.app.state.settings
+    store: SettingsStore = sites.store_for(request)
     form = await request.form()
 
     try:
         match section:
             case "site":
-                await store.put(forms.site_from(form))
+                settings = forms.site_from(form)
+                await store.put(settings)
+                await _rename_site(request, store, settings)
             case "mqtt":
                 await store.put(forms.mqtt_from(form, store.mqtt))
             case "pumps":
@@ -365,6 +397,10 @@ async def settings_save(request: Request, section: str, owner: auth.IsOwner) -> 
                 await store.put(forms.sms_from(form, store.sms))
             case "summary":
                 await store.put(forms.summary_from(form, store.summary))
+            # PitWatch's own account rather than this building's schedule, and
+            # a separate form for that reason. One key serves every building.
+            case "ai":
+                await store.put(forms.ai_from(form, store.ai))
             case "weather":
                 await store.put(forms.weather_from(form))
             case "tide":
@@ -381,17 +417,19 @@ async def settings_save(request: Request, section: str, owner: auth.IsOwner) -> 
             "settings.html",
             _context(
                 request,
+                all_sites=await sites.all_sites(request.app.state.pool),
                 mqtt=store.mqtt,
                 pumps=store.pumps,
                 smtp=store.smtp,
                 sms=store.sms,
                 summary=store.summary,
+                ai=store.ai,
                 weather=store.weather,
                 tide=store.tide,
                 groundwater=store.groundwater,
                 panel_button=store.panel_button,
                 diagnostics=await diagnostics.read(
-                    request.app.state.pool, store.mqtt, store.pumps, store.site
+                    request.app.state.pool, store.site_id, store.mqtt, store.pumps, store.site
                 ),
                 saved=None,
                 error=_readable(error),
@@ -449,6 +487,65 @@ def _readable(error: Exception) -> str:
             problems.append(f"{location}: {detail['msg']}")
         return "; ".join(problems[:3])
     return str(error)
+
+
+# -- more than one building --------------------------------------------------
+#
+# Both of these answer 404 shaped redirects rather than errors on a single site
+# installation, because that is what they are: there is nothing to switch to and
+# nothing that would draw the control.
+
+
+@router.post("/site/switch", include_in_schema=False)
+async def switch_site(request: Request, user: auth.SignedIn) -> RedirectResponse:
+    """Look at a different building.
+
+    Remembered in the session rather than in the URL, so every page follows
+    without carrying a query string, and checked against what this person may
+    see rather than trusted: the id arrives from a form, and a form is a thing
+    anybody can post.
+    """
+    form = await request.form()
+    try:
+        wanted = int(str(form.get("site_id") or ""))
+    except ValueError:
+        return RedirectResponse("/", status_code=303)
+
+    allowed = await sites.visible_to(request.app.state.pool, user)
+    if not any(site.id == wanted for site in allowed):
+        log.warning("%s asked for site %d, which is not theirs", user.username, wanted)
+        return RedirectResponse("/", status_code=303)
+
+    request.session[sites.SESSION_SITE_KEY] = wanted
+    log.info("%s switched to site %d", user.username, wanted)
+    # Back where they were, so switching from the history page keeps them on
+    # the history page rather than bouncing them to the dashboard.
+    return RedirectResponse(_back_to(request), status_code=303)
+
+
+@router.post("/settings/sites/new", include_in_schema=False)
+async def add_site(request: Request, owner: auth.IsOwner) -> RedirectResponse:
+    """A second building. Owner only, because it is a PitWatch level act."""
+    form = await request.form()
+    name = str(form.get("new_site_name") or "").strip()
+    if not name:
+        return RedirectResponse("/settings?error=A+site+needs+a+name", status_code=303)
+
+    try:
+        site_id = await sites.create(request.app.state.pool, name[:120])
+    except Exception as error:  # noqa: BLE001 -- shown, not raised
+        log.warning("Could not add the site %r: %s", name, error)
+        return RedirectResponse(f"/settings?error={quote(str(error)[:200])}", status_code=303)
+
+    log.info("%s added site %d (%s)", owner.username, site_id, name)
+    return RedirectResponse("/settings?saved=1", status_code=303)
+
+
+def _back_to(request: Request) -> str:
+    """The page that posted, if it was one of ours. Never somewhere else."""
+    referer = request.headers.get("referer") or ""
+    path = urlsplit(referer).path or "/"
+    return path if path.startswith("/") and not path.startswith("//") else "/"
 
 
 def register(app) -> None:

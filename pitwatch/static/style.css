@@ -145,6 +145,36 @@ body {
   flex: none;
 }
 
+/* Which building, on installations that have more than one. Sized to the name
+   rather than to the row: a select that stretched would push the icons off a
+   phone, and one clipped to nothing would make two addresses on the same
+   street indistinguishable. */
+.site-switch {
+  display: flex;
+  align-items: center;
+  margin-left: 0.5rem;
+  min-width: 0;
+}
+
+/* The no JavaScript fallback. Hidden by static/switcher.js the moment it
+   runs, so in a normal browser this is never seen; sized anyway, because the
+   one person who does see it is reading the header of a page in a basement. */
+.site-switch button {
+  padding: 0.3rem 0.6rem;
+  margin-left: 0.3rem;
+  font-size: 0.85rem;
+}
+
+.site-switch select {
+  max-width: 12rem;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.9rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
 /* The public header's links, which are words rather than icons.
 
    Written as `.topbar nav a` once, back when the signed in header was words
@@ -786,6 +816,20 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   .board { gap: 0.7rem; }
   .board-card { padding: 0.85rem 0.9rem 0.95rem; }
   .card-top { gap: 0.5rem; }
+
+  /* The building picker, narrowed to what fits.
+
+     It costs the header a second row on a phone, which the comment above
+     .brand-name says to avoid, and that trade is deliberate here: the rule
+     exists so a row is not charged to every page, and this row is charged
+     only to an installation with more than one building. On one of those,
+     which building you are looking at is the most important thing on the
+     screen and the dashboard is unreadable without it.
+
+     8rem measured rather than guessed: at 390px, 9rem and up push the row
+     past the viewport and the page scrolls sideways. A truncated address is
+     still the address, and the whole one is there when the list opens. */
+  .site-switch select { max-width: 8rem; }
 }
 
 /* Two faces of one thing ---------------------------------------------------
@@ -862,6 +906,27 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
    name on <details> makes a group exclusive, so opening one closes the rest.
    Where that is not supported they simply all open independently, which is the
    page as it was. */
+/* The line between "this building" and "PitWatch". Quiet on an installation
+   with one site, where it is a label on a page nobody compares to anything,
+   and load bearing on one with several: the sections below it are shared, and
+   changing one changes every building at once. */
+.settings-group {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 1.75rem 0 0.75rem;
+  font-size: 1.05rem;
+}
+
+.settings-group:first-child { margin-top: 0; }
+
+.settings-group-note {
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
 .settings-section { padding: 0; }
 
 .settings-section summary {

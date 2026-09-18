@@ -37,7 +37,7 @@ async def test_a_source_with_a_topic_and_no_traffic_is_the_whole_point(pool):
     this month" for an input nothing has ever arrived on, because to somebody
     asking whether the pit is alright that means nothing has happened. Somebody
     who has just wired the panel needs the other answer."""
-    report = await diagnostics.read(pool, _mqtt(), PumpsSettings(), SITE)
+    report = await diagnostics.read(pool, 1, _mqtt(), PumpsSettings(), SITE)
 
     heard = {row.name: row.heard for row in report.inputs}
     assert heard == {"Input 1": False, "Input 7": False}
@@ -49,16 +49,16 @@ async def test_an_input_that_has_spoken_says_when_and_how_often(pool):
     """And on the site's clock, not the server's."""
     await pool.execute(
         """
-        INSERT INTO io_state (channel, label, state, raw, changed_at, updated_at)
-        VALUES (1, 'lead_float', true, true, $1, $1)
+        INSERT INTO io_state (site_id, channel, label, state, raw, changed_at, updated_at)
+        VALUES (1, 1, 'lead_float', true, true, $1, $1)
         """,
         datetime(2026, 9, 8, 14, 47, tzinfo=UTC),
     )
     await pool.execute(
-        "INSERT INTO io_event (ts, channel, label, state, raw) VALUES (now(), 1, 'lead_float', true, true)"
+        "INSERT INTO io_event (site_id, ts, channel, label, state, raw) VALUES (1, now(), 1, 'lead_float', true, true)"
     )
 
-    report = await diagnostics.read(pool, _mqtt(), PumpsSettings(), SITE)
+    report = await diagnostics.read(pool, 1, _mqtt(), PumpsSettings(), SITE)
     row = next(row for row in report.inputs if row.name == "Input 1")
 
     assert row.heard is True
@@ -72,11 +72,11 @@ async def test_a_clamp_reading_nothing_but_zero_is_called_out(pool):
     otherwise indistinguishable from a pump that has not run."""
     now = datetime.now(UTC)
     await pool.executemany(
-        "INSERT INTO em_sample (ts, channel, current) VALUES ($1, 0, 0)",
+        "INSERT INTO em_sample (site_id, ts, channel, current) VALUES (1, $1, 0, 0)",
         [(now - timedelta(seconds=i),) for i in range(5)],
     )
 
-    report = await diagnostics.read(pool, _mqtt(), PumpsSettings(), SITE)
+    report = await diagnostics.read(pool, 1, _mqtt(), PumpsSettings(), SITE)
     clamp = report.clamps[0]
 
     assert clamp.heard is True
@@ -97,7 +97,7 @@ async def test_a_health_check_carries_the_reason_it_is_unhappy(pool):
         """
     )
 
-    report = await diagnostics.read(pool, _mqtt(), PumpsSettings(), SITE)
+    report = await diagnostics.read(pool, 1, _mqtt(), PumpsSettings(), SITE)
     check = report.health[0]
 
     assert check.name == "Meter"
@@ -107,7 +107,7 @@ async def test_a_health_check_carries_the_reason_it_is_unhappy(pool):
 
 
 async def test_nothing_to_say_when_the_broker_is_switched_off(pool):
-    report = await diagnostics.read(pool, _mqtt(enabled=False), PumpsSettings(), SITE)
+    report = await diagnostics.read(pool, 1, _mqtt(enabled=False), PumpsSettings(), SITE)
 
     assert report.rows == []
     assert report.watchouts == ["MQTT is switched off, so nothing is being listened for."]
@@ -117,21 +117,23 @@ async def test_all_quiet_says_so_rather_than_saying_nothing(pool):
     """An empty list of watchouts reads as a page that failed to load."""
     now = datetime.now(UTC)
     await pool.execute(
-        "INSERT INTO io_state (channel, label, state, raw, changed_at, updated_at)"
-        " VALUES (1, 'lead_float', false, false, $1, $1)",
+        "INSERT INTO io_state (site_id, channel, label, state, raw, changed_at, updated_at)"
+        " VALUES (1, 1, 'lead_float', false, false, $1, $1)",
         now,
     )
     await pool.execute(
-        "INSERT INTO io_state (channel, label, state, raw, changed_at, updated_at)"
-        " VALUES (7, 'pump1_fault', false, true, $1, $1)",
+        "INSERT INTO io_state (site_id, channel, label, state, raw, changed_at, updated_at)"
+        " VALUES (1, 7, 'pump1_fault', false, true, $1, $1)",
         now,
     )
-    await pool.execute("INSERT INTO em_sample (ts, channel, current) VALUES (now(), 0, 15.4)")
+    await pool.execute(
+        "INSERT INTO em_sample (site_id, ts, channel, current) VALUES (1, now(), 0, 15.4)"
+    )
     await pool.execute(
         "UPDATE device_status SET online = true, last_seen = now() WHERE device = 'health0'"
     )
 
-    report = await diagnostics.read(pool, _mqtt(), PumpsSettings(), SITE)
+    report = await diagnostics.read(pool, 1, _mqtt(), PumpsSettings(), SITE)
 
     assert report.silent == 0
     assert report.watchouts == ["Every configured source has been heard from in the last day."]

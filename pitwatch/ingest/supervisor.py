@@ -80,8 +80,11 @@ class Supervisor:
         # so a failure to build one cannot stop the panel being read: knowing
         # is worth having even on a day when telling is broken.
         self._engine = engine
-        self.sink = SampleSink(pool, live)
-        self.io_sink = IoSink(pool, live_io)
+        # Which building this supervisor is running. Read from the store, which
+        # knows it after load, so there is one place that decides and not two.
+        self._site_id = store.site_id
+        self.sink = SampleSink(pool, live, self._site_id)
+        self.io_sink = IoSink(pool, live_io, self._site_id)
 
         # The live reader, so the panel's run contacts can tell it when to ask
         # the meter for a reading. None whenever nothing is configured or the
@@ -145,7 +148,7 @@ class Supervisor:
         settings = self._store.mqtt
 
         async def on_status(role: str, online: bool, error: str | None) -> None:
-            await record_device_status(self._pool, role, online, error)
+            await record_device_status(self._pool, self._site_id, role, online, error)
 
         if not settings.enabled or not settings.host:
             log.info("Ingest is off: no broker configured")
@@ -261,15 +264,17 @@ class Supervisor:
         settings = self._store.weather
 
         async def on_status(online: bool, error: str | None) -> None:
-            await record_device_status(self._pool, "weather", online, error)
+            await record_device_status(self._pool, self._site_id, "weather", online, error)
 
         if not settings.enabled:
             log.info("Weather is off")
-            await record_device_status(self._pool, "weather", False, "Turned off")
+            await record_device_status(self._pool, self._site_id, "weather", False, "Turned off")
             return
         if not site.has_coordinates:
             log.info("Weather has nowhere to look: no coordinates for the site")
-            await record_device_status(self._pool, "weather", False, "No location set")
+            await record_device_status(
+                self._pool, self._site_id, "weather", False, "No location set"
+            )
             return
 
         reader = WeatherReader(site, settings, self._pool, on_status)
@@ -289,7 +294,7 @@ class Supervisor:
         if not settings.scheduled:
             log.info("The scheduled health summary is off")
             return
-        if not settings.ready:
+        if not self._store.ai.ready:
             log.info("The health summary is scheduled with nothing to ask: no key or model")
             return
         self._spawn("checkup", Scheduled(self._app).run)
@@ -310,15 +315,17 @@ class Supervisor:
         settings = self._store.tide
 
         async def on_status(online: bool, error: str | None) -> None:
-            await record_device_status(self._pool, "tide", online, error)
+            await record_device_status(self._pool, self._site_id, "tide", online, error)
 
         if not settings.enabled:
             log.info("Tides are off")
-            await record_device_status(self._pool, "tide", False, "Turned off")
+            await record_device_status(self._pool, self._site_id, "tide", False, "Turned off")
             return
         if not settings.station:
             log.info("Tides have nowhere to look: no station chosen")
-            await record_device_status(self._pool, "tide", False, "No station chosen")
+            await record_device_status(
+                self._pool, self._site_id, "tide", False, "No station chosen"
+            )
             return
 
         self._spawn("tide", TideReader(settings, self._pool, on_status).run)
@@ -335,15 +342,19 @@ class Supervisor:
         settings = self._store.groundwater
 
         async def on_status(online: bool, error: str | None) -> None:
-            await record_device_status(self._pool, "groundwater", online, error)
+            await record_device_status(self._pool, self._site_id, "groundwater", online, error)
 
         if not settings.enabled:
             log.info("Groundwater is off")
-            await record_device_status(self._pool, "groundwater", False, "Turned off")
+            await record_device_status(
+                self._pool, self._site_id, "groundwater", False, "Turned off"
+            )
             return
         if not settings.site_no:
             log.info("Groundwater has nowhere to look: no well chosen")
-            await record_device_status(self._pool, "groundwater", False, "No well chosen")
+            await record_device_status(
+                self._pool, self._site_id, "groundwater", False, "No well chosen"
+            )
             return
 
         self._spawn("groundwater", GroundwaterReader(settings, self._pool, on_status).run)

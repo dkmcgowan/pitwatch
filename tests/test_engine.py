@@ -53,6 +53,9 @@ def _store(alerts: AlertsSettings | None = None, **contact_states):
         for number, role in enumerate(ROLES, start=1)
     ]
     return SimpleNamespace(
+        # Which building. One in every test here, and named so the engine's
+        # queries have something to scope to.
+        site_id=1,
         alerts=alerts or AlertsSettings(),
         site=SiteSettings(name="A pit"),
         mqtt=MqttSettings(
@@ -111,14 +114,23 @@ async def _a_person(pool, **columns):
         "enabled": True,
     }
     fields.update(columns)
-    await pool.execute(
+    user_id = await pool.fetchval(
         """
         INSERT INTO app_user (username, name, email, phone, notify_email, notify_sms,
                               min_severity, role, enabled)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING id
         """,
         *fields.values(),
     )
+    # And into the building, because an alert goes to the people at an address
+    # rather than to everybody with an account. See pitwatch.domain.sites.
+    await pool.execute(
+        "INSERT INTO site_member (site_id, user_id, role) VALUES (1, $1, $2)",
+        user_id,
+        "viewer" if fields["role"] == "viewer" else "admin",
+    )
+    return user_id
 
 
 # -- what an alert says ------------------------------------------------------
@@ -153,8 +165,8 @@ async def test_an_alert_is_stamped_on_the_buildings_clock(pool, sent):
 async def _device(pool, name, online):
     await pool.execute(
         """
-        INSERT INTO device_status (device, online) VALUES ($1, $2)
-        ON CONFLICT (device) DO UPDATE SET online = excluded.online
+        INSERT INTO device_status (site_id, device, online) VALUES (1, $1, $2)
+        ON CONFLICT (site_id, device) DO UPDATE SET online = excluded.online
         """,
         name,
         online,
@@ -600,8 +612,8 @@ async def test_no_alert_goes_out_with_its_placeholders_still_in_it(pool, sent):
     engine = _engine(pool, store, contacts)
     # An open run, so the rule that talks about a duration has one to talk about.
     await pool.execute(
-        "INSERT INTO pump_run (pump, started_at, started_by) "
-        "VALUES (2, now() - interval '90 seconds', 'contact')"
+        "INSERT INTO pump_run (site_id, pump, started_at, started_by) "
+        "VALUES (1, 2, now() - interval '90 seconds', 'contact')"
     )
 
     await engine.sweep()
@@ -836,8 +848,8 @@ async def test_recovery_gives_up_on_a_pump_that_keeps_tripping(pool, sent):
     for minutes in (5, 10, 15):
         await pool.execute(
             """
-            INSERT INTO alert (rule, severity, pump, title, detail, raised_at, cleared_at)
-            VALUES ('overload', 'critical', 1, 'Overload tripped', 'x',
+            INSERT INTO alert (site_id, rule, severity, pump, title, detail, raised_at, cleared_at)
+            VALUES (1, 'overload', 'critical', 1, 'Overload tripped', 'x',
                     now() - ($1::int * interval '1 minute'),
                     now() - ($1::int * interval '1 minute'))
             """,
@@ -936,8 +948,8 @@ async def test_a_limit_of_zero_never_gives_up(pool, sent):
     for minutes in range(1, 9):
         await pool.execute(
             """
-            INSERT INTO alert (rule, severity, pump, title, detail, raised_at, cleared_at)
-            VALUES ('overload', 'critical', 1, 'Overload tripped', 'x',
+            INSERT INTO alert (site_id, rule, severity, pump, title, detail, raised_at, cleared_at)
+            VALUES (1, 'overload', 'critical', 1, 'Overload tripped', 'x',
                     now() - ($1::int * interval '1 minute'),
                     now() - ($1::int * interval '1 minute'))
             """,
@@ -1224,8 +1236,8 @@ async def test_a_pump_with_no_runs_on_record_is_not_reported_idle(pool, sent):
 
     # The whole record is one run of pump 1, a minute old. Pump 2 has none.
     await pool.execute(
-        "INSERT INTO pump_run (pump, started_at, ended_at, duration_s, started_by) "
-        "VALUES (1, now() - interval '60 seconds', now() - interval '48 seconds', 12, 'contact')"
+        "INSERT INTO pump_run (site_id, pump, started_at, ended_at, duration_s, started_by) "
+        "VALUES (1, 1, now() - interval '60 seconds', now() - interval '48 seconds', 12, 'contact')"
     )
 
     await engine.sweep()
@@ -1243,10 +1255,10 @@ async def test_a_pump_that_really_has_sat_out_is_still_reported(pool, sent):
 
     # Two days of pump 1 doing all the work, and pump 2 never once starting.
     await pool.execute(
-        "INSERT INTO pump_run (pump, started_at, ended_at, duration_s, started_by) "
-        "VALUES (1, now() - interval '2 days', now() - interval '2 days' + interval '12 seconds',"
+        "INSERT INTO pump_run (site_id, pump, started_at, ended_at, duration_s, started_by) "
+        "VALUES (1, 1, now() - interval '2 days', now() - interval '2 days' + interval '12 seconds',"
         "        12, 'contact'),"
-        "       (1, now() - interval '60 seconds', now() - interval '48 seconds', 12, 'contact')"
+        "       (1, 1, now() - interval '60 seconds', now() - interval '48 seconds', 12, 'contact')"
     )
 
     await engine.sweep()
@@ -1270,8 +1282,8 @@ async def test_a_contactor_with_no_current_stays_quiet_on_an_unfitted_clamp(pool
     # A run open long enough to be judged, and a clamp that has never in its
     # life seen current.
     await pool.execute(
-        "INSERT INTO pump_run (pump, started_at, started_by) "
-        "VALUES (2, now() - interval '60 seconds', 'contact')"
+        "INSERT INTO pump_run (site_id, pump, started_at, started_by) "
+        "VALUES (1, 2, now() - interval '60 seconds', 'contact')"
     )
 
     await engine.sweep()
@@ -1293,11 +1305,11 @@ async def test_a_contactor_with_no_current_fires_once_the_clamp_has_proved_itsel
     engine._live = SimpleNamespace(samples={0: SimpleNamespace(current=0.0, ts=datetime.now(UTC))})
 
     await pool.execute(
-        "INSERT INTO em_sample (ts, channel, current) VALUES (now() - interval '1 day', 0, 15.4)"
+        "INSERT INTO em_sample (site_id, ts, channel, current) VALUES (1, now() - interval '1 day', 0, 15.4)"
     )
     await pool.execute(
-        "INSERT INTO pump_run (pump, started_at, started_by) "
-        "VALUES (1, now() - interval '60 seconds', 'contact')"
+        "INSERT INTO pump_run (site_id, pump, started_at, started_by) "
+        "VALUES (1, 1, now() - interval '60 seconds', 'contact')"
     )
 
     await engine.sweep()
@@ -1367,8 +1379,8 @@ async def test_every_rule_that_can_fire_sends_a_finished_sentence(pool, sent):
             "pump2_run": True,
         },
         setup=lambda pool, store: pool.execute(
-            "INSERT INTO pump_run (pump, started_at, started_by) "
-            "VALUES (2, now() - interval '90 seconds', 'contact')"
+            "INSERT INTO pump_run (site_id, pump, started_at, started_by) "
+            "VALUES (1, 2, now() - interval '90 seconds', 'contact')"
         ),
     )
 
@@ -1384,11 +1396,11 @@ async def test_every_rule_that_can_fire_sends_a_finished_sentence(pool, sent):
     # look broken when the test is what is wrong.
     async def a_dead_motor(pool, store):
         await pool.execute(
-            "INSERT INTO em_sample (ts, channel, current) VALUES (now() - interval '1 day', 0, 12.0)"
+            "INSERT INTO em_sample (site_id, ts, channel, current) VALUES (1, now() - interval '1 day', 0, 12.0)"
         )
         await pool.execute(
-            "INSERT INTO pump_run (pump, started_at, started_by) "
-            "VALUES (1, now() - interval '30 seconds', 'contact')"
+            "INSERT INTO pump_run (site_id, pump, started_at, started_by) "
+            "VALUES (1, 1, now() - interval '30 seconds', 'contact')"
         )
 
     alerts = AlertsSettings()
@@ -1405,7 +1417,7 @@ async def test_every_rule_that_can_fire_sends_a_finished_sentence(pool, sent):
     async def drawing_too_much(pool, store):
         for step in range(4):
             await pool.execute(
-                "INSERT INTO em_sample (ts, channel, current) VALUES (now() - $1::interval, 0, 30.0)",
+                "INSERT INTO em_sample (site_id, ts, channel, current) VALUES (1, now() - $1::interval, 0, 30.0)",
                 timedelta(seconds=step),
             )
 
@@ -1418,8 +1430,8 @@ async def test_every_rule_that_can_fire_sends_a_finished_sentence(pool, sent):
     async def restarting_constantly(pool, store):
         for step in range(6):
             await pool.execute(
-                "INSERT INTO pump_run (pump, started_at, ended_at, started_by) VALUES "
-                "(1, now() - $1::interval, now() - $1::interval + interval '12 seconds', 'contact')",
+                "INSERT INTO pump_run (site_id, pump, started_at, ended_at, started_by) VALUES "
+                "(1, 1, now() - $1::interval, now() - $1::interval + interval '12 seconds', 'contact')",
                 timedelta(seconds=(6 - step) * 20),
             )
 
@@ -1431,8 +1443,8 @@ async def test_every_rule_that_can_fire_sends_a_finished_sentence(pool, sent):
     # Silence.
     async def long_quiet(pool, store):
         await pool.execute(
-            "INSERT INTO pump_run (pump, started_at, ended_at, started_by) "
-            "VALUES (1, now() - interval '20 hours', now() - interval '20 hours', 'contact')"
+            "INSERT INTO pump_run (site_id, pump, started_at, ended_at, started_by) "
+            "VALUES (1, 1, now() - interval '20 hours', now() - interval '20 hours', 'contact')"
         )
 
     alerts = AlertsSettings()
@@ -1441,12 +1453,12 @@ async def test_every_rule_that_can_fire_sends_a_finished_sentence(pool, sent):
     # One pump not taking its turn.
     async def one_pump_sitting_out(pool, store):
         await pool.execute(
-            "INSERT INTO pump_run (pump, started_at, ended_at, started_by) "
-            "VALUES (1, now() - interval '40 hours', now() - interval '40 hours', 'contact')"
+            "INSERT INTO pump_run (site_id, pump, started_at, ended_at, started_by) "
+            "VALUES (1, 1, now() - interval '40 hours', now() - interval '40 hours', 'contact')"
         )
         await pool.execute(
-            "INSERT INTO pump_run (pump, started_at, ended_at, started_by) "
-            "VALUES (2, now() - interval '5 minutes', now() - interval '5 minutes', 'contact')"
+            "INSERT INTO pump_run (site_id, pump, started_at, ended_at, started_by) "
+            "VALUES (1, 2, now() - interval '5 minutes', now() - interval '5 minutes', 'contact')"
         )
 
     alerts = AlertsSettings()
@@ -1478,7 +1490,9 @@ async def test_every_rule_that_can_fire_sends_a_finished_sentence(pool, sent):
         store.mqtt.enabled = True
         store.mqtt.health[0].topic = "pit/health"
         store.mqtt.health[0].name = "the I/O module"
-        await pool.execute("INSERT INTO device_status (device, online) VALUES ('health0', false)")
+        await pool.execute(
+            "INSERT INTO device_status (site_id, device, online) VALUES (1, 'health0', false)"
+        )
 
     alerts = AlertsSettings()
     await run("a device gone quiet", alerts, {}, setup=a_quiet_device)
@@ -1523,8 +1537,8 @@ async def test_a_run_that_goes_long_is_noticed_when_it_does_not_a_tick_later(poo
     alerts.run_too_long.longer_than_ms = 4_000
     engine = _engine(pool, _store(alerts), _wire(_Contacts(), pump1_run=True))
     await pool.execute(
-        "INSERT INTO pump_run (pump, started_at, started_by) "
-        "VALUES (1, now() - interval '1 second', 'contact')"
+        "INSERT INTO pump_run (site_id, pump, started_at, started_by) "
+        "VALUES (1, 1, now() - interval '1 second', 'contact')"
     )
 
     await engine.sweep()
@@ -1552,8 +1566,8 @@ async def test_short_cycling_is_the_pits_rhythm_and_not_one_pumps(pool, sent):
     # Alternating calls: twelve seconds of running, eight seconds of quiet.
     for step in range(6):
         await pool.execute(
-            "INSERT INTO pump_run (pump, started_at, ended_at, started_by) VALUES "
-            "($1, now() - $2::interval, now() - $2::interval + interval '12 seconds', 'contact')",
+            "INSERT INTO pump_run (site_id, pump, started_at, ended_at, started_by) VALUES "
+            "(1, $1, now() - $2::interval, now() - $2::interval + interval '12 seconds', 'contact')",
             1 if step % 2 == 0 else 2,
             timedelta(seconds=(6 - step) * 20),
         )
@@ -1594,8 +1608,8 @@ async def test_every_all_clear_says_the_good_news_rather_than_the_bad(pool, sent
     contacts = _wire(_Contacts(), high_water=True, pump1_fault=True, pump2_run=True)
     engine = _engine(pool, store, contacts)
     await pool.execute(
-        "INSERT INTO pump_run (pump, started_at, started_by) "
-        "VALUES (2, now() - interval '90 seconds', 'contact')"
+        "INSERT INTO pump_run (site_id, pump, started_at, started_by) "
+        "VALUES (1, 2, now() - interval '90 seconds', 'contact')"
     )
     await engine.sweep()
     raised = await pool.fetchval("SELECT count(*) FROM alert WHERE cleared_at IS NULL")
@@ -1631,11 +1645,11 @@ async def test_a_meter_that_stopped_talking_is_not_a_motor_that_stopped_turning(
     contacts = _wire(_Contacts(), pump1_run=True)
     # The clamp has proved itself in the past, which is what arms the rule.
     await pool.execute(
-        "INSERT INTO em_sample (ts, channel, current) VALUES (now() - interval '2 days', 0, 14.0)"
+        "INSERT INTO em_sample (site_id, ts, channel, current) VALUES (1, now() - interval '2 days', 0, 14.0)"
     )
     await pool.execute(
-        "INSERT INTO pump_run (pump, started_at, started_by) "
-        "VALUES (1, now() - interval '30 seconds', 'contact')"
+        "INSERT INTO pump_run (site_id, pump, started_at, started_by) "
+        "VALUES (1, 1, now() - interval '30 seconds', 'contact')"
     )
 
     # A stale zero: the last thing the meter said, well before this run began.

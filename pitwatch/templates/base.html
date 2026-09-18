@@ -73,6 +73,31 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-person"/></svg>
     </a>
     {% endif %}
+
+    {# Which building. Drawn only when there is more than one to pick, which on
+       an installation watching a single pit is never: somebody who looks after
+       one basement should not learn that PitWatch has a concept of a second
+       one. It submits on change wherever there is JavaScript to do it, because
+       a picker plus a button is three clicks for a one click decision; the
+       button is what is left for somebody who has none. #}
+    {% if sites %}
+    <form method="post" action="/site/switch" class="site-switch">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="visually-hidden" for="site-switch">Building</label>
+      {# No inline handler: the Content Security Policy is `script-src 'self'`
+         and blocks one silently. static/switcher.js wires the change event and
+         hides the button below, which is what somebody with no JavaScript at
+         all uses instead. #}
+      <select id="site-switch" name="site_id">
+        {% for choice in sites %}
+        <option value="{{ choice.id }}" {% if choice.id == site_id %}selected{% endif %}>
+          {{ choice.name }}
+        </option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="button">Go</button>
+    </form>
+    {% endif %}
   </nav>
 </header>
 
@@ -90,6 +115,7 @@
 </footer>
 
 <script src="/static/notes.js?v={{ version }}"></script>
+<script src="/static/switcher.js?v={{ version }}"></script>
 <script src="/static/setup.js?v={{ version }}"></script>
 {% block scripts %}{% endblock %}
 </body>

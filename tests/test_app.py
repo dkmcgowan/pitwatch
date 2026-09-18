@@ -287,6 +287,7 @@ def render_settings(**overrides) -> str:
     from pitwatch.domain.diagnostics import Report as Diagnostics
     from pitwatch.schemas import (
         DASHBOARD_ROLES,
+        AiSettings,
         GroundwaterSettings,
         MqttSettings,
         PanelButtonSettings,
@@ -317,6 +318,7 @@ def render_settings(**overrides) -> str:
         "smtp": SmtpSettings(),
         "sms": SmsSettings(),
         "summary": SummarySettings(),
+        "ai": AiSettings(),
         "roles": DASHBOARD_ROLES,
         # Nothing to say without a database, which is the state this renderer
         # runs in. The section renders its "nothing configured" line.
@@ -1419,8 +1421,8 @@ def test_runs_today_means_today():
     assert "store.site.timezone" in live
     source = Path("pitwatch/domain/history.py").read_text(encoding="utf-8")
     for key in (
-        'key = ("clamp", channel, running_amps, timezone)',
-        'key = ("contact", pump, timezone)',
+        'key = ("clamp", site_id, channel, running_amps, timezone)',
+        'key = ("contact", site_id, pump, timezone)',
     ):
         assert key in source, key
 
@@ -2322,10 +2324,16 @@ def test_a_written_summary_is_rendered_as_text_with_its_age():
 
 def test_the_openai_key_is_never_rendered_back():
     """Same rule as the broker password and the AWS secret. An empty box means
-    leave it alone, and there is a checkbox for clearing it."""
-    from pitwatch.schemas import SummarySettings
+    leave it alone, and there is a checkbox for clearing it.
 
-    page = render_settings(summary=SummarySettings(api_key="sk-secret-value", description="A pit"))
+    The key is PitWatch's and the description is the building's, so the two
+    halves of this box now come from two different settings objects."""
+    from pitwatch.schemas import AiSettings, SummarySettings
+
+    page = render_settings(
+        ai=AiSettings(api_key="sk-secret-value"),
+        summary=SummarySettings(description="A pit"),
+    )
 
     assert "sk-secret-value" not in page
     assert "summary_clear_key" in page
@@ -2359,14 +2367,14 @@ def test_a_check_needs_a_key_before_it_asks_anything():
     protocol."""
     import asyncio
 
-    from pitwatch.schemas import SummarySettings
+    from pitwatch.schemas import AiSettings
     from pitwatch.summary import SummaryError, ask
 
     with pytest.raises(SummaryError) as raised:
-        asyncio.run(ask(SummarySettings(), [{"role": "user", "content": "hello"}]))
+        asyncio.run(ask(AiSettings(), [{"role": "user", "content": "hello"}]))
     assert "settings page" in str(raised.value)
 
-    on_this_network = SummarySettings(model="llama3", base_url="http://127.0.0.1:8080/v1")
+    on_this_network = AiSettings(model="llama3", base_url="http://127.0.0.1:8080/v1")
     assert not on_this_network.ready, "no key is no key, whatever the address"
 
 

@@ -201,13 +201,59 @@ async def get_user(pool: asyncpg.Pool, user_id: int) -> User | None:
     return User.from_row(row) if row else None
 
 
-async def list_users(pool: asyncpg.Pool) -> list[User]:
+# One person as they exist in one building. The role that comes back is the one
+# they hold here, except for PitWatch's owner, whose ownership is a fact about
+# the person and follows them into every building. See pitwatch.domain.sites.
+MEMBER_ROLE = """
+    CASE WHEN u.role = 'owner' THEN 'owner' ELSE m.role END
+"""
+
+
+async def list_members(pool: asyncpg.Pool, site_id: int | None) -> list[User]:
+    """Everybody at one building, most senior first.
+
+    Not every account: a person who administers the building next door has no
+    business on this list, and putting them on it is how somebody ends up
+    disabling an account that was nothing to do with them. An installation with
+    one site has one list and never notices the difference.
+    """
+    if site_id is None:
+        return []
     rows = await pool.fetch(
-        f"SELECT {COLUMNS} FROM app_user ORDER BY "
-        "CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, "
-        "lower(coalesce(name, username))"
+        f"""
+        SELECT u.id, u.username, u.name, u.email, u.phone, u.notify_email, u.notify_sms,
+               u.min_severity, {MEMBER_ROLE} AS role, u.enabled, u.must_change_password,
+               u.password_hash
+        FROM app_user u JOIN site_member m ON m.user_id = u.id
+        WHERE m.site_id = $1
+        ORDER BY CASE WHEN u.role = 'owner' THEN 0 WHEN m.role = 'admin' THEN 1 ELSE 2 END,
+                 lower(coalesce(u.name, u.username))
+        """,
+        site_id,
     )
     return [User.from_row(row) for row in rows]
+
+
+async def get_member(pool: asyncpg.Pool, site_id: int | None, user_id: int) -> User | None:
+    """One person as they exist in one building, or None if they are not in it.
+
+    None is the answer that keeps an administrator at one address from editing
+    somebody at another by typing their id into the URL.
+    """
+    if site_id is None:
+        return None
+    row = await pool.fetchrow(
+        f"""
+        SELECT u.id, u.username, u.name, u.email, u.phone, u.notify_email, u.notify_sms,
+               u.min_severity, {MEMBER_ROLE} AS role, u.enabled, u.must_change_password,
+               u.password_hash
+        FROM app_user u JOIN site_member m ON m.user_id = u.id
+        WHERE m.site_id = $1 AND u.id = $2
+        """,
+        site_id,
+        user_id,
+    )
+    return User.from_row(row) if row else None
 
 
 async def ensure_default_admin(pool: asyncpg.Pool) -> bool:
@@ -220,14 +266,26 @@ async def ensure_default_admin(pool: asyncpg.Pool) -> bool:
     if await pool.fetchval("SELECT EXISTS (SELECT 1 FROM app_user)"):
         return False
 
-    await pool.execute(
-        """
-        INSERT INTO app_user (username, name, password_hash, role, must_change_password)
-        VALUES ($1, 'Administrator', $2, 'owner', true)
-        """,
-        DEFAULT_USERNAME,
-        hasher.hash(DEFAULT_PASSWORD),
-    )
+    # And a membership of every building there is, which on a fresh install is
+    # the one the migration made. Being PitWatch's owner is enough to *see* a
+    # site; it is not enough to be *told* about one, because an alert goes to
+    # the people at that address and membership is the list. Without this the
+    # first account on a new install would watch a pump it could never be
+    # texted about, which is the one failure a monitor must not have.
+    async with pool.acquire() as connection, connection.transaction():
+        user_id = await connection.fetchval(
+            """
+            INSERT INTO app_user (username, name, password_hash, role, must_change_password)
+            VALUES ($1, 'Administrator', $2, 'owner', true)
+            RETURNING id
+            """,
+            DEFAULT_USERNAME,
+            hasher.hash(DEFAULT_PASSWORD),
+        )
+        await connection.execute(
+            "INSERT INTO site_member (site_id, user_id, role) SELECT id, $1, 'owner' FROM site",
+            user_id,
+        )
     log.warning(
         "Created the default %r account. Its password is the documented one and has to be "
         "changed at the first sign in.",

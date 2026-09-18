@@ -23,7 +23,7 @@ from starlette.background import BackgroundTask
 
 from pitwatch import auth, clock, domain
 from pitwatch.domain import export as export_domain
-from pitwatch.domain import series
+from pitwatch.domain import series, sites
 from pitwatch.domain import weather as weather_domain
 from pitwatch.settings import SettingsStore
 
@@ -64,24 +64,24 @@ def _figures(calls: list, gaps: list, runs: list) -> dict:
     }
 
 
-async def build_history(app, window: series.Window) -> dict:
+async def build_history(app, store, window: series.Window) -> dict:
     """Everything the page draws, over one window, in one shape."""
-    store: SettingsStore = app.state.settings
     pool = app.state.pool
+    site_id = store.site_id
     zone = store.site.timezone
     units = store.weather.units
     now = datetime.now(UTC)
 
-    calls = await series.calls_series(pool, window, zone)
+    calls = await series.calls_series(pool, site_id, window, zone)
     # Rain on the same buckets and the same local midnights as the calls, so a
     # bar of rain and a bar of calls describe the same day. This is the whole
     # reason the weather is collected: "sixty calls on Tuesday" and "it rained
     # on Tuesday" are one fact, and until they were on one chart nobody could
     # see it.
     rain = await weather_domain.rain_series(pool, window.span, window.count_bucket, zone)
-    gaps = await series.call_gaps(pool, window)
-    runs = await series.runs_series(pool, window)
-    hours = await series.hour_profile(pool, window, zone)
+    gaps = await series.call_gaps(pool, site_id, window)
+    runs = await series.runs_series(pool, site_id, window)
+    hours = await series.hour_profile(pool, site_id, window, zone)
 
     clamp = store.mqtt.clamp_for_pump
     pumps = {}
@@ -93,7 +93,7 @@ async def build_history(app, window: series.Window) -> dict:
             # nobody fitted than a pump that has never once worked, and drawing
             # its runs at zero amps would be a measurement of nothing presented
             # as a flat healthy line.
-            "clamp": await series.clamp_fitted(pool, channel, domain.RUNNING_AMPS),
+            "clamp": await series.clamp_fitted(pool, site_id, channel, domain.RUNNING_AMPS),
             "runs": sum(1 for run in runs if run.pump == number),
         }
 
@@ -136,17 +136,22 @@ async def build_history(app, window: series.Window) -> dict:
 @router.get("/history", include_in_schema=False)
 async def history(request: Request, user: auth.SignedIn, window: str | None = None) -> JSONResponse:
     app = request.app
-    chosen = series.window_for(window, app.state.settings.site.timezone)
+    store: SettingsStore = sites.store_for(request)
+    chosen = series.window_for(window, store.site.timezone)
 
-    cache: dict[str, tuple[datetime, dict]] = getattr(app.state, "history_cache", None) or {}
+    # Keyed by building as well as by window. One cache serves every request
+    # this process answers, and a key that was only the window would hand the
+    # building next door whichever one was asked for first.
+    cache: dict[tuple, tuple[datetime, dict]] = getattr(app.state, "history_cache", None) or {}
     app.state.history_cache = cache
-    cached = cache.get(chosen.key)
+    key = (store.site_id, chosen.key)
+    cached = cache.get(key)
     now = datetime.now(UTC)
     if cached and now - cached[0] < CACHE_FOR:
         return JSONResponse(cached[1])
 
-    payload = await build_history(app, chosen)
-    cache[chosen.key] = (now, payload)
+    payload = await build_history(app, store, chosen)
+    cache[key] = (now, payload)
     return JSONResponse(payload)
 
 
@@ -166,7 +171,7 @@ async def history_export(request: Request, user: auth.SignedIn, window: str | No
     spreadsheet is a monitor that is not watching the pit while it does it.
     """
     app = request.app
-    store: SettingsStore = app.state.settings
+    store: SettingsStore = sites.store_for(request)
     zone = store.site.timezone
     chosen = series.window_for(window, zone)
 
@@ -177,7 +182,7 @@ async def history_export(request: Request, user: auth.SignedIn, window: str | No
     since = until - chosen.span
 
     names = {number: pump.name for number, pump in store.pumps.by_number.items()}
-    sheets = await export_domain.gather(app.state.pool, since, until, zone, names)
+    sheets = await export_domain.gather(app.state.pool, store.site_id, since, until, zone, names)
 
     about = [
         ("PitWatch export", ""),

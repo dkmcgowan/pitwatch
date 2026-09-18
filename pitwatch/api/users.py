@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from pitwatch import auth
 from pitwatch.api import forms
+from pitwatch.domain import sites
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
 from pitwatch.settings import SettingsStore
@@ -32,8 +33,13 @@ def _templates(request: Request):
 
 
 def _context(request: Request, **extra) -> dict:
-    store: SettingsStore = request.app.state.settings
-    return {"site": store.site, "user": auth.current_user(request), **extra}
+    store: SettingsStore = sites.store_for(request)
+    return {
+        "site": store.site,
+        "user": auth.current_user(request),
+        **sites.switcher(request),
+        **extra,
+    }
 
 
 def _safe_next(value: str) -> str:
@@ -325,8 +331,8 @@ async def users_page(request: Request, admin: auth.IsAdmin, saved: str | None = 
         "users.html",
         _context(
             request,
-            users=await auth.list_users(pool),
-            sign_ins=await auth.recent_sign_ins(pool, request.app.state.settings.site.timezone),
+            users=await auth.list_members(pool, request.state.site_id),
+            sign_ins=await auth.recent_sign_ins(pool, sites.store_for(request).site.timezone),
             saved=saved,
             error=None,
             invite_link=request.session.pop("invite_link", None),
@@ -341,8 +347,8 @@ async def _list_with_error(request: Request, error: str):
         "users.html",
         _context(
             request,
-            users=await auth.list_users(pool),
-            sign_ins=await auth.recent_sign_ins(pool, request.app.state.settings.site.timezone),
+            users=await auth.list_members(pool, request.state.site_id),
+            sign_ins=await auth.recent_sign_ins(pool, sites.store_for(request).site.timezone),
             saved=None,
             error=error,
             invite_link=None,
@@ -435,24 +441,37 @@ async def add_user(request: Request, admin: auth.IsAdmin):
         # administrator did not care to pick one.
         username = "".join(c for c in details.name.lower() if c.isalnum()) or "user"
 
+    # Two rows, because there are two questions. The account says who somebody
+    # is; the membership says which building they are in and what they may do
+    # there. An owner is the exception: that is a fact about the person, so it
+    # goes on the account and the membership records it too.
+    site_id = request.state.site_id
+    here = "admin" if details.role == "owner" else details.role
     try:
-        user_id = await pool.fetchval(
-            """
-            INSERT INTO app_user
-                (username, name, email, phone, notify_email, notify_sms,
-                 min_severity, role, password_hash)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL)
-            RETURNING id
-            """,
-            username,
-            details.name,
-            details.email,
-            details.phone,
-            details.notify_email,
-            details.notify_sms,
-            details.min_severity,
-            details.role,
-        )
+        async with pool.acquire() as connection, connection.transaction():
+            user_id = await connection.fetchval(
+                """
+                INSERT INTO app_user
+                    (username, name, email, phone, notify_email, notify_sms,
+                     min_severity, role, password_hash)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL)
+                RETURNING id
+                """,
+                username,
+                details.name,
+                details.email,
+                details.phone,
+                details.notify_email,
+                details.notify_sms,
+                details.min_severity,
+                "owner" if details.role == "owner" else "viewer",
+            )
+            await connection.execute(
+                "INSERT INTO site_member (site_id, user_id, role) VALUES ($1, $2, $3)",
+                site_id,
+                user_id,
+                here,
+            )
     except (ValidationError, ValueError) as error:
         return _form_page(request, person=None, error=str(error), status=400)
     except Exception as error:  # noqa: BLE001 -- a duplicate is the usual one
@@ -476,7 +495,7 @@ async def add_user(request: Request, admin: auth.IsAdmin):
 
 @router.get("/users/{user_id}/edit", include_in_schema=False)
 async def edit_user_page(request: Request, user_id: int, admin: auth.IsAdmin):
-    person = await auth.get_user(request.app.state.pool, user_id)
+    person = await auth.get_member(request.app.state.pool, request.state.site_id, user_id)
     if person is None:
         return RedirectResponse("/users", status_code=303)
     return _form_page(request, person=person)
@@ -485,7 +504,7 @@ async def edit_user_page(request: Request, user_id: int, admin: auth.IsAdmin):
 @router.post("/users/{user_id}/edit", include_in_schema=False)
 async def save_user(request: Request, user_id: int, admin: auth.IsAdmin):
     pool = request.app.state.pool
-    person = await auth.get_user(pool, user_id)
+    person = await auth.get_member(pool, request.state.site_id, user_id)
     if person is None:
         return RedirectResponse("/users", status_code=303)
 
@@ -525,23 +544,30 @@ async def save_user(request: Request, user_id: int, admin: auth.IsAdmin):
             request, person=person, error="You cannot disable your own account", status=400
         )
 
-    await pool.execute(
-        """
-        UPDATE app_user
-        SET name = $2, email = $3, phone = $4, notify_email = $5, notify_sms = $6,
-            min_severity = $7, role = $8, enabled = $9
-        WHERE id = $1
-        """,
-        user_id,
-        details.name,
-        details.email,
-        details.phone,
-        details.notify_email,
-        details.notify_sms,
-        details.min_severity,
-        details.role,
-        enabled,
-    )
+    async with pool.acquire() as connection, connection.transaction():
+        await connection.execute(
+            """
+            UPDATE app_user
+            SET name = $2, email = $3, phone = $4, notify_email = $5, notify_sms = $6,
+                min_severity = $7, role = $8, enabled = $9
+            WHERE id = $1
+            """,
+            user_id,
+            details.name,
+            details.email,
+            details.phone,
+            details.notify_email,
+            details.notify_sms,
+            details.min_severity,
+            "owner" if details.role == "owner" else "viewer",
+            enabled,
+        )
+        await connection.execute(
+            "UPDATE site_member SET role = $3 WHERE site_id = $1 AND user_id = $2",
+            request.state.site_id,
+            user_id,
+            "admin" if details.role == "owner" else details.role,
+        )
     log.info("%s updated user %d", admin.username, user_id)
     return RedirectResponse("/users?saved=updated", status_code=303)
 
@@ -552,7 +578,7 @@ async def toggle_user(request: Request, user_id: int, admin: auth.IsAdmin):
     if admin.id == user_id:
         return await _list_with_error(request, "You cannot disable your own account")
     pool = request.app.state.pool
-    person = await auth.get_user(pool, user_id)
+    person = await auth.get_member(pool, request.state.site_id, user_id)
     if person is None:
         return RedirectResponse("/users", status_code=303)
 
@@ -571,7 +597,7 @@ async def _send_invitation(request: Request, user_id: int, name: str, email: str
     invitation that silently never arrives.
     """
     pool = request.app.state.pool
-    store: SettingsStore = request.app.state.settings
+    store: SettingsStore = sites.store_for(request)
     token = await auth.create_password_token(pool, user_id, "invite")
 
     base = store.site.base_url.rstrip("/") or str(request.base_url).rstrip("/")
@@ -627,7 +653,7 @@ async def toggle_admin(request: Request, user_id: int, admin: auth.IsAdmin):
     if admin.id == user_id:
         return await _list_with_error(request, "You cannot change your own role")
     pool = request.app.state.pool
-    person = await auth.get_user(pool, user_id)
+    person = await auth.get_member(pool, request.state.site_id, user_id)
     if person is None:
         return RedirectResponse("/users", status_code=303)
     if person.is_owner:
@@ -636,7 +662,12 @@ async def toggle_admin(request: Request, user_id: int, admin: auth.IsAdmin):
         )
 
     now = "viewer" if person.is_admin else "admin"
-    await pool.execute("UPDATE app_user SET role = $2 WHERE id = $1", user_id, now)
+    await pool.execute(
+        "UPDATE site_member SET role = $3 WHERE site_id = $1 AND user_id = $2",
+        request.state.site_id,
+        user_id,
+        now,
+    )
     log.info("%s made %s %s", admin.username, person.username, now)
     return RedirectResponse("/users?saved=updated", status_code=303)
 
@@ -644,7 +675,7 @@ async def toggle_admin(request: Request, user_id: int, admin: auth.IsAdmin):
 @router.post("/users/{user_id}/invite", include_in_schema=False)
 async def invite_user(request: Request, user_id: int, admin: auth.IsAdmin):
     pool = request.app.state.pool
-    user = await auth.get_user(pool, user_id)
+    user = await auth.get_member(pool, request.state.site_id, user_id)
     if user is None or not user.email:
         return await _list_with_error(request, "That user has no email address to send a link to")
 
@@ -656,11 +687,37 @@ async def invite_user(request: Request, user_id: int, admin: auth.IsAdmin):
 
 @router.post("/users/{user_id}/delete", include_in_schema=False)
 async def delete_user(request: Request, user_id: int, admin: auth.IsAdmin):
+    """Remove somebody from this building, and from PitWatch if it was their last.
+
+    Two things wearing one button, deliberately. On a single site installation
+    the two are the same act and "Remove" has to mean the account is gone.
+    Where somebody is also at another address, deleting the account from this
+    page would take away access nobody here granted, so the membership goes and
+    the account stays.
+    """
     if admin.id == user_id:
         return await _list_with_error(request, "You cannot delete your own account")
     pool = request.app.state.pool
-    await pool.execute("DELETE FROM app_user WHERE id = $1", user_id)
-    log.info("%s deleted user %d", admin.username, user_id)
+    site_id = request.state.site_id
+    if await auth.get_member(pool, site_id, user_id) is None:
+        return RedirectResponse("/users", status_code=303)
+
+    async with pool.acquire() as connection, connection.transaction():
+        await connection.execute(
+            "DELETE FROM site_member WHERE site_id = $1 AND user_id = $2", site_id, user_id
+        )
+        left = await connection.fetchval(
+            "SELECT count(*) FROM site_member WHERE user_id = $1", user_id
+        )
+        if not left:
+            await connection.execute("DELETE FROM app_user WHERE id = $1", user_id)
+    log.info(
+        "%s removed user %d from site %s%s",
+        admin.username,
+        user_id,
+        site_id,
+        "" if left else " and deleted the account",
+    )
     return RedirectResponse("/users?saved=deleted", status_code=303)
 
 

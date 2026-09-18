@@ -1083,23 +1083,34 @@ def test_the_summary_can_be_read_and_run_by_anybody_signed_in(client):
 
 
 def test_the_summary_settings_survive_a_save(client):
-    """Including the key, which is written once and never rendered again."""
+    """Including the key, which is written once and never rendered again.
+
+    Two forms, because there are two scopes. What the pit is goes to the
+    building; the account goes to PitWatch, because one key serves every
+    building and a key per building would be either a second bill or a way for
+    one building's administrator to read another's credentials.
+    """
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
     client.post(
         "/settings/summary",
+        data={"summary_description": "Two ejector pumps in a pit under the sidewalk."},
+    )
+    client.post(
+        "/settings/ai",
         data={
-            "summary_description": "Two ejector pumps in a pit under the sidewalk.",
             "summary_api_key": "sk-test-value",
             "summary_model": "gpt-4o-mini",
             "summary_base_url": "https://api.openai.com/v1",
         },
     )
 
-    stored = client.app.state.settings.summary
-    assert stored.api_key == "sk-test-value"
-    assert stored.description.startswith("Two ejector pumps")
+    store = client.app.state.settings
+    assert store.ai.api_key == "sk-test-value"
+    assert store.ai.model == "gpt-4o-mini"
+    assert store.summary.description.startswith("Two ejector pumps")
+    assert not hasattr(store.summary, "api_key"), "the key must not follow the description"
 
     page = client.get("/settings").text
     assert "sk-test-value" not in page
@@ -1108,28 +1119,32 @@ def test_the_summary_settings_survive_a_save(client):
     # Saved again with the box left empty, which is what a browser posts when
     # nobody touches it. The key stays.
     client.post(
-        "/settings/summary",
+        "/settings/ai",
         data={
-            "summary_description": "Two ejector pumps in a pit under the sidewalk.",
             "summary_api_key": "",
             "summary_model": "gpt-4o-mini",
             "summary_base_url": "https://api.openai.com/v1",
         },
     )
-    assert client.app.state.settings.summary.api_key == "sk-test-value"
+    assert client.app.state.settings.ai.api_key == "sk-test-value"
+
+    # And saving the building's half does not touch it either, which is the
+    # half of the split that is easy to get wrong: the account form is the only
+    # thing that may clear a key.
+    client.post("/settings/summary", data={"summary_description": "Still two pumps."})
+    assert client.app.state.settings.ai.api_key == "sk-test-value"
 
     # And cleared on purpose, which is what the checkbox is for.
     client.post(
-        "/settings/summary",
+        "/settings/ai",
         data={
-            "summary_description": "",
             "summary_api_key": "",
             "summary_clear_key": "on",
             "summary_model": "gpt-4o-mini",
             "summary_base_url": "https://api.openai.com/v1",
         },
     )
-    assert client.app.state.settings.summary.api_key == ""
+    assert client.app.state.settings.ai.api_key == ""
 
 
 def test_the_bell_shows_what_happened_before_it_shows_the_thresholds(client):

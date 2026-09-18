@@ -22,23 +22,69 @@ from pitwatch.domain import export
 async def _some_history(pool):
     base = datetime(2026, 9, 14, 18, 30, tzinfo=UTC)
     await pool.execute(
-        "INSERT INTO io_event (ts, channel, label, state, raw)"
-        " VALUES ($1, 3, 'System alert', true, false)",
+        "INSERT INTO io_event (site_id, ts, channel, label, state, raw)"
+        " VALUES (1, $1, 3, 'System alert', true, false)",
         base,
     )
     await pool.execute(
-        "INSERT INTO pump_run (pump, started_at, ended_at, duration_s, peak_current,"
-        " steady_current, started_by) VALUES (1, $1, $2, 12.4, 38.9, 15.1, 'contact')",
+        "INSERT INTO pump_run (site_id, pump, started_at, ended_at, duration_s, peak_current,"
+        " steady_current, started_by) VALUES (1, 1, $1, $2, 12.4, 38.9, 15.1, 'contact')",
         base,
         base + timedelta(seconds=12),
     )
-    await pool.execute("INSERT INTO em_sample (ts, channel, current) VALUES ($1, 0, 15.1)", base)
     await pool.execute(
-        "INSERT INTO alert (rule, severity, pump, title, detail, raised_at)"
-        " VALUES ('overload', 'critical', 1, 'Overload tripped', 'Pump 1 tripped', $1)",
+        "INSERT INTO em_sample (site_id, ts, channel, current) VALUES (1, $1, 0, 15.1)", base
+    )
+    await pool.execute(
+        "INSERT INTO alert (site_id, rule, severity, pump, title, detail, raised_at)"
+        " VALUES (1, 'overload', 'critical', 1, 'Overload tripped', 'Pump 1 tripped', $1)",
         base,
     )
     return base
+
+
+async def test_two_downloads_of_one_window_come_out_in_the_same_order(pool):
+    """Rows that share an instant must not swap places between downloads.
+
+    This panel produces ties: the X-408 reports the pump run contact and the
+    lead float in the same millisecond, and production had five such instants
+    in its first fortnight. With a bare `ORDER BY ts` the two rows come out in
+    whichever order the plan produced, so the same window downloaded twice is
+    two different spreadsheets, which is the one thing somebody diffing them is
+    trying to rule out.
+
+    Caught by exporting one production window from two builds and comparing
+    cell by cell, not by any test that existed at the time.
+    """
+    when = datetime(2026, 9, 12, 0, 51, 49, 495457, tzinfo=UTC)
+    for channel, label in ((5, "Lead float"), (2, "Pump 2 running"), (7, "Pump 1 fault")):
+        await pool.execute(
+            "INSERT INTO io_event (site_id, ts, channel, label, state, raw)"
+            " VALUES (1, $1, $2, $3, true, true)",
+            when,
+            channel,
+            label,
+        )
+
+    async def download():
+        return await export.gather(
+            pool,
+            1,
+            when - timedelta(hours=1),
+            when + timedelta(hours=1),
+            "UTC",
+            {1: "Pump 1", 2: "Pump 2"},
+        )
+
+    first, second = await download(), await download()
+
+    contacts = next(sheet for sheet in first if "ontact" in sheet.title)
+    again = next(sheet for sheet in second if "ontact" in sheet.title)
+    assert contacts.rows == again.rows
+    # And the tie is broken by channel, which is the order the panel's own
+    # terminal strip is in rather than an arbitrary one.
+    tied = [row for row in contacts.rows if row[0] == export._local(when, "UTC")]
+    assert [row[1] for row in tied] == sorted(row[1] for row in tied), tied
 
 
 async def test_the_workbook_has_a_tab_for_each_kind_of_thing(pool, tmp_path):
@@ -48,6 +94,7 @@ async def test_the_workbook_has_a_tab_for_each_kind_of_thing(pool, tmp_path):
 
     sheets = await export.gather(
         pool,
+        1,
         datetime(2026, 9, 1, tzinfo=UTC),
         datetime(2026, 9, 30, tzinfo=UTC),
         "America/New_York",
@@ -77,6 +124,7 @@ async def test_times_are_written_on_the_buildings_clock(pool):
 
     sheets = await export.gather(
         pool,
+        1,
         base - timedelta(days=1),
         base + timedelta(days=1),
         "America/New_York",
@@ -97,6 +145,7 @@ async def test_a_contact_says_closed_rather_than_true(pool):
 
     sheets = await export.gather(
         pool,
+        1,
         datetime(2026, 9, 1, tzinfo=UTC),
         datetime(2026, 9, 30, tzinfo=UTC),
         "UTC",
@@ -114,13 +163,14 @@ async def test_an_alert_still_open_is_carried_in_however_old_it_is(pool):
     omission that matters."""
     old = datetime.now(UTC) - timedelta(days=40)
     await pool.execute(
-        "INSERT INTO alert (rule, severity, title, detail, raised_at)"
-        " VALUES ('high_water', 'critical', 'High water', 'Still wet', $1)",
+        "INSERT INTO alert (site_id, rule, severity, title, detail, raised_at)"
+        " VALUES (1, 'high_water', 'critical', 'High water', 'Still wet', $1)",
         old,
     )
 
     sheets = await export.gather(
         pool,
+        1,
         datetime.now(UTC) - timedelta(days=7),
         datetime.now(UTC),
         "UTC",
@@ -137,14 +187,15 @@ async def test_a_cleared_alert_older_than_the_window_is_left_out(pool):
     window."""
     old = datetime.now(UTC) - timedelta(days=40)
     await pool.execute(
-        "INSERT INTO alert (rule, severity, title, detail, raised_at, cleared_at)"
-        " VALUES ('high_water', 'critical', 'High water', 'Was wet', $1, $2)",
+        "INSERT INTO alert (site_id, rule, severity, title, detail, raised_at, cleared_at)"
+        " VALUES (1, 'high_water', 'critical', 'High water', 'Was wet', $1, $2)",
         old,
         old + timedelta(hours=1),
     )
 
     sheets = await export.gather(
         pool,
+        1,
         datetime.now(UTC) - timedelta(days=7),
         datetime.now(UTC),
         "UTC",
@@ -171,20 +222,21 @@ async def test_the_amps_sheet_is_only_what_happened_during_a_run(pool):
     """
     base = datetime(2026, 9, 14, 18, 30, tzinfo=UTC)
     await pool.execute(
-        "INSERT INTO pump_run (pump, started_at, ended_at, duration_s, started_by)"
-        " VALUES (1, $1, $2, 12.0, 'contact')",
+        "INSERT INTO pump_run (site_id, pump, started_at, ended_at, duration_s, started_by)"
+        " VALUES (1, 1, $1, $2, 12.0, 'contact')",
         base,
         base + timedelta(seconds=12),
     )
     for offset, amps in ((-60, 0.0), (2, 15.1), (8, 15.2), (600, 0.0)):
         await pool.execute(
-            "INSERT INTO em_sample (ts, channel, current) VALUES ($1, 0, $2)",
+            "INSERT INTO em_sample (site_id, ts, channel, current) VALUES (1, $1, 0, $2)",
             base + timedelta(seconds=offset),
             amps,
         )
 
     sheets = await export.gather(
         pool,
+        1,
         base - timedelta(days=1),
         base + timedelta(days=1),
         "UTC",
@@ -205,18 +257,19 @@ async def test_a_motor_drawing_nothing_mid_run_is_kept(pool):
     amperage would throw away the one reading that proves it."""
     base = datetime(2026, 9, 14, 18, 30, tzinfo=UTC)
     await pool.execute(
-        "INSERT INTO pump_run (pump, started_at, ended_at, duration_s, started_by)"
-        " VALUES (2, $1, $2, 12.0, 'contact')",
+        "INSERT INTO pump_run (site_id, pump, started_at, ended_at, duration_s, started_by)"
+        " VALUES (1, 2, $1, $2, 12.0, 'contact')",
         base,
         base + timedelta(seconds=12),
     )
     await pool.execute(
-        "INSERT INTO em_sample (ts, channel, current) VALUES ($1, 1, 0.0)",
+        "INSERT INTO em_sample (site_id, ts, channel, current) VALUES (1, $1, 1, 0.0)",
         base + timedelta(seconds=6),
     )
 
     sheets = await export.gather(
         pool,
+        1,
         base - timedelta(days=1),
         base + timedelta(days=1),
         "UTC",

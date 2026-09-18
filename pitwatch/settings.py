@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from pitwatch.config import Config
 from pitwatch.schemas import (
+    AiSettings,
     AlertsSettings,
     GroundwaterSettings,
     MqttSettings,
@@ -48,14 +49,51 @@ class SettingsStore:
 
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
+        # PitWatch's own: the mail server, the Twilio account, the model key.
         self._cache: dict[str, dict] = {}
+        # One building's, keyed by site: its panel, its pumps, its rules.
+        self._by_site: dict[int, dict[str, dict]] = {}
+        # Which building this store is answering about. One today, and the
+        # thing a request would set once there are several.
+        self._site_id: int | None = None
         self._lock = asyncio.Lock()
         self._listeners: list[asyncio.Queue[str]] = []
+
+    @property
+    def site_id(self) -> int | None:
+        """The building being answered about, or None before load."""
+        return self._site_id
+
+    def for_site(self, site_id: int) -> SettingsStore:
+        """A view of the same store answering about a different building.
+
+        Shares the caches and the pool deliberately: two views of one store are
+        two readings of the same configuration, and a second copy would be a
+        second thing to keep current.
+        """
+        other = SettingsStore.__new__(SettingsStore)
+        other.__dict__ = dict(self.__dict__)
+        other._site_id = site_id
+        return other
 
     async def load(self) -> None:
         rows = await self._pool.fetch("SELECT key, value FROM setting")
         self._cache = {row["key"]: json.loads(row["value"]) for row in rows}
-        log.info("Loaded %d setting(s)", len(self._cache))
+
+        self._by_site = {}
+        for row in await self._pool.fetch("SELECT site_id, key, value FROM site_setting"):
+            self._by_site.setdefault(row["site_id"], {})[row["key"]] = json.loads(row["value"])
+
+        # The one site, until something sets it per request. `min` rather than
+        # any, so a restart lands on the same building every time.
+        sites = await self._pool.fetch("SELECT id FROM site ORDER BY id")
+        self._site_id = sites[0]["id"] if sites else None
+
+        log.info(
+            "Loaded %d application setting(s) and %d site(s)",
+            len(self._cache),
+            len(sites),
+        )
 
     def get(self, model: type[ModelT]) -> ModelT:
         """Return a settings model, filling in defaults for anything unset.
@@ -65,27 +103,59 @@ class SettingsStore:
         application. A monitor that will not start because one SMTP field is now
         an integer is a monitor that is not watching the pump.
         """
-        raw = self._cache.get(model.KEY, {})  # type: ignore[attr-defined]
+        raw = self._raw_for(model)
         try:
             return model.model_validate(raw)
         except ValueError as error:
             log.warning("Setting %r did not validate, using defaults: %s", model.KEY, error)  # type: ignore[attr-defined]
             return model()
 
+    def _raw_for(self, model: type[BaseModel]) -> dict:
+        """Which of the two caches a model is read from.
+
+        Declared on the model rather than worked out here, because a setting
+        read from the wrong table is one silently shared between buildings or
+        silently not shared at all, and neither shows up as an error.
+        """
+        key: str = model.KEY  # type: ignore[attr-defined]
+        if getattr(model, "SCOPE", "app") == "app":
+            return self._cache.get(key, {})
+        if self._site_id is None:
+            return {}
+        return self._by_site.get(self._site_id, {}).get(key, {})
+
     async def put(self, value: BaseModel) -> None:
         key: str = value.KEY  # type: ignore[attr-defined]
         payload = value.model_dump(mode="json")
+        scope = getattr(type(value), "SCOPE", "app")
+
         async with self._lock:
-            await self._pool.execute(
-                """
-                INSERT INTO setting (key, value, updated_at)
-                VALUES ($1, $2::jsonb, now())
-                ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = now()
-                """,
-                key,
-                json.dumps(payload),
-            )
-            self._cache[key] = payload
+            if scope == "app":
+                await self._pool.execute(
+                    """
+                    INSERT INTO setting (key, value, updated_at)
+                    VALUES ($1, $2::jsonb, now())
+                    ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = now()
+                    """,
+                    key,
+                    json.dumps(payload),
+                )
+                self._cache[key] = payload
+            else:
+                if self._site_id is None:
+                    raise RuntimeError(f"Cannot save {key!r}: no site is selected")
+                await self._pool.execute(
+                    """
+                    INSERT INTO site_setting (site_id, key, value, updated_at)
+                    VALUES ($1, $2, $3::jsonb, now())
+                    ON CONFLICT (site_id, key)
+                    DO UPDATE SET value = excluded.value, updated_at = now()
+                    """,
+                    self._site_id,
+                    key,
+                    json.dumps(payload),
+                )
+                self._by_site.setdefault(self._site_id, {})[key] = payload
         self._publish(key)
 
     async def get_raw(self, key: str, default: object = None) -> object:
@@ -159,6 +229,11 @@ class SettingsStore:
     @property
     def summary(self) -> SummarySettings:
         return self.get(SummarySettings)
+
+    @property
+    def ai(self) -> AiSettings:
+        """The account a summary is written through, which is PitWatch's."""
+        return self.get(AiSettings)
 
     @property
     def weather(self) -> WeatherSettings:

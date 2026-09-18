@@ -87,7 +87,7 @@ async def test_a_reading_is_a_time_a_channel_and_an_amp(pool):
         )
     }
 
-    assert columns == {"ts", "channel", "current"}
+    assert columns == {"site_id", "ts", "channel", "current"}
 
 
 async def test_a_pump_cannot_have_two_open_runs(pool):
@@ -98,44 +98,44 @@ async def test_a_pump_cannot_have_two_open_runs(pool):
     use to decide the pump is failing.
     """
     await pool.execute(
-        "INSERT INTO pump_run (pump, started_at, started_by) VALUES (1, now(), 'current')"
+        "INSERT INTO pump_run (site_id, pump, started_at, started_by) VALUES (1, 1, now(), 'current')"
     )
 
     with pytest.raises(asyncpg.UniqueViolationError):
         await pool.execute(
-            "INSERT INTO pump_run (pump, started_at, started_by) VALUES (1, now(), 'current')"
+            "INSERT INTO pump_run (site_id, pump, started_at, started_by) VALUES (1, 1, now(), 'current')"
         )
 
 
 async def test_a_closed_run_does_not_block_the_next_one(pool):
     await pool.execute(
-        "INSERT INTO pump_run (pump, started_at, ended_at, started_by) VALUES (1, now(), now(), 'current')"
+        "INSERT INTO pump_run (site_id, pump, started_at, ended_at, started_by) VALUES (1, 1, now(), now(), 'current')"
     )
 
     await pool.execute(
-        "INSERT INTO pump_run (pump, started_at, started_by) VALUES (1, now(), 'current')"
+        "INSERT INTO pump_run (site_id, pump, started_at, started_by) VALUES (1, 1, now(), 'current')"
     )
 
 
 async def test_one_open_alert_per_rule_and_pump(pool):
     """The dedupe. A float that chatters must not send twenty messages."""
     await pool.execute(
-        "INSERT INTO alert (rule, severity, pump, title, detail) VALUES ('overload', 'critical', 1, 't', 'd')"
+        "INSERT INTO alert (site_id, rule, severity, pump, title, detail) VALUES (1, 'overload', 'critical', 1, 't', 'd')"
     )
 
     with pytest.raises(asyncpg.UniqueViolationError):
         await pool.execute(
-            "INSERT INTO alert (rule, severity, pump, title, detail) VALUES ('overload', 'critical', 1, 't', 'd')"
+            "INSERT INTO alert (site_id, rule, severity, pump, title, detail) VALUES (1, 'overload', 'critical', 1, 't', 'd')"
         )
 
     # The same rule on the other pump is a different alert.
     await pool.execute(
-        "INSERT INTO alert (rule, severity, pump, title, detail) VALUES ('overload', 'critical', 2, 't', 'd')"
+        "INSERT INTO alert (site_id, rule, severity, pump, title, detail) VALUES (1, 'overload', 'critical', 2, 't', 'd')"
     )
     # And once the first has cleared, it can be raised again.
     await pool.execute("UPDATE alert SET cleared_at = now() WHERE pump = 1")
     await pool.execute(
-        "INSERT INTO alert (rule, severity, pump, title, detail) VALUES ('overload', 'critical', 1, 't', 'd')"
+        "INSERT INTO alert (site_id, rule, severity, pump, title, detail) VALUES (1, 'overload', 'critical', 1, 't', 'd')"
     )
 
 
@@ -239,7 +239,7 @@ async def test_somebody_with_no_password_cannot_sign_in(pool):
 
 async def test_samples_are_written_and_primed_back(pool):
     live = LiveState()
-    sink = SampleSink(pool, live)
+    sink = SampleSink(pool, live, 1)
     now = datetime.now(UTC)
     await sink.submit(
         [
@@ -252,7 +252,7 @@ async def test_samples_are_written_and_primed_back(pool):
     assert await pool.fetchval("SELECT count(*) FROM em_sample") == 2
 
     fresh_live = LiveState()
-    await SampleSink(pool, fresh_live).prime()
+    await SampleSink(pool, fresh_live, 1).prime()
 
     assert fresh_live.current_for(0) == pytest.approx(7.2, rel=1e-4)
     assert fresh_live.current_for(1) == pytest.approx(0.02, rel=1e-3)
@@ -261,22 +261,22 @@ async def test_samples_are_written_and_primed_back(pool):
 async def test_priming_ignores_readings_that_are_too_old_to_mean_anything(pool):
     stale = datetime.now(UTC) - timedelta(hours=6)
     await pool.execute(
-        "INSERT INTO em_sample (ts, channel, current) VALUES ($1, 0, 9.9)",
+        "INSERT INTO em_sample (site_id, ts, channel, current) VALUES (1, $1, 0, 9.9)",
         stale,
     )
 
     live = LiveState()
-    await SampleSink(pool, live).prime()
+    await SampleSink(pool, live, 1).prime()
 
     assert live.current_for(0) is None
 
 
 async def test_device_status_is_upserted_and_keeps_the_last_seen_time(pool):
-    await record_device_status(pool, "clamp1", True, None)
+    await record_device_status(pool, 1, "clamp1", True, None)
     seen = await pool.fetchval("SELECT last_seen FROM device_status WHERE device = 'clamp1'")
     assert seen is not None
 
-    await record_device_status(pool, "clamp1", False, "connection refused")
+    await record_device_status(pool, 1, "clamp1", False, "connection refused")
     row = await pool.fetchrow("SELECT * FROM device_status WHERE device = 'clamp1'")
 
     assert row["online"] is False
@@ -357,9 +357,11 @@ async def test_the_current_history_query_runs_and_splits_its_two_windows(pool):
     rows.append((now - timedelta(days=2, seconds=900), 0, 61.0))
     rows.append((now - timedelta(days=20, seconds=900), 0, 58.0))
 
-    await pool.executemany("INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)", rows)
+    await pool.executemany(
+        "INSERT INTO em_sample (site_id, ts, channel, current) VALUES (1, $1, $2, $3)", rows
+    )
 
-    typical = await CurrentHistory().typical(pool, channel=0, running_amps=1.0)
+    typical = await CurrentHistory().typical(pool, 1, channel=0, running_amps=1.0)
 
     assert typical.median == pytest.approx(16.0)
     assert typical.earlier_median == pytest.approx(14.0)
@@ -375,7 +377,7 @@ async def test_the_history_says_nothing_when_there_is_nothing_to_say(pool):
     worse than reporting none."""
     from pitwatch.domain.history import CurrentHistory
 
-    typical = await CurrentHistory().typical(pool, channel=1, running_amps=1.0)
+    typical = await CurrentHistory().typical(pool, 1, channel=1, running_amps=1.0)
 
     assert typical.median is None
     assert typical.drift is None
@@ -414,9 +416,11 @@ async def test_counting_runs_from_the_clamp_readings(pool):
     for index in range(40):
         rows.append((now - timedelta(minutes=30, seconds=index * 15), 0, 0.0))
 
-    await pool.executemany("INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)", rows)
+    await pool.executemany(
+        "INSERT INTO em_sample (site_id, ts, channel, current) VALUES (1, $1, $2, $3)", rows
+    )
 
-    recent = await RecentRuns().recent(pool, channel=0, running_amps=1.0)
+    recent = await RecentRuns().recent(pool, 1, channel=0, running_amps=1.0)
 
     assert recent.runs == 3
     assert recent.last_start is not None
@@ -426,7 +430,7 @@ async def test_counting_runs_from_the_clamp_readings(pool):
 async def test_a_clamp_that_has_never_seen_a_run_says_so(pool):
     from pitwatch.domain.history import RecentRuns
 
-    recent = await RecentRuns().recent(pool, channel=1, running_amps=1.0)
+    recent = await RecentRuns().recent(pool, 1, channel=1, running_amps=1.0)
 
     assert recent.runs == 0
     assert recent.last_start is None
@@ -468,11 +472,11 @@ async def test_counting_what_a_contact_has_done(pool):
     rows.append((now - timedelta(days=21, seconds=-60), 4, "High water", False, False))
     # And an input nothing has ever been recorded for.
     await pool.executemany(
-        "INSERT INTO io_event (ts, channel, label, state, raw) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO io_event (site_id, ts, channel, label, state, raw) VALUES (1, $1, $2, $3, $4, $5)",
         rows,
     )
 
-    closings = await SignalHistory().closings(pool, [3, 4, 5], "UTC")
+    closings = await SignalHistory().closings(pool, 1, [3, 4, 5], "UTC")
 
     assert closings[3].today == 3, "today is since midnight, not the last 24 hours"
     assert closings[3].month == 4, "the 45 day old one is outside a month"
@@ -528,11 +532,11 @@ async def test_a_pulsing_alarm_is_counted_as_one_alarm(pool):
     ended = at - timedelta(seconds=0.5)
 
     await pool.executemany(
-        "INSERT INTO io_event (ts, channel, label, state, raw) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO io_event (site_id, ts, channel, label, state, raw) VALUES (1, $1, $2, $3, $4, $5)",
         rows,
     )
 
-    closings = await SignalHistory().closings(pool, [4], "UTC", 2.0)
+    closings = await SignalHistory().closings(pool, 1, [4], "UTC", 2.0)
 
     assert closings[4].month == 2, "two alarms, not fifty four"
     # Not today's count. These are minutes apart but one of them is twenty
@@ -548,13 +552,13 @@ async def test_a_pulsing_alarm_is_counted_as_one_alarm(pool):
     # A gap shorter than the pulse puts every flash back, which is the proof
     # that the collapsing is the setting's doing rather than an accident of
     # the query.
-    every = await SignalHistory().closings(pool, [4], "UTC", 0.1)
+    every = await SignalHistory().closings(pool, 1, [4], "UTC", 0.1)
     assert every[4].month == 54
     assert every[4].last_held_s == pytest.approx(0.5, abs=0.1)
 
     # And a gap does not reach across two alarms that really were separate.
     # These are eighteen minutes apart and stay two however wide it is set.
-    apart = await SignalHistory().closings(pool, [4], "UTC", 120.0)
+    apart = await SignalHistory().closings(pool, 1, [4], "UTC", 120.0)
     assert apart[4].month == 2
 
 
@@ -567,7 +571,7 @@ async def test_the_history_ignores_contacts_opening(pool):
 
     now = datetime.now(UTC)
     await pool.executemany(
-        "INSERT INTO io_event (ts, channel, label, state, raw) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO io_event (site_id, ts, channel, label, state, raw) VALUES (1, $1, $2, $3, $4, $5)",
         [
             (now - timedelta(minutes=10), 6, "Lag float", True, True),
             (now - timedelta(minutes=9), 6, "Lag float", False, False),
@@ -576,7 +580,7 @@ async def test_the_history_ignores_contacts_opening(pool):
         ],
     )
 
-    closings = await SignalHistory().closings(pool, [6])
+    closings = await SignalHistory().closings(pool, 1, [6])
 
     assert closings[6].today == 2
 
@@ -606,9 +610,11 @@ async def test_the_typical_load_leaves_out_the_start_of_each_run(pool):
         rows.append((start + timedelta(seconds=40), 0, 16.0))
         rows.append((start + timedelta(seconds=60), 0, 0.0))
 
-    await pool.executemany("INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)", rows)
+    await pool.executemany(
+        "INSERT INTO em_sample (site_id, ts, channel, current) VALUES (1, $1, $2, $3)", rows
+    )
 
-    typical = await CurrentHistory().typical(pool, channel=0, running_amps=1.0)
+    typical = await CurrentHistory().typical(pool, 1, channel=0, running_amps=1.0)
 
     assert typical.median == pytest.approx(16.0), "the 40 A starts are excluded"
     assert typical.samples == 80, "two settled readings from each of forty runs"
@@ -648,11 +654,13 @@ async def test_runs_today_is_counted_from_local_midnight(pool):
 
     rows = run(midnight - timedelta(hours=2)) + run(midnight + timedelta(minutes=1))
     await pool.executemany(
-        "INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)",
+        "INSERT INTO em_sample (site_id, ts, channel, current) VALUES (1, $1, $2, $3)",
         [(ts.astimezone(UTC), channel, amps) for ts, channel, amps in rows],
     )
 
-    recent = await RecentRuns().recent(pool, channel=0, running_amps=1.0, timezone=where_the_pit_is)
+    recent = await RecentRuns().recent(
+        pool, 1, channel=0, running_amps=1.0, timezone=where_the_pit_is
+    )
 
     assert recent.runs == 1, "the one two hours before midnight was yesterday"
     assert recent.last_start is not None
@@ -681,8 +689,8 @@ async def _a_call(pool, ago, pump=1, seconds=12.0, both=False, high=False, stead
     ran = timedelta(seconds=seconds)
     cycle = await pool.fetchval(
         """
-        INSERT INTO pump_cycle (started_at, ended_at, first_pump, both_ran, high_water)
-        VALUES (now() - $1::interval, now() - $1::interval + $2::interval, $3, $4, $5)
+        INSERT INTO pump_cycle (site_id, started_at, ended_at, first_pump, both_ran, high_water)
+        VALUES (1, now() - $1::interval, now() - $1::interval + $2::interval, $3, $4, $5)
         RETURNING id
         """,
         ago,
@@ -693,9 +701,9 @@ async def _a_call(pool, ago, pump=1, seconds=12.0, both=False, high=False, stead
     )
     await pool.execute(
         """
-        INSERT INTO pump_run (cycle_id, pump, started_at, ended_at, duration_s,
+        INSERT INTO pump_run (site_id, cycle_id, pump, started_at, ended_at, duration_s,
                               steady_current, role, started_by, ended_by)
-        VALUES ($1, $2, now() - $3::interval, now() - $3::interval + $4::interval, $5,
+        VALUES (1, $1, $2, now() - $3::interval, now() - $3::interval + $4::interval, $5,
                 $6, 'lead', 'contact', 'contact')
         """,
         cycle,
@@ -708,9 +716,9 @@ async def _a_call(pool, ago, pump=1, seconds=12.0, both=False, high=False, stead
     if both:
         await pool.execute(
             """
-            INSERT INTO pump_run (cycle_id, pump, started_at, ended_at, duration_s,
+            INSERT INTO pump_run (site_id, cycle_id, pump, started_at, ended_at, duration_s,
                                   role, started_by, ended_by)
-            VALUES ($1, $2, now() - $3::interval, now() - $3::interval + $4::interval, $5,
+            VALUES (1, $1, $2, now() - $3::interval, now() - $3::interval + $4::interval, $5,
                     'lag', 'contact', 'contact')
             """,
             cycle,
@@ -732,7 +740,7 @@ async def test_calls_are_counted_from_the_cycles_and_not_from_the_amps(pool):
     await _a_call(pool, timedelta(hours=4), pump=2, both=True)
     await _a_call(pool, timedelta(hours=6), high=True)
 
-    counted = await series.calls_series(pool, series.WINDOWS["today"], "UTC")
+    counted = await series.calls_series(pool, 1, series.WINDOWS["today"], "UTC")
 
     assert sum(calls for _, calls, _, _ in counted) == 3
     assert sum(both for _, _, both, _ in counted) == 1
@@ -753,7 +761,7 @@ async def test_the_spacing_needs_the_call_before_the_window(pool):
     await _a_call(pool, timedelta(hours=23, minutes=30))
     await _a_call(pool, timedelta(hours=22, minutes=30))
 
-    gaps = await series.call_gaps(pool, series.WINDOWS["today"])
+    gaps = await series.call_gaps(pool, 1, series.WINDOWS["today"])
 
     assert len(gaps) == 2, "both of the ones inside the window have a spacing"
     assert [round(gap) for _, gap, _, _ in gaps] == [5400, 3600], gaps
@@ -767,7 +775,7 @@ async def test_a_run_carries_what_the_clamp_saw_and_what_it_did_not(pool):
     await _a_call(pool, timedelta(hours=1), steady=15.4)
     await _a_call(pool, timedelta(hours=2), pump=2)
 
-    runs = await series.runs_series(pool, series.WINDOWS["today"])
+    runs = await series.runs_series(pool, 1, series.WINDOWS["today"])
 
     assert [run.pump for run in runs] == [2, 1], "oldest first"
     assert runs[1].steady_current == pytest.approx(15.4)
@@ -785,8 +793,8 @@ async def test_the_daily_pattern_is_counted_in_the_buildings_own_time(pool):
 
     await _a_call(pool, timedelta(hours=3))
 
-    here = await series.hour_profile(pool, series.WINDOWS["today"], "UTC")
-    there = await series.hour_profile(pool, series.WINDOWS["today"], "Australia/Sydney")
+    here = await series.hour_profile(pool, 1, series.WINDOWS["today"], "UTC")
+    there = await series.hour_profile(pool, 1, series.WINDOWS["today"], "Australia/Sydney")
 
     assert sum(here.values()) == 1
     assert sum(there.values()) == 1
@@ -804,7 +812,7 @@ async def test_the_daily_pattern_counts_calls_rather_than_runs(pool):
 
     await _a_call(pool, timedelta(hours=3), both=True)
 
-    profile = await series.hour_profile(pool, series.WINDOWS["today"], "UTC")
+    profile = await series.hour_profile(pool, 1, series.WINDOWS["today"], "UTC")
 
     assert sum(profile.values()) == 1, "two runs, one filling of the pit"
 
@@ -821,8 +829,8 @@ async def test_runs_sit_above_calls_by_the_calls_that_took_both_pumps(pool):
     await _a_call(pool, timedelta(hours=2))
     await _a_call(pool, timedelta(hours=3), both=True)
 
-    calls = await series.calls_series(pool, series.WINDOWS["today"], "UTC")
-    runs = await series.runs_series(pool, series.WINDOWS["today"])
+    calls = await series.calls_series(pool, 1, series.WINDOWS["today"], "UTC")
+    runs = await series.runs_series(pool, 1, series.WINDOWS["today"])
 
     counted = sum(count for _, count, _, _ in calls)
     both = sum(mark for _, _, mark, _ in calls)
@@ -837,11 +845,12 @@ async def test_a_clamp_that_has_never_read_current_is_known_to_be_unfitted(pool)
     from pitwatch.domain import series
 
     await pool.execute(
-        "INSERT INTO em_sample (ts, channel, current) VALUES (now(), 0, 15.4), (now(), 1, 0.0)"
+        "INSERT INTO em_sample (site_id, ts, channel, current)"
+        " VALUES (1, now(), 0, 15.4), (1, now(), 1, 0.0)"
     )
 
-    assert await series.clamp_fitted(pool, 0, 1.0) is True
-    assert await series.clamp_fitted(pool, 1, 1.0) is False
+    assert await series.clamp_fitted(pool, 1, 0, 1.0) is True
+    assert await series.clamp_fitted(pool, 1, 1, 1.0) is False
 
 
 async def test_a_contact_closed_before_the_window_still_counts(pool):
@@ -855,7 +864,7 @@ async def test_a_contact_closed_before_the_window_still_counts(pool):
 
     now = datetime.now(UTC)
     await pool.executemany(
-        "INSERT INTO io_event (ts, channel, label, state, raw) VALUES ($1, $2, $3, $4, $4)",
+        "INSERT INTO io_event (site_id, ts, channel, label, state, raw) VALUES (1, $1, $2, $3, $4, $4)",
         [
             # Closed well before the week being counted, and never reopened.
             (now - timedelta(days=2), 3, "High water", True),
@@ -865,7 +874,7 @@ async def test_a_contact_closed_before_the_window_still_counts(pool):
         ],
     )
 
-    spans = await series.contact_spans(pool, [3, 4], series.WINDOWS["today"])
+    spans = await series.contact_spans(pool, 1, [3, 4], series.WINDOWS["today"])
 
     assert len(spans[3]) == 1
     opened, shut = spans[3][0]
@@ -886,8 +895,8 @@ async def test_a_summary_keeps_the_numbers_it_was_given(pool):
 
     row = await pool.fetchrow(
         """
-        INSERT INTO summary (window_key, model, body, facts, written_by)
-        VALUES ('7d', 'gpt-4o-mini', 'Both pumps look normal.', $1::jsonb, 'david')
+        INSERT INTO summary (site_id, window_key, model, body, facts, written_by)
+        VALUES (1, '7d', 'gpt-4o-mini', 'Both pumps look normal.', $1::jsonb, 'david')
         RETURNING id, created_at, facts
         """,
         json.dumps({"pumps": [{"pump": 1, "runs_this_week": 12}]}),
@@ -917,6 +926,9 @@ def _store(pump1_run=1, pump2_run=2, high_water=3):
     from pitwatch.schemas import ClampSource, ContactInput, MqttSettings
 
     return SimpleNamespace(
+        # Which building the recorder is writing for. One in these tests, and
+        # the one the migration makes.
+        site_id=1,
         mqtt=MqttSettings(
             inputs=[
                 ContactInput(channel=pump1_run, role="pump1_run", topic=f"pit/in/{pump1_run}"),
@@ -998,7 +1010,7 @@ async def test_the_clamp_describes_the_run_without_deciding_it(pool):
 
     began = datetime.now(UTC) - timedelta(minutes=5)
     await pool.executemany(
-        "INSERT INTO em_sample (ts, channel, current) VALUES ($1, $2, $3)",
+        "INSERT INTO em_sample (site_id, ts, channel, current) VALUES (1, $1, $2, $3)",
         [
             (began, 0, 48.0),
             (began + timedelta(seconds=1), 0, 44.0),
@@ -1035,7 +1047,7 @@ async def test_a_run_short_enough_to_give_one_reading_still_gets_it(pool):
 
     began = datetime.now(UTC) - timedelta(minutes=5)
     await pool.execute(
-        "INSERT INTO em_sample (ts, channel, current) VALUES ($1, 0, 15.5)",
+        "INSERT INTO em_sample (site_id, ts, channel, current) VALUES (1, $1, 0, 15.5)",
         began + timedelta(seconds=2),
     )
 
@@ -1182,7 +1194,7 @@ async def test_what_the_panel_said_survives_the_run_being_discarded(pool):
 
     # The reader writes io_event; the recorder is handed the same edges.
     await pool.executemany(
-        "INSERT INTO io_event (ts, channel, label, state, raw) VALUES ($1, $2, $3, $4, $4)",
+        "INSERT INTO io_event (site_id, ts, channel, label, state, raw) VALUES (1, $1, $2, $3, $4, $4)",
         [
             (began, 1, "Pump 1 running", True),
             (began + timedelta(milliseconds=9), 1, "Pump 1 running", False),
@@ -1241,7 +1253,7 @@ async def test_a_cycle_remembers_the_pit_came_up_high(pool):
 
     began = datetime.now(UTC) - timedelta(minutes=5)
     await pool.execute(
-        "INSERT INTO io_event (ts, channel, label, state, raw) VALUES ($1, 3, 'High water', true, true)",
+        "INSERT INTO io_event (site_id, ts, channel, label, state, raw) VALUES (1, $1, 3, 'High water', true, true)",
         began + timedelta(seconds=5),
     )
 
@@ -1268,12 +1280,12 @@ async def test_a_contact_that_never_closed_still_has_a_row(pool):
 
     await pool.execute(
         """
-        INSERT INTO io_state (channel, label, state, raw, changed_at, updated_at)
-        VALUES (4, 'High water', false, false, now(), now())
+        INSERT INTO io_state (site_id, channel, label, state, raw, changed_at, updated_at)
+        VALUES (1, 4, 'High water', false, false, now(), now())
         """
     )
 
-    closings = await SignalHistory().closings(pool, [4])
+    closings = await SignalHistory().closings(pool, 1, [4])
 
     assert 4 in closings, "an input being read has a row even with nothing to show"
     assert closings[4].known is True
@@ -1292,11 +1304,11 @@ async def test_a_closing_carries_how_long_it_was_held(pool):
 
     began = datetime.now(UTC) - timedelta(minutes=10)
     await pool.execute(
-        "INSERT INTO io_state (channel, label, state, raw, changed_at, updated_at)"
-        " VALUES (5, 'Lead float', false, false, now(), now())"
+        "INSERT INTO io_state (site_id, channel, label, state, raw, changed_at, updated_at)"
+        " VALUES (1, 5, 'Lead float', false, false, now(), now())"
     )
     await pool.executemany(
-        "INSERT INTO io_event (ts, channel, label, state, raw) VALUES ($1, 5, 'Lead float', $2, $2)",
+        "INSERT INTO io_event (site_id, ts, channel, label, state, raw) VALUES (1, $1, 5, 'Lead float', $2, $2)",
         [
             (began, True),
             (began + timedelta(seconds=90), False),
@@ -1306,7 +1318,7 @@ async def test_a_closing_carries_how_long_it_was_held(pool):
         ],
     )
 
-    closings = await SignalHistory().closings(pool, [5])
+    closings = await SignalHistory().closings(pool, 1, [5])
 
     assert closings[5].today == 2
     assert closings[5].last_held_s == pytest.approx(16.0), "the latest, not the longest"
@@ -1322,16 +1334,16 @@ async def test_a_contact_still_held_has_no_duration_yet(pool):
 
     began = datetime.now(UTC) - timedelta(minutes=2)
     await pool.execute(
-        "INSERT INTO io_state (channel, label, state, raw, changed_at, updated_at)"
-        " VALUES (5, 'Lead float', true, true, now(), now())"
+        "INSERT INTO io_state (site_id, channel, label, state, raw, changed_at, updated_at)"
+        " VALUES (1, 5, 'Lead float', true, true, now(), now())"
     )
     await pool.execute(
-        "INSERT INTO io_event (ts, channel, label, state, raw)"
-        " VALUES ($1, 5, 'Lead float', true, true)",
+        "INSERT INTO io_event (site_id, ts, channel, label, state, raw)"
+        " VALUES (1, $1, 5, 'Lead float', true, true)",
         began,
     )
 
-    closings = await SignalHistory().closings(pool, [5])
+    closings = await SignalHistory().closings(pool, 1, [5])
 
     assert closings[5].last_on == began
     assert closings[5].last_held_s is None

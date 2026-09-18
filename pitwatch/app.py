@@ -29,6 +29,7 @@ from pitwatch.api import live as live_api
 from pitwatch.api import pages, stream, users
 from pitwatch.config import Config, get_config
 from pitwatch.db import lifespan_pool
+from pitwatch.domain import sites
 from pitwatch.domain.engine import AlertEngine
 from pitwatch.domain.history import CurrentHistory, RecentRuns, SignalHistory
 from pitwatch.ingest.sink import LiveIo, LiveState
@@ -350,7 +351,11 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
 
         Signed in it is the dashboard, or an invitation to set up.
         """
-        store: SettingsStore = request.app.state.settings
+        # The request's own, so a signed in owner who has switched buildings
+        # gets that building's dashboard. Signed out there is nothing to
+        # narrow and this is the application wide store, which is what the
+        # public page wants.
+        store: SettingsStore = sites.store_for(request)
         user = auth.current_user(request)
         if user is None:
             return templates.TemplateResponse(
@@ -362,14 +367,29 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
         if user.must_change_password:
             return RedirectResponse("/change-password", status_code=303)
 
+        # The switcher goes in the header of these two as well. It lives in
+        # base.html, so every page that extends it needs the list, and the
+        # dashboard is the page somebody is most likely to switch from.
         if not await store.is_setup_complete():
             return templates.TemplateResponse(
-                request, "index.html", {"site": store.site, "user": user, "setup_complete": False}
+                request,
+                "index.html",
+                {
+                    "site": store.site,
+                    "user": user,
+                    "setup_complete": False,
+                    **sites.switcher(request),
+                },
             )
         return templates.TemplateResponse(
             request,
             "dashboard.html",
-            {"site": store.site, "user": user, "panel_button": store.panel_button},
+            {
+                "site": store.site,
+                "user": user,
+                "panel_button": store.panel_button,
+                **sites.switcher(request),
+            },
         )
 
     return app

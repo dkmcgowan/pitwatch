@@ -36,6 +36,7 @@ from starlette.requests import Request
 from starlette.types import ASGIApp
 
 from pitwatch import auth, csrf
+from pitwatch.domain import sites
 
 log = logging.getLogger(__name__)
 
@@ -73,8 +74,40 @@ class RequireSignIn(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp) -> None:
         super().__init__(app)
 
+    @staticmethod
+    async def _choose_site(request: Request, pool) -> None:
+        """Settle the building and the role before any route runs.
+
+        Failures here are swallowed on purpose. This runs on every request
+        including the login page, and a database that is briefly unreachable
+        should produce the sign in form rather than a stack trace: the routes
+        that genuinely need a site check for one.
+        """
+        user = request.state.user
+        store = request.state.settings
+        if user is None or pool is None or store is None:
+            return
+        try:
+            # Fetched once and kept. The header needs the same list to draw the
+            # switcher, and asking twice would be a second query for an answer
+            # that cannot have changed inside one request.
+            allowed = await sites.visible_to(pool, user)
+            request.state.sites = allowed
+            chosen = request.session.get(sites.SESSION_SITE_KEY)
+            site_id = sites.pick(allowed, chosen if isinstance(chosen, int) else None)
+            if site_id is None:
+                return
+            request.state.site_id = site_id
+            request.state.settings = store.for_site(site_id)
+            request.state.user = await sites.effective(pool, user, site_id)
+        except Exception:  # pragma: no cover -- logged, never fatal
+            log.exception("Could not settle which site this request is about")
+
     async def dispatch(self, request: Request, call_next):
         request.state.user = None
+        request.state.site_id = None
+        request.state.sites = []
+        request.state.settings = getattr(request.app.state, "settings", None)
         path = request.url.path
 
         pool = getattr(request.app.state, "pool", None)
@@ -87,6 +120,15 @@ class RequireSignIn(BaseHTTPMiddleware):
                 request.state.user = user
             else:
                 auth.sign_out(request)
+
+        # Which building this request is about, resolved once, here.
+        #
+        # Everything downstream reads it rather than working it out again: a
+        # page that resolved its own site could disagree with the one the
+        # header says is selected, and the visible half would be the one that
+        # was right. The role travels with it, because what somebody may do is
+        # a question about a building and not only about a person.
+        await self._choose_site(request, pool)
 
         # Checked before anything else looks at the request, and on public
         # paths too: the login form is public and is exactly the form somebody

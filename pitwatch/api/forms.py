@@ -18,6 +18,7 @@ from pitwatch.schemas import (
     ALERT_ORDER,
     AiSettings,
     AlertsSettings,
+    ChatSettings,
     ClampSource,
     ContactInput,
     GroundwaterSettings,
@@ -29,7 +30,6 @@ from pitwatch.schemas import (
     SiteSettings,
     SmsSettings,
     SmtpSettings,
-    SummarySettings,
     TideSettings,
     WeatherSettings,
 )
@@ -287,18 +287,14 @@ def smtp_from(form: FormData, existing: SmtpSettings) -> SmtpSettings:
     )
 
 
-def summary_from(form: FormData, existing: SummarySettings) -> SummarySettings:
-    """What this building asks for, and how often."""
-    return SummarySettings(
-        description=text(form, "summary_description"),
-        schedule=text(form, "summary_schedule", existing.schedule) or existing.schedule,
-        schedule_window=(
-            text(form, "summary_schedule_window", existing.schedule_window)
-            or existing.schedule_window
-        ),
-        schedule_at=text(form, "summary_schedule_at", existing.schedule_at) or existing.schedule_at,
-        notify=checkbox(form, "summary_notify"),
-    )
+def chat_from(form: FormData, existing: ChatSettings) -> ChatSettings:
+    """What the building tells the model about itself, and nothing else.
+
+    `existing` is unused and kept in the signature so this reads like every
+    other section's parser. There is one field and it is never a secret, so
+    there is nothing here to preserve across a save.
+    """
+    return ChatSettings(description=text(form, "chat_description"))
 
 
 def ai_from(form: FormData, existing: AiSettings) -> AiSettings:
@@ -310,16 +306,16 @@ def ai_from(form: FormData, existing: AiSettings) -> AiSettings:
     """
     # Same rule as every other secret: never rendered back to the browser, so an
     # empty box means leave it alone and there is a checkbox for clearing it.
-    key = text(form, "summary_api_key")
-    if checkbox(form, "summary_clear_key"):
+    key = text(form, "ai_api_key")
+    if checkbox(form, "ai_clear_key"):
         key = ""
     elif not key:
         key = existing.api_key
 
     return AiSettings(
         api_key=key,
-        model=text(form, "summary_model", existing.model) or existing.model,
-        base_url=text(form, "summary_base_url", existing.base_url) or existing.base_url,
+        model=text(form, "ai_model", existing.model) or existing.model,
+        base_url=text(form, "ai_base_url", existing.base_url) or existing.base_url,
     )
 
 

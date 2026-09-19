@@ -1303,31 +1303,6 @@ table.diagnostic .note {
    underneath. A spinner over a chart that redraws in 200 ms is a flash. */
 .charts.loading { opacity: 0.55; }
 
-/* When the summary was written and who by. Above the summary rather than under
-   it: a paragraph about a pump means something different if it is a week
-   old. */
-/* When it was written and what read it, on two lines. On a phone the whole of
-   it ran to three ragged lines with the model name broken across two of them,
-   which is the part somebody scans for. */
-.summary-when {
-  margin: 0 0 0.75rem;
-  color: var(--text-muted);
-  font-size: 0.8rem;
-}
-
-.summary-model { white-space: nowrap; }
-
-/* The picker and the button, which are one control: how much to read and then
-   read it. They stay on one line and wrap together when there is no room. */
-.summary-ask {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.summary-ask select { width: auto; }
-
 /* The tide card borrows the rain card's furniture, because they answer the
    same shape of question and two different layouts for "water, before and
    after now" would be two things to learn. Only the trace is its own. */
@@ -1344,13 +1319,83 @@ table.diagnostic .note {
 .tide-line-observed { stroke: var(--water); }
 .tide-line-predicted { stroke: var(--text-muted); opacity: 0.45; stroke-dasharray: 3 3; }
 
+/* The chat --------------------------------------------------------------- */
+
+/* The thread scrolls inside the card rather than the page.
+   A conversation somebody has kept going for a week is longer than a screen,
+   and a page that grows without limit puts the box you type in below the fold
+   on every visit. `contain: paint` for the same reason the wide tables have
+   it: what overflows is this element's business, not the document's. */
+.chat-thread {
+  max-height: min(60vh, 34rem);
+  overflow-y: auto;
+  contain: paint;
+  padding-right: 0.25rem;
+  margin-bottom: 1rem;
+}
+
+.chat-line { margin-bottom: 1.1rem; }
+
+.chat-who {
+  margin: 0 0 0.2rem;
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
 /* Paragraphs as they were written. Rendered as text and nothing else: this
    came from a model, and a model's output is not markup. */
-.summary-body {
+.chat-said {
   margin: 0;
   white-space: pre-wrap;
   line-height: 1.55;
 }
+
+/* The question is tinted and indented so a scan down the thread finds the
+   turns without reading them. Quiet rather than a coloured bubble: this is a
+   page of prose about a pump, not a messaging app. */
+.chat-user .chat-said {
+  padding: 0.6rem 0.8rem;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+
+.chat-empty { color: var(--text-muted); }
+
+.chat-starters {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  line-height: 1.7;
+}
+
+.chat-starters li { color: var(--text-muted); }
+
+/* The box and its two controls. The textarea takes the width and the window
+   picker sits with the button, because how much to read and asking are one
+   decision. */
+.chat-ask textarea {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+.chat-ask-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.chat-ask-foot select { width: auto; }
 
 /* Forms ------------------------------------------------------------------- */
 

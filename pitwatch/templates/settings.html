@@ -341,85 +341,44 @@
   </details>
 </section>
 
-{# What the health summary needs. The description is the half a model cannot
-   work out from the readings, and the key and base URL say what is being asked.
+{# What this building tells the model about itself.
 
-   "AI" stays in the name because a paragraph written by a model is read
-   differently from one written by the panel, and because where the base URL
-   points decides whether anything leaves the building at all. #}
+   One box, and it is the half a model cannot work out from the readings. The
+   account the question is asked through is PitWatch's and lives under "AI
+   model" below; what to say about this pit belongs to the pit.
+
+   The schedule, the window and the "email it to everybody" checkbox were here
+   and are gone. They wrote a paragraph nobody had asked for and mailed it
+   somewhere the reply could not go. #}
 <section class="card settings-section">
   <details name="settings">
-    <summary><h2>AI Health Summary</h2></summary>
-  <form method="post" action="/settings/summary" autocomplete="off">
+    <summary><h2>AI chat</h2></summary>
+  <form method="post" action="/settings/chat" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-    <p class="hint"><strong>What is sent</strong>, over a week or a month:
-      per pump per day, the runs and how long they lasted, the peak and running
-      amps, and how the load compares with four weeks before. The calls for
-      water, how many took both pumps or reached the high float, and the typical
-      gap between them. The rain each day. How often each panel contact closed
-      and when it last did. Whether each device is online. The pump and contact
-      names, and the prompt below.</p>
+    <p class="hint"><strong>What is sent</strong> with every question: this
+      description, then the readings over the window chosen on the chat page.
+      Per pump per day, the runs and how long they lasted, the peak and running
+      amps and how the load compares with four weeks before. The calls for
+      water, how many took both pumps or reached the high float, and the
+      typical spacing. Every individual call with its time and the gap before
+      it, which is what lets it answer a question about a particular afternoon
+      rather than only about a day. The rain, the tide and the water table if
+      they are switched on, and whether each device has been heard from.</p>
 
-    <p class="hint">Nothing else: no address, no site name, no coordinates, no
-      account names, and no individual readings. Where it goes is the API
-      address below.</p>
+    <p class="hint">No names, no addresses and no phone numbers. Nobody needs a
+      street address to say whether a pump is drawing more than it did last
+      week.</p>
 
     <div class="field">
-      <label for="summary_description">Context prompt</label>
-      <textarea id="summary_description" name="summary_description" rows="8"
-                >{{ summary.description }}</textarea>
-      <p class="hint">What the pit does, what the pumps are, how the panel is
-        set up, what has been repaired and when. Everything the readings cannot
-        say.</p>
+      <label for="chat_description">About this system</label>
+      <textarea id="chat_description" name="chat_description" rows="6"
+                placeholder="Two ejector pumps in a pit under the sidewalk. The check valve on pump 2 was replaced in the spring. The super empties the pit by hand when it storms.">{{ chat.description }}</textarea>
+      <p class="hint">The half a model cannot work out from the numbers. What
+        the pumps are, what has been repaired and when, anything odd about the
+        building. A check valve replaced in the spring changes what a rising
+        amp draw means, and nothing in a reading says it happened.</p>
     </div>
-
-    <h3>Write one on a schedule</h3>
-
-    <div class="grid">
-      <div class="field">
-        <label for="summary_schedule">How often</label>
-        <select id="summary_schedule" name="summary_schedule">
-          {% for value, title in schedule_choices %}
-          <option value="{{ value }}"
-                  {% if summary.schedule == value %}selected{% endif %}>{{ title }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label for="summary_schedule_window">Reading</label>
-        <select id="summary_schedule_window" name="summary_schedule_window">
-          {% for key, title in windows %}
-          <option value="{{ key }}"
-                  {% if summary.schedule_window == key %}selected{% endif %}>{{ title }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label for="summary_schedule_at">Time of day</label>
-        <input type="time" id="summary_schedule_at" name="summary_schedule_at"
-               value="{{ summary.schedule_at }}">
-      </div>
-    </div>
-
-    <p class="hint">A week read every 7 days is the useful one and is what
-      these start on; 30 days read every 30 days is a trend. The time is on the
-      building's clock, and one whose hour passed while this was down is written
-      when it comes back rather than skipped.</p>
-
-    <div class="field checkboxes">
-      <label>
-        <input type="checkbox" name="summary_notify"
-               {% if summary.notify %}checked{% endif %}>
-        Email it to everybody who takes information alerts
-      </label>
-    </div>
-
-    <p class="hint">Emailed rather than texted: this is four paragraphs, and
-      four paragraphs is several text messages on the channel that exists here
-      for two in the morning. Only the most recent summary is kept, so a
-      scheduled one replaces the one before it.</p>
-
 
     <button type="submit" class="button">Save</button>
   </form>
@@ -631,7 +590,7 @@
 
 <section class="card settings-section">
   <details name="settings">
-    <summary><h2>AI account</h2></summary>
+    <summary><h2>AI model</h2></summary>
   <form method="post" action="/settings/ai" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
@@ -641,13 +600,13 @@
 
     <div class="grid">
       <div class="field">
-        <label for="summary_api_key">API key</label>
-        <input type="password" id="summary_api_key" name="summary_api_key"
+        <label for="ai_api_key">API key</label>
+        <input type="password" id="ai_api_key" name="ai_api_key"
                autocomplete="new-password"
                placeholder="{% if ai.api_key %}unchanged{% else %}none set{% endif %}">
         {% if ai.api_key %}
         <label class="hint">
-          <input type="checkbox" name="summary_clear_key"> Clear the stored key
+          <input type="checkbox" name="ai_clear_key"> Clear the stored key
         </label>
         {% endif %}
         <p class="hint">Whatever the address below wants. A server on this
@@ -655,16 +614,16 @@
           protocol, bearer token included.</p>
       </div>
       <div class="field">
-        <label for="summary_model">Model</label>
-        <input type="text" id="summary_model" name="summary_model"
+        <label for="ai_model">Model</label>
+        <input type="text" id="ai_model" name="ai_model"
                value="{{ ai.model }}" placeholder="gpt-4o-mini">
         <p class="hint">Any model the address below can reach. A box rather
           than a list, because the list changes faster than this application
           does.</p>
       </div>
       <div class="field">
-        <label for="summary_base_url">API address</label>
-        <input type="text" id="summary_base_url" name="summary_base_url"
+        <label for="ai_base_url">API address</label>
+        <input type="text" id="ai_base_url" name="ai_base_url"
                value="{{ ai.base_url }}" placeholder="https://api.openai.com/v1">
         <p class="hint">Anything that speaks the same protocol, including
           something on this network. Point it at your own hardware and nothing

@@ -288,6 +288,7 @@ def render_settings(**overrides) -> str:
     from pitwatch.schemas import (
         DASHBOARD_ROLES,
         AiSettings,
+        ChatSettings,
         GroundwaterSettings,
         MqttSettings,
         PanelButtonSettings,
@@ -295,7 +296,6 @@ def render_settings(**overrides) -> str:
         SiteSettings,
         SmsSettings,
         SmtpSettings,
-        SummarySettings,
         TideSettings,
         WeatherSettings,
     )
@@ -317,7 +317,7 @@ def render_settings(**overrides) -> str:
         "pumps": PumpsSettings(),
         "smtp": SmtpSettings(),
         "sms": SmsSettings(),
-        "summary": SummarySettings(),
+        "chat": ChatSettings(),
         "ai": AiSettings(),
         "roles": DASHBOARD_ROLES,
         # Nothing to say without a database, which is the state this renderer
@@ -1894,7 +1894,7 @@ def test_the_header_has_one_of_each_icon():
     assert links == [
         "/",
         "/history",
-        "/summary",
+        "/chat",
         "/alerts",
         "/users",
         "/settings",
@@ -2280,64 +2280,21 @@ def test_the_charts_are_drawn_here_and_not_fetched_from_anywhere():
     assert "innerHTML" not in js
 
 
-def test_the_summary_page_says_what_it_needs_before_it_offers_the_button():
-    """A button that fails at the far end of a request is worse than no button,
-    whether or not the call costs anything."""
-    picker = {"windows": [("7d", "7 days")], "chosen": "7d", "read_over": ""}
-    nothing = render_page("summary.html", last=None, age="", ready=False, error=None, **picker)
-
-    assert "Create new summary" not in nothing
-    assert "settings" in nothing
-
-    ready = render_page("summary.html", last=None, age="", ready=True, error=None, **picker)
-
-    assert "Create new summary" in ready
-    # And the prompt is not on this page. It is a description of the building,
-    # set once and revisited when the building changes, so it lives with the
-    # key that asks and not under the reading it produced.
-    assert 'name="summary_description"' not in ready
-    assert "Context prompt" not in ready
-
-
-def test_a_written_summary_is_rendered_as_text_with_its_age():
-    """It came from a model. Whatever it says goes on the page as text, and the
-    page says when it was written: a paragraph about a pump means something
-    different if it is a week old."""
-    page = render_page(
-        "summary.html",
-        last={
-            "body": "Both pumps look <normal>.",
-            "model": "gpt-4o-mini",
-            "window_key": "7d",
-            "written_by": "david",
-        },
-        age="3 min ago",
-        ready=True,
-        error=None,
-    )
-
-    assert "3 min ago" in page
-    assert "david" in page and "gpt-4o-mini" in page
-    # Escaped, not rendered.
-    assert "&lt;normal&gt;" in page
-    assert "<normal>" not in page
-
-
 def test_the_openai_key_is_never_rendered_back():
     """Same rule as the broker password and the AWS secret. An empty box means
     leave it alone, and there is a checkbox for clearing it.
 
     The key is PitWatch's and the description is the building's, so the two
     halves of this box now come from two different settings objects."""
-    from pitwatch.schemas import AiSettings, SummarySettings
+    from pitwatch.schemas import AiSettings, ChatSettings
 
     page = render_settings(
         ai=AiSettings(api_key="sk-secret-value"),
-        summary=SummarySettings(description="A pit"),
+        chat=ChatSettings(description="A pit"),
     )
 
     assert "sk-secret-value" not in page
-    assert "summary_clear_key" in page
+    assert "ai_clear_key" in page
     assert "unchanged" in page
     # The description is not a secret and does come back, or editing it would
     # mean retyping it.
@@ -2347,11 +2304,11 @@ def test_the_openai_key_is_never_rendered_back():
 def test_the_summary_sends_the_description_and_the_numbers_and_nothing_else():
     """No address, no site name, no account names. Nobody needs a street
     address to say whether a pump is drawing more than it did last week."""
-    from pitwatch.schemas import SummarySettings
-    from pitwatch.summary import messages
+    from pitwatch.chat import messages
+    from pitwatch.schemas import ChatSettings
 
     numbers = {"pumps": [{"pump": 1, "name": "Pump 1", "runs_this_week": 12}]}
-    payload = messages(SummarySettings(description="Two pumps in a pit."), numbers)
+    payload = messages(ChatSettings(description="Two pumps in a pit."), numbers)
 
     assert [part["role"] for part in payload] == ["system", "user"]
     body = payload[1]["content"]
@@ -2368,10 +2325,10 @@ def test_a_check_needs_a_key_before_it_asks_anything():
     protocol."""
     import asyncio
 
+    from pitwatch.chat import ChatError, ask
     from pitwatch.schemas import AiSettings
-    from pitwatch.summary import SummaryError, ask
 
-    with pytest.raises(SummaryError) as raised:
+    with pytest.raises(ChatError) as raised:
         asyncio.run(ask(AiSettings(), [{"role": "user", "content": "hello"}]))
     assert "settings page" in str(raised.value)
 
@@ -2522,79 +2479,102 @@ def test_every_window_carries_the_english_it_is_read_in():
         assert not window.heading.startswith("The last The")
 
 
-def test_the_page_is_named_for_what_it_answers():
-    """It was "Summary", which undersold it, and then "Health Check", which
-    made a reading sound like a test with a pass and a fail. "AI" stays in the
-    name, because a paragraph written by a model is read differently from one
-    written by the panel."""
+def test_the_chat_page_is_named_for_what_it_does():
+    """It was "AI Health Summary", which named a paragraph rather than a
+    conversation. The settings section that configures it says the same."""
     page = render_page(
-        "summary.html",
+        "chat.html",
         ready=True,
-        last=None,
-        age="",
-        read_over="",
+        said=[],
+        not_ready="",
         windows=[("7d", "7 days")],
         chosen="7d",
         error=None,
     )
     settings = render_settings()
 
-    assert "AI Health Summary" in page
-    assert ">Create new summary<" in page
-    assert "AI Health Summary" in settings, "the section that configures it agrees"
-
-    # The note says it is an opinion rather than a measurement, which is the
-    # one thing separating it from every other number on this application.
-    note = page.split('id="note-summary"', 1)[1]
-    assert "not a measurement" in note
-    assert "No address" in note
+    assert "AI chat" in page
+    assert ">Ask<" in page
+    assert "AI chat" in settings, "the section that configures it agrees"
+    # And the account that pays for it is its own section, app wide.
+    assert "AI model" in settings
 
 
-def test_how_much_to_read_is_picked_beside_the_button():
-    """The same three windows the history page offers, so "a week" means one
-    thing in this application."""
-    from pitwatch.domain.series import WINDOWS
-
+def test_how_much_to_read_sits_with_the_ask_button():
+    """How much to read and asking are one decision, so they are one control."""
     page = render_page(
-        "summary.html",
+        "chat.html",
         ready=True,
-        last=None,
-        age="",
-        read_over="",
-        windows=[(key, window.title) for key, window in WINDOWS.items()],
+        said=[],
+        not_ready="",
+        windows=[("7d", "The last 7 days"), ("30d", "The last 30 days")],
         chosen="7d",
         error=None,
     )
 
-    for key, window in WINDOWS.items():
-        assert 'value="' + key + '"' in page, key
-        assert ">" + window.title + "<" in page, key
-    assert 'value="7d" selected' in page, "a week unless somebody says otherwise"
+    foot = page.split('class="chat-ask-foot"', 1)[1]
+    assert 'value="7d" selected' in foot, "a week unless somebody says otherwise"
+    assert 'value="30d"' in foot
+    assert ">Ask<" in foot
 
 
-def test_the_provenance_is_two_lines_and_not_three_ragged_ones():
-    """On a phone the whole of it ran to three lines with the model name broken
-    across two of them, which is the part somebody scans for."""
+def test_an_empty_thread_says_what_the_page_is_for():
+    """A blank page with a text box is a page nobody knows what to do with."""
     page = render_page(
-        "summary.html",
+        "chat.html",
         ready=True,
-        last={
-            "body": "Both pumps look normal.",
-            "model": "/models/Qwen3.6-27B-Q6_K.gguf",
-            "window_key": "7d",
-            "written_by": "admin",
-        },
-        age="1 min ago",
-        read_over="7 days of readings",
+        said=[],
+        not_ready="",
         windows=[("7d", "7 days")],
         chosen="7d",
         error=None,
     )
 
-    when = page.split('class="summary-when"', 1)[1].split("</p>", 1)[0]
-    assert "1 min ago by admin, from 7 days of readings." in when
-    assert when.count("<br>") == 1
-    assert "Generated using /models/Qwen3.6-27B-Q6_K.gguf." in when
+    assert "Nothing asked yet" in page
+    assert "chat-starters" in page
+    # No "start again" until there is something to start again from.
+    assert "/chat/clear" not in page
+
+
+def test_both_sides_of_the_conversation_are_drawn_and_neither_is_markup():
+    """A model's output is not markup. It is rendered as the text it is, with
+    the line breaks it came with."""
+    page = render_page(
+        "chat.html",
+        ready=True,
+        said=[
+            {"role": "user", "content": "is it slowing <b>down</b>?"},
+            {"role": "assistant", "content": "No.\n\nIt is steady."},
+        ],
+        not_ready="",
+        windows=[("7d", "7 days")],
+        chosen="7d",
+        error=None,
+    )
+
+    assert "chat-user" in page and "chat-assistant" in page
+    assert "&lt;b&gt;down&lt;/b&gt;" in page, "escaped, not rendered"
+    assert "<b>down</b>" not in page
+    assert "chat-said" in page
+    # And now there is a thread, there is a way to be rid of it.
+    assert "/chat/clear" in page
+
+
+def test_no_key_says_so_and_takes_the_box_away():
+    """A box that accepts a question and then fails is worse than one that
+    says why it cannot be used."""
+    page = render_page(
+        "chat.html",
+        ready=False,
+        said=[],
+        not_ready="Add an API key first.",
+        windows=[("7d", "7 days")],
+        chosen="7d",
+        error=None,
+    )
+
+    assert "Add an API key first." in page
+    assert page.count("disabled") >= 2, "the box and the button both"
 
 
 def test_the_history_page_is_charts_and_not_a_list_of_runs():

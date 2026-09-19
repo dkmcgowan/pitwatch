@@ -23,30 +23,68 @@ from datetime import UTC, datetime, timedelta
 import asyncpg
 import httpx2
 
-from pitwatch import domain
+from pitwatch import clock, domain
 from pitwatch.domain import series
 from pitwatch.domain import tides as tide_domain
 from pitwatch.domain import weather as weather_domain
 from pitwatch.domain.history import CurrentHistory
-from pitwatch.schemas import AiSettings, SummarySettings
+from pitwatch.schemas import AiSettings, ChatSettings
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
 
 # Long enough for a slow model on a busy afternoon, short enough that a browser
 # waiting on it has not given up first.
-TIMEOUT_S = 90.0
+#
+# Raised from 90 when the chat replaced the one shot summary. A summary was one
+# question against two thousand tokens; a chat is an arbitrary question against
+# twenty three thousand, and "has the pit been quieter in the afternoons than at
+# night" is a different amount of work from "summarize the week". Measured on a
+# local qwen3.8-27b: the easy ones came back in thirty to fifty seconds and that
+# one did not come back in ninety.
+TIMEOUT_S = 240.0
 
 # The window a check reads when nobody has chosen one. A week is long enough to
 # have a shape and short enough that a change in it is recent.
 WINDOW = series.WINDOWS["7d"]
 
-# How many are kept. One. Every check used to be, on the reasoning that what it
-# said in August is the interesting question later; in practice the way to
-# answer a question about August is to ask for August, which the window picker
-# now does, and a stack of paragraphs nobody opened was a page and a table
-# earning nothing.
-KEEP = 1
+
+# What the whole request is allowed to cost, in tokens.
+#
+# Not a cap on any one part. The first version of this capped the number of
+# calls, at six thousand, which was a number standing in for a token budget and
+# fooling nobody: it said nothing about the conversation, which grows without
+# limit, and nothing about a description somebody has written three pages of.
+# Counting the whole request is the only cap that means anything.
+#
+# 100,000 against this model's 160,000 leaves room for the answer and for the
+# estimate below being wrong by a third.
+BUDGET_TOKENS = 100_000
+
+# Roughly four characters to a token, for English prose and for a table of
+# numbers alike. Deliberately a rule of thumb rather than a tokenizer: the
+# model is whatever the base URL points at, so the exact count is unknowable
+# from here, and the budget's job is to stay well clear of a limit rather than
+# to land exactly on it.
+PER_TOKEN = 4
+
+# How much of what is left the conversation may take, once the readings are in.
+#
+# The readings come first because they are what the questions are about and are
+# rebuilt fresh every time. But a chat that forgets the last thing it said is
+# not a chat, so the recent turns are reserved before the calls are poured in.
+HISTORY_SHARE = 0.25
+
+
+# Held back from the calls' share for the prose around the table: the sentence
+# describing the columns, and the one saying how many calls were left out.
+ABOUT_THE_TABLE = 200
+
+
+def tokens(text: str) -> int:
+    """About how many tokens that is. See PER_TOKEN."""
+    return len(text) // PER_TOKEN
+
 
 # Said in one place, because the page draws it and the post refuses with it.
 NOT_READY = "Add an API key and a model on the settings page first."
@@ -118,9 +156,11 @@ def instructions(window: str) -> str:
     """
     return (
         f"You are reading {window} of monitoring data from a duplex ejector "
-        "pump panel in a building, for the person responsible for keeping it "
-        "running. Say whether the system looks healthy, what changed over that "
-        "period, and anything worth watching or acting on. Be specific and use "
+        "pump panel in a building, and answering questions about it for the "
+        "person responsible for keeping it running. Where no question has been "
+        "asked yet, say whether the system looks healthy, what changed over "
+        "that period, and anything worth watching or acting on. Be specific "
+        "and use "
         "the numbers. Where the data is too thin to support a conclusion, say "
         "so plainly rather than hedging. Never invent a reading that is not in "
         "the data. Where rainfall is given, read the pit against it: a busy "
@@ -128,8 +168,14 @@ def instructions(window: str) -> str:
         "different findings. Where tide is given, read it against that too: a "
         "pit near tidal water fills with the water table, so a rise in calls "
         "that tracks high water is groundwater rather than anything in the "
-        "building. Four short paragraphs at most, plain text, no headings and "
-        "no bullet points."
+        "building. Answer the question that was asked, at the length it "
+        "deserves: one line for a question with a one line answer, four short "
+        "paragraphs at most for an open one.\n\n"
+        "Write plain text. No markdown of any kind: no asterisks for emphasis, "
+        "no headings, no bullet points, no backticks. What you write is "
+        "rendered as the characters you send, because output from a model is "
+        "not markup and will not be treated as any, so a pair of asterisks "
+        "reaches the reader as a pair of asterisks."
     )
 
 
@@ -346,25 +392,108 @@ async def facts(app, store: SettingsStore, window: series.Window = WINDOW) -> di
     }
 
 
-def messages(settings: SummarySettings, numbers: dict) -> list[dict]:
+def messages(
+    settings: ChatSettings,
+    numbers: dict,
+    history: list[dict] | None = None,
+    every_call: list[dict] | None = None,
+    budget: int = BUDGET_TOKENS,
+) -> list[dict]:
+    """The whole request: what to be, what is true, and what has been said.
+
+    The readings go in as one message ahead of the conversation rather than
+    being folded into the system prompt, so that a long thread still has the
+    numbers in front of it and the model is not answering question eleven from
+    memory of question one.
+
+    Rebuilt on every request, never stored. A stored prompt freezes a
+    description somebody has since corrected and freezes the readings to
+    whatever they were that afternoon, and both would then quietly be wrong.
+
+    **Everything here is fitted to a budget.** Three of the four parts grow
+    without a natural limit: a description somebody keeps adding to, a
+    conversation somebody keeps going, and a window of calls on a busy pit. The
+    first version of this sent them all and was refused by the model at 160,001
+    tokens on the very first question. What cannot be cut is the system prompt,
+    the description and the per-day rollups; those are small and they are the
+    difference between an answer and a shrug. What gets cut, in order, is the
+    oldest turns of the conversation and then the oldest calls.
+    """
     described = settings.description.strip() or (
         "No description of the system has been written on the settings page."
     )
+    system = instructions(numbers.get("window") or "a week")
+    preamble = (
+        "This is the system, described by the person who looks after it:\n\n"
+        f"{described}\n\n"
+        "These are the readings:\n\n"
+        f"{json.dumps(numbers, indent=1, sort_keys=True)}"
+    )
+
+    left = budget - tokens(system) - tokens(preamble)
+
+    # The conversation first, newest backwards, up to its share of what is
+    # left. A chat that has forgotten the last thing it said is not a chat.
+    kept: list[dict] = []
+    for turn in reversed(history or []):
+        cost = tokens(turn["content"])
+        if cost > left * HISTORY_SHARE:
+            break
+        kept.insert(0, turn)
+        left -= cost
+
+    # Then the calls, newest backwards, into whatever is left. ABOUT_THE_TABLE
+    # is held back for the two paragraphs that explain the columns and say what
+    # was left out, which are written after the fitting and would otherwise
+    # push the request over the line it was just fitted to.
+    listed, dropped = _calls_that_fit(every_call or [], left - ABOUT_THE_TABLE)
+    if listed:
+        preamble += (
+            "\n\nEvery call for water in the window, one per line. "
+            "`gap_min` is the minutes since the call before it, blank on the "
+            "first; `ran_s` is how long the pump ran; `both_pumps` and "
+            "`high_water` are 1 when true and blank otherwise."
+        )
+        if dropped:
+            # Said out loud. Without it a model reads the first listed call as
+            # the first call there was and reports that the pit sat idle for
+            # the earlier half of the window.
+            preamble += (
+                f"\n\nOnly the most recent {len(listed)} of {len(listed) + dropped} "
+                "calls are listed, to stay inside the request size. The per-day "
+                "figures above cover the whole window."
+            )
+        preamble += f"\n\n{table(listed)}"
+
     return [
-        {"role": "system", "content": instructions(numbers.get("window") or "a week")},
-        {
-            "role": "user",
-            "content": (
-                "This is the system, described by the person who looks after it:\n\n"
-                f"{described}\n\n"
-                "These are the readings:\n\n"
-                f"{json.dumps(numbers, indent=1, sort_keys=True)}"
-            ),
-        },
+        {"role": "system", "content": system},
+        {"role": "user", "content": preamble},
+        *kept,
     ]
 
 
-class SummaryError(RuntimeError):
+def _calls_that_fit(rows: list[dict], budget: int) -> tuple[list[dict], int]:
+    """As many of the newest calls as the budget allows, and how many went.
+
+    Measured by rendering rather than by estimating a cost per row. An estimate
+    is what put the first version 3,212 tokens over its own budget: the header
+    line skews a per-row average, and the sentence explaining the truncation is
+    written after the arithmetic that decided on it. Rendering the candidate
+    and asking how big it is cannot be wrong in that way, and it costs a few
+    string joins on a request that is about to wait thirty seconds for a model.
+    """
+    if not rows or budget <= 0:
+        return [], len(rows)
+
+    keep = len(rows)
+    while keep and tokens(table(rows[-keep:])) > budget:
+        # Ten percent at a time down to the last few, which converges in about
+        # forty passes from twenty thousand rows.
+        keep = keep * 9 // 10 if keep > 10 else keep - 1
+    return rows[-keep:], len(rows) - keep
+
+
+class ChatError(RuntimeError):
     """Something a person can act on, ready to put on the page."""
 
 
@@ -377,7 +506,7 @@ async def ask(settings: AiSettings, payload: list[dict]) -> str:
     is a summary that fails for no reason.
     """
     if not settings.ready:
-        raise SummaryError(NOT_READY)
+        raise ChatError(NOT_READY)
 
     url = settings.base_url.rstrip("/") + "/chat/completions"
     try:
@@ -387,8 +516,17 @@ async def ask(settings: AiSettings, payload: list[dict]) -> str:
                 headers={"Authorization": f"Bearer {settings.api_key}"},
                 json={"model": settings.model, "messages": payload},
             )
+    except httpx2.TimeoutException as error:
+        # Said as a timeout rather than as "could not reach", which is what it
+        # used to say with an empty reason after it: httpx gives a read timeout
+        # no message at all, so the page showed a colon and then nothing.
+        raise ChatError(
+            f"The model at {url} did not answer within {TIMEOUT_S:.0f} seconds. "
+            "The question is still in the conversation; ask again, or ask a "
+            "narrower one."
+        ) from error
     except httpx2.HTTPError as error:
-        raise SummaryError(f"Could not reach {url}: {error}") from error
+        raise ChatError(f"Could not reach {url}: {error}") from error
 
     try:
         body = response.json()
@@ -399,94 +537,221 @@ async def ask(settings: AiSettings, payload: list[dict]) -> str:
         said = ""
         if isinstance(body.get("error"), dict):
             said = str(body["error"].get("message") or "")
-        raise SummaryError(said or f"{url} answered {response.status_code}.")
+        raise ChatError(said or f"{url} answered {response.status_code}.")
 
     try:
         written = body["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError):
-        raise SummaryError("The reply did not contain a summary.") from None
+        raise ChatError("The reply did not contain a summary.") from None
 
     written = (written or "").strip()
     if not written:
-        raise SummaryError("The model returned nothing.")
+        raise ChatError("The model returned nothing.")
     return written
 
 
-async def write(
-    app, store: SettingsStore, username: str, window: series.Window | None = None
-) -> dict:
-    """Build the numbers, ask, and keep both."""
-    # Two scopes. What to say about this building, and whose account says it.
-    settings = store.summary
-    account = store.ai
-    window = window or WINDOW
-    numbers = await facts(app, store, window)
-    body = await ask(account, messages(settings, numbers))
+# One line per call for water, on top of the daily rollups.
+#
+# Measured against a month of real data: 2,461 calls is about twelve thousand
+# tokens, next to two thousand for the rollups alone. Nine percent of a 150k
+# window buys the difference between a model that can say "333 calls yesterday"
+# and one that can answer "what happened on Friday at half past ten", which is
+# the question people actually arrive with.
+#
+# Amp readings are deliberately not here. There are 137,000 of them in a month,
+# about 690,000 tokens, and they say nothing per-reading that the per-run peak
+# and steady figures do not say already.
+EVERY_CALL = """
+SELECT c.started_at,
+       round(extract(epoch FROM c.started_at
+             - lag(c.started_at) OVER (ORDER BY c.started_at))) AS gap_s,
+       c.both_ran,
+       c.high_water,
+       r.pump,
+       round(r.duration_s::numeric, 1) AS ran_s
+FROM pump_cycle c
+LEFT JOIN LATERAL (
+    SELECT pump, duration_s FROM pump_run
+    WHERE cycle_id = c.id ORDER BY started_at LIMIT 1
+) r ON true
+WHERE c.site_id = $1 AND c.started_at > now() - $2::interval
+ORDER BY c.started_at
+"""
 
-    row = await app.state.pool.fetchrow(
+
+def table(rows: list[dict]) -> str:
+    """The calls as a table, not as a list of objects.
+
+    Measured, because the first version of this shipped as JSON and blew the
+    model's context window on the first question: 2,453 calls came to 80,000
+    tokens as one object per call, 63,000 compact, and 20,000 as this. A key
+    repeated 2,453 times is 2,453 copies of the key.
+    """
+    lines = ["at,gap_min,pump,ran_s,both_pumps,high_water"]
+    for row in rows:
+        lines.append(
+            "{},{},{},{},{},{}".format(
+                row["at"],
+                "" if row["gap_min"] is None else row["gap_min"],
+                row["pump"] or "",
+                "" if row["ran_s"] is None else row["ran_s"],
+                1 if row["both_pumps"] else "",
+                1 if row["high_water"] else "",
+            )
+        )
+    return "\n".join(lines)
+
+
+async def calls(pool: asyncpg.Pool, site_id: int, window: series.Window, zone: str) -> list[dict]:
+    """Every call for water in the window, with the gap before it.
+
+    The gap is the useful column and it is computed here rather than left to
+    the model to subtract: a list of timestamps is a list of timestamps, and
+    the question is nearly always about the spacing.
+    """
+    try:
+        rows = await pool.fetch(EVERY_CALL, site_id, window.span)
+    except (asyncpg.PostgresError, OSError) as error:
+        log.warning("Could not read the calls for the chat: %s", error)
+        return []
+    return [
+        {
+            "at": clock.local(row["started_at"], zone).strftime("%Y-%m-%d %H:%M:%S"),
+            "gap_min": (None if row["gap_s"] is None else round(float(row["gap_s"]) / 60.0, 1)),
+            "pump": row["pump"],
+            "ran_s": None if row["ran_s"] is None else float(row["ran_s"]),
+            "both_pumps": row["both_ran"],
+            "high_water": row["high_water"],
+        }
+        for row in rows
+    ]
+
+
+# -- the transcript ----------------------------------------------------------
+#
+# One thread per person per building. Appended to and read back in order, and
+# never edited: it is a record of what was asked and what came back.
+
+# How much of a thread is sent back to the model.
+#
+# Not the whole of it forever. A thread somebody has kept going for a month is
+# mostly stale, the readings ahead of it are rebuilt fresh every time anyway,
+# and the tail is what the next answer depends on. Pairs, so a reply is never
+# sent without the question it answered.
+REMEMBER = 40
+
+
+async def transcript(
+    pool: asyncpg.Pool, site_id: int, user_id: int, limit: int = REMEMBER
+) -> list[dict]:
+    """The tail of this person's thread in this building, oldest first."""
+    rows = await pool.fetch(
         """
-        INSERT INTO summary (site_id, window_key, model, body, facts, context, written_by)
-        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
-        RETURNING id, created_at, window_key, model, body, context, written_by
-        """,
-        store.site_id,
-        window.key,
-        account.model,
-        body,
-        json.dumps(numbers),
-        settings.description.strip(),
-        username,
-    )
-    # Everything before this one goes. There is one summary and it is the one on
-    # the page, so a row nothing can reach is a row nothing should keep: the
-    # readings it was built from are still in em_sample and pump_run, which is
-    # where a question about last month is answered from anyway.
-    await app.state.pool.execute(
-        "DELETE FROM summary WHERE site_id = $1 AND id <> $2", store.site_id, row["id"]
-    )
-    log.info("%s wrote a summary over %s with %s", username, window.title, account.model)
-    return dict(row)
-
-
-async def latest(pool: asyncpg.Pool, site_id: int) -> dict | None:
-    row = await pool.fetchrow(
-        """
-        SELECT id, created_at, window_key, model, body, context, written_by
-        FROM summary
-        WHERE site_id = $1
-        ORDER BY created_at DESC
-        LIMIT 1
+        SELECT role, content, created_at FROM (
+            SELECT id, role, content, created_at FROM chat_message
+            WHERE site_id = $1 AND user_id = $2
+            ORDER BY created_at DESC, id DESC LIMIT $3
+        ) tail ORDER BY created_at, id
         """,
         site_id,
+        user_id,
+        limit,
     )
-    return dict(row) if row else None
+    return [
+        {"role": row["role"], "content": row["content"], "at": row["created_at"]} for row in rows
+    ]
 
 
-def age(created_at: datetime | None) -> str:
-    """How long ago, in the same words the dashboard uses."""
-    if created_at is None:
-        return ""
-    seconds = max(0, int((datetime.now(UTC) - created_at).total_seconds()))
-    if seconds < 60:
-        return "just now"
-    if seconds < 3600:
-        return f"{round(seconds / 60)} min ago"
-    if seconds < 86400:
-        return f"{round(seconds / 3600)} h ago"
-    return f"{round(seconds / 86400)} d ago"
+def paired(thread: list[dict]) -> list[dict]:
+    """Only the turns that were answered.
+
+    A question whose call failed stays in the thread on purpose, so nobody
+    loses what they typed. It must not be sent back to the model, though: two
+    user turns in a row is a malformed conversation, and it was observed doing
+    real harm. Four unanswered questions had piled up during testing and the
+    next answer opened "with no telemetry supplied here, I can't determine how
+    the pit behaved" -- with twenty three thousand tokens of telemetry sitting
+    directly above them.
+
+    So what goes back is complete pairs, and the unanswered ones stay on the
+    page where the person who typed them can see them.
+    """
+    kept: list[dict] = []
+    for i, line in enumerate(thread):
+        following = thread[i + 1] if i + 1 < len(thread) else None
+        if line["role"] == "user" and (following is None or following["role"] != "assistant"):
+            continue
+        kept.append(line)
+    return kept
+
+
+async def remember(pool: asyncpg.Pool, site_id: int, user_id: int, role: str, content: str) -> None:
+    await pool.execute(
+        "INSERT INTO chat_message (site_id, user_id, role, content) VALUES ($1, $2, $3, $4)",
+        site_id,
+        user_id,
+        role,
+        content,
+    )
+
+
+async def forget(pool: asyncpg.Pool, site_id: int, user_id: int) -> None:
+    """Start again. Only ever this person's thread in this building."""
+    await pool.execute(
+        "DELETE FROM chat_message WHERE site_id = $1 AND user_id = $2", site_id, user_id
+    )
+
+
+async def reply(app, store: SettingsStore, user_id: int, asked: str, window=None) -> str:
+    """Ask the model, with the readings and the thread, and keep both sides.
+
+    The question is written down before the call and the answer after it, so a
+    model that times out leaves the question in the thread rather than losing
+    what somebody typed.
+    """
+    pool: asyncpg.Pool = app.state.pool
+    site_id = store.site_id
+    window = window or WINDOW
+
+    numbers = await facts(app, store, window)
+    every_call = await calls(pool, site_id, window, store.site.timezone)
+
+    before = await transcript(pool, site_id, user_id)
+    await remember(pool, site_id, user_id, "user", asked)
+
+    said = await ask(
+        store.ai,
+        messages(
+            store.chat,
+            numbers,
+            [
+                *paired([{"role": row["role"], "content": row["content"]} for row in before]),
+                {"role": "user", "content": asked},
+            ],
+            every_call,
+        ),
+    )
+    await remember(pool, site_id, user_id, "assistant", said)
+    log.info("Chat reply for site %s user %s over %s", site_id, user_id, window.title)
+    return said
 
 
 __all__ = [
-    "KEEP",
     "NOT_READY",
-    "SummaryError",
-    "age",
+    "REMEMBER",
+    "ChatError",
     "ask",
+    "calls",
     "facts",
+    "forget",
     "instructions",
-    "latest",
     "messages",
+    "paired",
     "rainfall",
+    "remember",
+    "reply",
+    "table",
     "tide",
-    "write",
+    "tokens",
+    "transcript",
 ]

@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% set active = 'chat' %}
+{% block title %}AI chat{% endblock %}
+
+{% block content %}
+
+{% if error %}
+<p class="error" role="alert">{{ error }}</p>
+{% endif %}
+
+<section class="card chat">
+  <div class="card-head">
+    <h2 class="section-heading">Ask the readings</h2>
+    {% if said %}
+    {# A real dialog rather than the browser's box. See wireConfirms in
+       setup.js. Only this person's thread in this building goes. #}
+    <form method="post" action="/chat/clear" class="inline"
+          data-confirm="Clear this conversation? Only yours, and only for this building.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {# "Clear conversation" rather than "Start again", which read as a
+         suggestion rather than as the button that deletes the thread. #}
+      <button type="submit" class="button secondary">Clear conversation</button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% if not ready %}
+  <p class="hint">{{ not_ready }}</p>
+  {% endif %}
+
+  {# The transcript, oldest first, so the newest answer is nearest the box you
+     type in. An empty thread says what this is for rather than nothing: a
+     blank page with a text box is a page nobody knows what to do with. #}
+  <div class="chat-thread" data-chat-thread>
+    {% if not said %}
+    <div class="chat-empty">
+      <p>Nothing asked yet. This sends the readings over the window below,
+        along with what the settings page says about this building, and then
+        answers questions about them.</p>
+      <p class="hint">Things it can see: every call for water with the gap
+        before it, each pump's runs and how long they lasted, the amp draw and
+        how it compares with four weeks ago, the floats and the alarm, and the
+        rain, tide and water table where they are switched on.</p>
+      <ul class="chat-starters">
+        <li>What does the last week look like, and is anything worth attention?</li>
+        <li>When was the longest gap between calls, and when was the shortest?</li>
+        <li>Is the pit busier at night than during the day?</li>
+        <li>Is either pump drawing more than it used to?</li>
+      </ul>
+    </div>
+    {% endif %}
+
+    {% for line in said %}
+    <article class="chat-line chat-{{ line.role }}">
+      <p class="chat-who">{{ "You" if line.role == "user" else "PitWatch" }}</p>
+      <div class="chat-said">{{ line.content }}</div>
+    </article>
+    {% endfor %}
+  </div>
+
+  <form method="post" action="/chat" class="chat-ask" data-chat-form>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="visually-hidden" for="asked">Your question</label>
+    <textarea id="asked" name="asked" rows="2" required
+              placeholder="Ask about the readings..."
+              {% if not ready %}disabled{% endif %}></textarea>
+    <div class="chat-ask-foot">
+      <label class="visually-hidden" for="window">How much to read</label>
+      <select id="window" name="window">
+        {% for key, title in windows %}
+        <option value="{{ key }}" {% if key == chosen %}selected{% endif %}>{{ title }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="button" {% if not ready %}disabled{% endif %}>Ask</button>
+    </div>
+  </form>
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/chat.js?v={{ version }}"></script>
+{% endblock %}

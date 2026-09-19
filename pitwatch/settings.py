@@ -22,6 +22,7 @@ from pitwatch.config import Config
 from pitwatch.schemas import (
     AiSettings,
     AlertsSettings,
+    ChatSettings,
     GroundwaterSettings,
     MqttSettings,
     PanelButtonSettings,
@@ -29,7 +30,6 @@ from pitwatch.schemas import (
     SiteSettings,
     SmsSettings,
     SmtpSettings,
-    SummarySettings,
     TideSettings,
     WeatherSettings,
 )
@@ -227,8 +227,9 @@ class SettingsStore:
         return self.get(SmsSettings)
 
     @property
-    def summary(self) -> SummarySettings:
-        return self.get(SummarySettings)
+    def chat(self) -> ChatSettings:
+        """What this building says about itself, for the model to read."""
+        return self.get(ChatSettings)
 
     @property
     def ai(self) -> AiSettings:

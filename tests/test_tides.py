@@ -136,10 +136,10 @@ async def test_a_gauge_that_stopped_reporting_says_nothing_rather_than_something
     assert tide.surge is None
 
 
-async def test_high_and_low_water_per_day_for_the_summary(pool, store):
+async def test_high_and_low_water_per_day_for_the_chat(pool, store):
     """Cut on the site's own midnight, the same as the calls and the rain, so a
     day of tide and a day of pumping describe the same hours."""
-    from pitwatch import summary
+    from pitwatch import chat
 
     await store.put(SiteSettings(timezone="America/New_York", latitude=40.74, longitude=-74.01))
     await store.put(TideSettings(enabled=True, station="8518750", station_name="The Battery, NY"))
@@ -151,7 +151,7 @@ async def test_high_and_low_water_per_day_for_the_summary(pool, store):
         rows.append(tides.Reading(ts=when, observed=3.0 + 2.8 * math.cos(step / 20), predicted=3.0))
     await _readings(pool, rows)
 
-    sent = await summary.tide(pool, store, summary.WINDOW, "America/New_York")
+    sent = await chat.tide(pool, store, chat.WINDOW, "America/New_York")
 
     assert sent is not None
     assert sent["units"] == "ft"
@@ -165,12 +165,12 @@ async def test_high_and_low_water_per_day_for_the_summary(pool, store):
 async def test_a_pit_with_no_station_is_sent_no_tide_column(pool, store):
     """Most installations. A pit in the middle of a county has no tide and
     should not be handed a column of nulls to explain."""
-    from pitwatch import summary
+    from pitwatch import chat
 
     await store.put(SiteSettings(timezone="America/New_York"))
     await store.put(TideSettings())
 
-    assert await summary.tide(pool, store, summary.WINDOW, "America/New_York") is None
+    assert await chat.tide(pool, store, chat.WINDOW, "America/New_York") is None
 
 
 def test_the_poll_is_often_enough_that_a_reading_still_counts_as_current():

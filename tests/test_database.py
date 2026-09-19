@@ -582,7 +582,13 @@ async def test_the_history_ignores_contacts_opening(pool):
 
     closings = await SignalHistory().closings(pool, 1, [6])
 
-    assert closings[6].today == 2
+    # Counted by the month rather than by today. The claim is "two closings,
+    # not four", and the month window says that on any run; `today` starts at
+    # local midnight, so between midnight and ten past this asserted against a
+    # window the events had already fallen out of. Found at 00:03 UTC, and it
+    # had been true on main the whole time. The `today` counter keeps its own
+    # test above, where the fixture is built around the boundary on purpose.
+    assert closings[6].month == 2
 
 
 async def test_the_typical_load_leaves_out_the_start_of_each_run(pool):
@@ -886,24 +892,6 @@ async def test_a_contact_closed_before_the_window_still_counts(pool):
     assert len(spans[4]) == 1
     opened, shut = spans[4][0]
     assert (shut - opened) == pytest.approx(timedelta(minutes=2), abs=timedelta(seconds=5))
-
-
-async def test_a_summary_keeps_the_numbers_it_was_given(pool):
-    """A summary read a month later is an opinion unless what it was looking at
-    is beside it."""
-    import json
-
-    row = await pool.fetchrow(
-        """
-        INSERT INTO summary (site_id, window_key, model, body, facts, written_by)
-        VALUES (1, '7d', 'gpt-4o-mini', 'Both pumps look normal.', $1::jsonb, 'david')
-        RETURNING id, created_at, facts
-        """,
-        json.dumps({"pumps": [{"pump": 1, "runs_this_week": 12}]}),
-    )
-
-    assert row["created_at"] is not None
-    assert json.loads(row["facts"])["pumps"][0]["runs_this_week"] == 12
 
 
 # -- runs recorded from the panel's own contacts -----------------------------
@@ -1320,7 +1308,9 @@ async def test_a_closing_carries_how_long_it_was_held(pool):
 
     closings = await SignalHistory().closings(pool, 1, [5])
 
-    assert closings[5].today == 2
+    # By the month, for the reason given in the opening-contacts test above:
+    # this is about the duration, and `today` would make it about the clock.
+    assert closings[5].month == 2
     assert closings[5].last_held_s == pytest.approx(16.0), "the latest, not the longest"
     assert closings[5].last_on == began + timedelta(minutes=5)
 

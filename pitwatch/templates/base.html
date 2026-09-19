@@ -60,13 +60,13 @@
        title="History" aria-label="History">
       <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-chart"/></svg>
     </a>
-    {# Writing one spends money on somebody's OpenAI account, which is why this
-       used to be an administrator's page. The page holds a gate instead: a
-       summary can only be written when there is a week of readings it has not
-       seen, or somebody has changed what was written about the building. #}
-    <a href="/summary" class="icon-link {% if active == 'summary' %}active{% endif %}"
-       title="AI Health Summary" aria-label="AI Health Summary">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-summary"/></svg>
+    {# Ask the readings a question. Open to anybody signed in: it spends money
+       on PitWatch's account with every message, which was the argument for
+       holding it behind the owner until the base URL could point at a model
+       running on the same network. #}
+    <a href="/chat" class="icon-link {% if active == 'chat' %}active{% endif %}"
+       title="AI chat" aria-label="AI chat">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-chat"/></svg>
     </a>
     {% endif %}
 

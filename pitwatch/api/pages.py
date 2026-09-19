@@ -20,13 +20,13 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import ValidationError
 
 from pitwatch import auth, clock
-from pitwatch import summary as summaries
+from pitwatch import chat as chats
 from pitwatch.api import forms
 from pitwatch.domain import alerts as alert_specs
 from pitwatch.domain import diagnostics, series, sites
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
-from pitwatch.schemas import DASHBOARD_ROLES, SCHEDULE_CHOICES, SUMMARY_WINDOWS
+from pitwatch.schemas import CHAT_WINDOWS, DASHBOARD_ROLES
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -46,10 +46,9 @@ def _context(request: Request, **extra) -> dict:
         # empty dropdowns rather than an error. The same argument for the two
         # below: a dropdown with no options posts nothing and looks fine.
         "roles": DASHBOARD_ROLES,
-        # Not every window the history page draws: a summary reads a week or a
+        # Not every window the history page draws: the chat reads a week or a
         # month, because a model handed one day has nothing to compare it to.
-        "windows": [(key, series.WINDOWS[key].title) for key in SUMMARY_WINDOWS],
-        "schedule_choices": SCHEDULE_CHOICES,
+        "windows": [(key, series.WINDOWS[key].title) for key in CHAT_WINDOWS],
         **extra,
     }
 
@@ -149,7 +148,7 @@ async def settings_page(
             pumps=store.pumps,
             smtp=store.smtp,
             sms=store.sms,
-            summary=store.summary,
+            chat=store.chat,
             ai=store.ai,
             weather=store.weather,
             tide=store.tide,
@@ -299,15 +298,14 @@ async def alerts_save(request: Request, admin: auth.IsAdmin):
     return RedirectResponse("/alerts/settings?saved=1", status_code=303)
 
 
-# -- history and the written summary -----------------------------------------
+# -- history and the chat -----------------------------------------------------
 #
-# History is for everybody. It is the same data the dashboard shows, over time,
-# and there is nothing on it somebody who can read the dashboard should not
-# see.
-#
-# The summary is not. Writing one spends money on an OpenAI account and hands
-# a description of the building to somebody else's model, and both of those are
-# the owner's decision rather than a page anybody signed in can press.
+# Both are for everybody signed in. History is the same data the dashboard
+# shows, over time, and there is nothing on it somebody who can read the
+# dashboard should not see. The chat spends money on PitWatch's account with
+# every message, which was once the argument for holding it behind the owner,
+# and stopped being one the day the base URL could point at a model running on
+# the same network.
 
 
 @router.get("/history", include_in_schema=False)
@@ -315,65 +313,64 @@ async def history_page(request: Request, user: auth.SignedIn):
     return _templates(request).TemplateResponse(request, "history.html", _context(request))
 
 
-# Not an administrator's page. It was one because every run spends money on an
-# OpenAI account, and that stopped being the deciding fact once this could be
-# pointed at a model running on the same network.
-@router.get("/summary", include_in_schema=False)
-async def summary_page(request: Request, user: auth.SignedIn, error: str | None = None):
+# The chat. Open to anybody signed in, the same door the written summary had.
+#
+# It replaced a page that produced one paragraph on a button and emailed it.
+# The paragraph answered a question nobody had asked and arrived with nowhere
+# to put the follow up, which is where every real question starts.
+
+
+@router.get("/chat", include_in_schema=False)
+async def chat_page(request: Request, user: auth.SignedIn, error: str | None = None):
     store: SettingsStore = sites.store_for(request)
-    last = await summaries.latest(request.app.state.pool, store.site_id)
     return _templates(request).TemplateResponse(
         request,
-        "summary.html",
+        "chat.html",
         _context(
             request,
-            last=last,
-            age=summaries.age(last["created_at"]) if last else "",
-            # The window it read, in words. The key is what is stored, because
-            # a stored label is a label that goes stale the day one is renamed.
-            read_over=_read_over(last["window_key"]) if last else "",
-            # The one it last read, so pressing again repeats rather than
-            # silently going back to a week.
-            chosen=(last["window_key"] if last else summaries.WINDOW.key),
-            # Whether PitWatch has an account to ask through at all, which
-            # is not a fact about this building.
+            said=await chats.transcript(request.app.state.pool, store.site_id, user.id),
+            # Whether PitWatch has an account to ask through at all, which is
+            # not a fact about this building.
             ready=store.ai.ready,
+            not_ready=chats.NOT_READY,
+            chosen=chats.WINDOW.key,
             error=error,
         ),
     )
 
 
-def _read_over(key: str) -> str:
-    """What the summary read, as the end of "written from ...".
-
-    "7 days of readings" and "30 days of readings" both work off the title;
-    "today of readings" does not, which is what comes out of assuming the three
-    labels are the same part of speech.
-    """
-    window = series.WINDOWS.get(key)
-    if window is None:
-        return key
-    return "today's readings" if window.from_midnight else f"{window.title} of readings"
-
-
-@router.post("/summary", include_in_schema=False)
-async def summary_write(request: Request, user: auth.SignedIn):
+@router.post("/chat", include_in_schema=False)
+async def chat_say(request: Request, user: auth.SignedIn):
+    """One question, one answer, both written down."""
     form = await request.form()
     store: SettingsStore = sites.store_for(request)
-    # Today is resolved against the building's clock here, the same as it is for
-    # the history page, so the two mean the same day.
-    asked = str(form.get("window") or "")
+    asked = str(form.get("asked") or "").strip()
+    if not asked:
+        return RedirectResponse("/chat", status_code=303)
+
+    # Today is resolved against the building's clock, the same as the history
+    # page, so the two mean the same day.
+    wanted = str(form.get("window") or "")
     window = series.window_for(
-        asked if asked in SUMMARY_WINDOWS else summaries.WINDOW.key, store.site.timezone
+        wanted if wanted in CHAT_WINDOWS else chats.WINDOW.key, store.site.timezone
     )
     try:
-        await summaries.write(request.app, store, user.username, window)
-    except summaries.SummaryError as error:
-        # Straight back to the page with what went wrong on it. The one thing
-        # somebody needs after a failed call is the reason, and the model's own
-        # message is nearly always the reason.
-        return RedirectResponse(f"/summary?error={quote(str(error)[:300])}", status_code=303)
-    return RedirectResponse("/summary", status_code=303)
+        await chats.reply(request.app, store, user.id, asked, window)
+    except chats.ChatError as error:
+        # Straight back with what went wrong. The one thing somebody needs
+        # after a failed call is the reason, and the model's own message is
+        # nearly always the reason.
+        return RedirectResponse(f"/chat?error={quote(str(error)[:300])}", status_code=303)
+    return RedirectResponse("/chat", status_code=303)
+
+
+@router.post("/chat/clear", include_in_schema=False)
+async def chat_clear(request: Request, user: auth.SignedIn):
+    """Start again. This person's thread in this building, and nobody else's."""
+    store: SettingsStore = sites.store_for(request)
+    await chats.forget(request.app.state.pool, store.site_id, user.id)
+    log.info("%s cleared their chat for site %s", user.username, store.site_id)
+    return RedirectResponse("/chat", status_code=303)
 
 
 @router.post("/settings/{section}", include_in_schema=False)
@@ -395,8 +392,8 @@ async def settings_save(request: Request, section: str, owner: auth.IsOwner) -> 
                 await store.put(forms.smtp_from(form, store.smtp))
             case "sms":
                 await store.put(forms.sms_from(form, store.sms))
-            case "summary":
-                await store.put(forms.summary_from(form, store.summary))
+            case "chat":
+                await store.put(forms.chat_from(form, store.chat))
             # PitWatch's own account rather than this building's schedule, and
             # a separate form for that reason. One key serves every building.
             case "ai":
@@ -422,7 +419,7 @@ async def settings_save(request: Request, section: str, owner: auth.IsOwner) -> 
                 pumps=store.pumps,
                 smtp=store.smtp,
                 sms=store.sms,
-                summary=store.summary,
+                chat=store.chat,
                 ai=store.ai,
                 weather=store.weather,
                 tide=store.tide,

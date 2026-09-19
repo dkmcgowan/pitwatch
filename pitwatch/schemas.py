@@ -104,37 +104,35 @@ SCHEDULE_DAYS = {"weekly": 7, "monthly": 30}
 # it: nothing can have changed since yesterday that a week would not show, and a
 # paragraph a day about a pump that did what it did yesterday is a paragraph
 # nobody reads by Thursday.
-SCHEDULE_CHOICES = (
-    ("off", "Never"),
-    ("weekly", "Every 7 days"),
-    ("monthly", "Every 30 days"),
-)
-
-# The windows a summary can read. Not the same list as the history page, which
-# keeps a day because a chart of today is a thing somebody watches while a pump
-# is running. A model handed the same day has nothing to compare it against.
-SUMMARY_WINDOWS = ("7d", "30d")
+# The windows the chat can be pointed at. Not the same list as the history
+# page, which keeps a day because a chart of today is a thing somebody watches
+# while a pump is running. A model handed one day has nothing to compare it
+# against, and thirty days of calls costs about twelve thousand tokens, which
+# is nothing next to the window a model has.
+CHAT_WINDOWS = ("7d", "30d")
 
 
-class SummarySettings(BaseModel):
-    """What the summary page needs: a description of the system, and a key.
+class ChatSettings(BaseModel):
+    """What a building tells the model about itself.
 
-    The description is the half a model cannot work out from the numbers. Two
-    pumps in a pit under a building on a corner in Manhattan, a check valve
-    that was replaced in the spring, a superintendent who empties the pit by
-    hand when it storms: none of that is in a current reading, and all of it
-    changes what the readings mean.
+    One field, and it is the important one. The description is the half a model
+    cannot work out from the readings: two pumps in a pit under a building on a
+    corner in Manhattan, a check valve replaced in the spring, a superintendent
+    who empties the pit by hand when it storms. None of that is in a current
+    reading and all of it changes what the readings mean.
 
-    The key is somebody's account and this is the only place it is stored. It is
-    never rendered back to the browser, the same as every other secret here.
+    The account the question is asked through is not here. That is PitWatch's,
+    one key and one bill however many buildings there are, and it lives in
+    `AiSettings`. What to say about this pit is the building's.
 
-    Where it is asked is the base URL, and that can be a model on this network:
-    llama.cpp and the rest speak the same protocol, key included, so pointing
-    this at your own hardware changes where the readings go and not what has to
-    be filled in.
+    This was `ChatSettings` and carried a schedule, a window and a notify
+    flag: when to write a paragraph unasked and who to mail it to. All three are
+    gone. A summary nobody asked for answers a question nobody had, and it
+    arrived by email with nowhere to put the follow up, which is where every
+    real question starts.
     """
 
-    KEY: ClassVar[str] = "summary"
+    KEY: ClassVar[str] = "chat"
     SCOPE: ClassVar[str] = "site"
 
     # No length limit. There was one, four thousand characters, which is about
@@ -144,56 +142,6 @@ class SummarySettings(BaseModel):
     # a limit that exists only because a number had to be typed is a limit that
     # eventually cuts somebody off mid sentence.
     description: str = ""
-
-    # Write one without being asked. Off by default: something that calls out to
-    # a model on a schedule should be a thing somebody switched on.
-    #
-    # How often and how much to read are separate, because they answer different
-    # questions and the sensible pairings are obvious rather than enforceable: a
-    # week read weekly is the useful one and thirty days read monthly is a
-    # trend. Nothing stops somebody reading a month every week, and nothing
-    # should: it is their model.
-    schedule: Literal["off", "weekly", "monthly"] = "off"
-    schedule_window: Literal["7d", "30d"] = "7d"
-    # The time of day it runs, on the building's own clock.
-    schedule_at: str = "07:00"
-    # And send what it says to whoever takes information level news. Email
-    # only, which is not a setting: a health summary is four paragraphs of prose
-    # and four paragraphs of prose is several text messages, on a channel that
-    # exists here for two in the morning.
-    notify: bool = False
-
-    @field_validator("schedule_at")
-    @classmethod
-    def a_time_of_day(cls, value: str) -> str:
-        """Twenty four hour, because it is stored rather than read aloud."""
-        try:
-            hour, minute = (int(part) for part in value.strip().split(":", 1))
-        except ValueError:
-            raise ValueError("Write the time as HH:MM, like 07:00.") from None
-        if not (0 <= hour < 24 and 0 <= minute < 60):
-            raise ValueError("Write the time as HH:MM, like 07:00.")
-        return f"{hour:02d}:{minute:02d}"
-
-    @property
-    def scheduled(self) -> bool:
-        return self.schedule != "off"
-
-    @property
-    def schedule_hour_and_minute(self) -> tuple[int, int]:
-        hour, minute = self.schedule_at.split(":", 1)
-        return int(hour), int(minute)
-
-    @property
-    def every_days(self) -> int:
-        """How many days apart, in whole days.
-
-        Whole days rather than a calendar, so a weekly one lands on the same
-        weekday and a monthly one is thirty days rather than a date that does
-        not exist in February. The pages say "every 30 days" and not "monthly"
-        for exactly that reason.
-        """
-        return SCHEDULE_DAYS.get(self.schedule, 0)
 
 
 class SmsSettings(BaseModel):
@@ -1368,5 +1316,5 @@ SITE_SETTINGS: tuple[type[BaseModel], ...] = (
     AlertsSettings,
     PumpsSettings,
     PanelButtonSettings,
-    SummarySettings,
+    ChatSettings,
 )

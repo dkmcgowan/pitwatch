@@ -18,7 +18,6 @@ import logging
 
 import asyncpg
 
-from pitwatch.domain.checkup import Scheduled
 from pitwatch.domain.engine import AlertEngine
 from pitwatch.domain.runs import RunRecorder
 from pitwatch.ingest.groundwater import GroundwaterReader
@@ -30,7 +29,6 @@ from pitwatch.schemas import (
     GroundwaterSettings,
     MqttSettings,
     SiteSettings,
-    SummarySettings,
     TideSettings,
     WeatherSettings,
 )
@@ -46,9 +44,6 @@ MQTT_KEYS = {MqttSettings.KEY}
 # the weather settings. Moving the pit and turning the rain off are both
 # reasons to restart the poller.
 WEATHER_KEYS = {WeatherSettings.KEY, SiteSettings.KEY}
-# Two again, and for the same reason: the schedule is on the summary settings
-# and the clock it runs on is the site's.
-CHECKUP_KEYS = {SummarySettings.KEY, SiteSettings.KEY}
 # One key. The tide needs a station rather than the site's coordinates, so
 # moving the pit does not change where the water is measured.
 TIDE_KEYS = {TideSettings.KEY}
@@ -107,7 +102,6 @@ class Supervisor:
         await self._start_weather()
         await self._start_tide()
         await self._start_groundwater()
-        await self._start_checkup()
 
         self._queue = self._store.subscribe()
         self._watcher = asyncio.create_task(self._watch_settings(), name="pitwatch-settings-watch")
@@ -281,30 +275,6 @@ class Supervisor:
         self._spawn("weather", reader.run)
         log.info("Weather reading for %.2f, %.2f", site.latitude, site.longitude)
 
-    async def _start_checkup(self) -> None:
-        """The scheduled health summary, if it has been switched on.
-
-        Started whatever the settings say and stopped by them instead would be
-        simpler, but a task that wakes every five minutes to decide it has
-        nothing to do is a task somebody has to reason about when reading a log.
-        """
-        if self._app is None:
-            return
-        settings = self._store.summary
-        if not settings.scheduled:
-            log.info("The scheduled health summary is off")
-            return
-        if not self._store.ai.ready:
-            log.info("The health summary is scheduled with nothing to ask: no key or model")
-            return
-        self._spawn("checkup", Scheduled(self._app).run)
-        log.info(
-            "The health summary is written %s at %s site time, over %s",
-            settings.schedule,
-            settings.schedule_at,
-            settings.schedule_window,
-        )
-
     async def _start_tide(self) -> None:
         """The water table under the pit, on a timer.
 
@@ -437,10 +407,6 @@ class Supervisor:
                 log.info("Groundwater settings changed, restarting the poller")
                 await self._kill("groundwater")
                 await self._start_groundwater()
-            if keys & CHECKUP_KEYS:
-                log.info("Health summary settings changed, restarting the schedule")
-                await self._kill("checkup")
-                await self._start_checkup()
             if keys & WEATHER_KEYS:
                 log.info("Weather settings changed, restarting the poller")
                 await self._kill("weather")

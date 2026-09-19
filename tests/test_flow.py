@@ -957,14 +957,13 @@ def become_a_watcher(client) -> None:
 
 
 def test_the_pages_about_the_pumps_are_for_everybody_signed_in(client):
-    """The history page and the summary are both readings of the same pumps,
-    and the people who look after them are not all administrators.
+    """The history page and the chat are both readings of the same pumps, and
+    the people who look after them are not all administrators.
 
-    The summary was an administrator's page because every press spends money on
-    an OpenAI account. The gate is a better answer than a locked door: one can
-    only be written when there is a week of readings it has not seen or somebody
-    has changed what was written about the building. Settings and users stay
-    shut, because those are the owner's.
+    The chat spends money on PitWatch's account with every message, which was
+    the argument for holding it behind the owner, and stopped being one the day
+    the base URL could point at a model on the same network. Settings and users
+    stay shut, because those are the owner's.
     """
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
@@ -972,7 +971,7 @@ def test_the_pages_about_the_pumps_are_for_everybody_signed_in(client):
 
     assert client.get("/history").status_code == 200
     assert client.get("/api/history").status_code == 200
-    assert client.get("/summary").status_code == 200
+    assert client.get("/chat").status_code == 200
     assert client.get("/settings", follow_redirects=False).status_code == 403
     assert client.get("/users", follow_redirects=False).status_code == 403
 
@@ -984,7 +983,7 @@ def test_the_history_page_is_in_the_header_for_everybody(client):
 
     page = client.get("/history").text
     assert 'aria-label="History"' in page
-    assert 'aria-label="AI Health Summary"' in page, "a reading of the same pumps"
+    assert 'aria-label="AI chat"' in page, "a reading of the same pumps"
     assert 'aria-label="Settings"' not in page
     assert 'aria-label="Users"' not in page
 
@@ -1054,35 +1053,35 @@ def test_the_figures_carry_calls_and_runs_as_two_separate_counts(client):
     }
 
 
-def test_a_summary_without_a_key_says_so_rather_than_failing(client):
-    """The button is not even offered, and posting the form by hand comes back
-    with a sentence rather than a stack trace."""
+def test_a_chat_without_a_key_says_so_rather_than_failing(client):
+    """The box is disabled and says why, and posting the form by hand comes
+    back with a sentence rather than a stack trace."""
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
 
-    page = client.get("/summary").text
-    assert "New summary" not in page
+    page = client.get("/chat").text
+    assert "Add an API key" in page
 
-    response = client.post("/summary", follow_redirects=False)
+    response = client.post("/chat", data={"asked": "how is it?"}, follow_redirects=False)
     assert response.status_code == 303
-    assert "settings" in response.headers["location"]
+    assert "error=" in response.headers["location"]
 
 
-def test_the_summary_can_be_read_and_run_by_anybody_signed_in(client):
-    """One page. The prompt is not on it: that is a description of the building
-    and lives with the key that asks."""
+def test_the_chat_can_be_read_and_used_by_anybody_signed_in(client):
+    """One page. The description of the building is not on it: that is a
+    setting, and it lives with the account that asks."""
     sign_in_as_admin(client)
     client.post("/setup", data=SETUP_FORM)
     become_a_watcher(client)
 
-    assert client.get("/summary").status_code == 200
-    assert "summary_description" not in client.get("/summary").text
-    # The pages and routes that came and went in the two days before this.
-    for gone in ("/summary/history", "/summary/context", "/summary/restore"):
+    assert client.get("/chat").status_code == 200
+    assert "chat_description" not in client.get("/chat").text
+    # The page this replaced, and the routes that came and went before it.
+    for gone in ("/summary", "/summary/history", "/summary/context"):
         assert client.get(gone, follow_redirects=False).status_code == 404, gone
 
 
-def test_the_summary_settings_survive_a_save(client):
+def test_the_chat_settings_survive_a_save(client):
     """Including the key, which is written once and never rendered again.
 
     Two forms, because there are two scopes. What the pit is goes to the
@@ -1094,23 +1093,23 @@ def test_the_summary_settings_survive_a_save(client):
     client.post("/setup", data=SETUP_FORM)
 
     client.post(
-        "/settings/summary",
-        data={"summary_description": "Two ejector pumps in a pit under the sidewalk."},
+        "/settings/chat",
+        data={"chat_description": "Two ejector pumps in a pit under the sidewalk."},
     )
     client.post(
         "/settings/ai",
         data={
-            "summary_api_key": "sk-test-value",
-            "summary_model": "gpt-4o-mini",
-            "summary_base_url": "https://api.openai.com/v1",
+            "ai_api_key": "sk-test-value",
+            "ai_model": "gpt-4o-mini",
+            "ai_base_url": "https://api.openai.com/v1",
         },
     )
 
     store = client.app.state.settings
     assert store.ai.api_key == "sk-test-value"
     assert store.ai.model == "gpt-4o-mini"
-    assert store.summary.description.startswith("Two ejector pumps")
-    assert not hasattr(store.summary, "api_key"), "the key must not follow the description"
+    assert store.chat.description.startswith("Two ejector pumps")
+    assert not hasattr(store.chat, "api_key"), "the key must not follow the description"
 
     page = client.get("/settings").text
     assert "sk-test-value" not in page
@@ -1121,9 +1120,9 @@ def test_the_summary_settings_survive_a_save(client):
     client.post(
         "/settings/ai",
         data={
-            "summary_api_key": "",
-            "summary_model": "gpt-4o-mini",
-            "summary_base_url": "https://api.openai.com/v1",
+            "ai_api_key": "",
+            "ai_model": "gpt-4o-mini",
+            "ai_base_url": "https://api.openai.com/v1",
         },
     )
     assert client.app.state.settings.ai.api_key == "sk-test-value"
@@ -1131,17 +1130,17 @@ def test_the_summary_settings_survive_a_save(client):
     # And saving the building's half does not touch it either, which is the
     # half of the split that is easy to get wrong: the account form is the only
     # thing that may clear a key.
-    client.post("/settings/summary", data={"summary_description": "Still two pumps."})
+    client.post("/settings/chat", data={"chat_description": "Still two pumps."})
     assert client.app.state.settings.ai.api_key == "sk-test-value"
 
     # And cleared on purpose, which is what the checkbox is for.
     client.post(
         "/settings/ai",
         data={
-            "summary_api_key": "",
-            "summary_clear_key": "on",
-            "summary_model": "gpt-4o-mini",
-            "summary_base_url": "https://api.openai.com/v1",
+            "ai_api_key": "",
+            "ai_clear_key": "on",
+            "ai_model": "gpt-4o-mini",
+            "ai_base_url": "https://api.openai.com/v1",
         },
     )
     assert client.app.state.settings.ai.api_key == ""

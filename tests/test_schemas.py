@@ -492,23 +492,22 @@ def test_every_settings_model_says_which_table_it_lives_in():
 
 
 def test_the_account_is_pitwatchs_and_the_description_is_a_buildings():
-    """The summary settings straddled the line and were split rather than
-    assigned. The key, the model and the address they are sent to are one
-    account serving every building. The description of a pit, the schedule it
-    is read on and whether to send it are about one building and one set of
-    people.
+    """These straddled the line and were split rather than assigned. The key,
+    the model and the address they are sent to are one account serving every
+    building. What to say about a pit is about one pit.
 
     Left together it would have meant either a key per site, or one building's
     administrator able to read another's credentials.
+
+    The schedule and the notify flag were on the building's half and are gone
+    entirely: they described writing a paragraph unasked and mailing it
+    somewhere the reply could not go.
     """
-    from pitwatch.schemas import AiSettings, SummarySettings
+    from pitwatch.schemas import AiSettings, ChatSettings
 
     assert set(AiSettings.model_fields) == {"api_key", "model", "base_url"}
-    for gone in ("api_key", "model", "base_url"):
-        assert gone not in SummarySettings.model_fields, gone
-    for kept in ("description", "schedule", "notify"):
-        assert kept in SummarySettings.model_fields, kept
+    assert set(ChatSettings.model_fields) == {"description"}
 
     # Readiness is about the account, so it moved with it.
     assert hasattr(AiSettings, "ready")
-    assert not hasattr(SummarySettings, "ready")
+    assert not hasattr(ChatSettings, "ready")

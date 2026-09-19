@@ -184,7 +184,7 @@ def test_the_two_halves_of_the_settings_page_say_which_is_which(client):
     assert "Shared by every site" in page
     # The account moved out of the building's summary section and into its own.
     assert "/settings/ai" in page
-    assert "AI account" in page
+    assert "AI model" in page
 
 
 def test_an_owner_can_add_a_building_and_it_starts_empty(client, sql):

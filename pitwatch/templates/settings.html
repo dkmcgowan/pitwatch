@@ -622,6 +622,25 @@
           does.</p>
       </div>
       <div class="field">
+        <label for="ai_thinking">Thinking</label>
+        <select id="ai_thinking" name="ai_thinking">
+          {% for value, label in thinking_choices %}
+          <option value="{{ value }}" {% if ai.thinking == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <p class="hint">A little, unless you have a reason. Measured on a local
+          qwen3.8-27b against this application's own prompt: left to itself it
+          spent 25,598 reasoning tokens and 279 seconds before writing one
+          sentence. Turned off it answered in 16 seconds and got the arithmetic
+          wrong, twice out of two, against figures checked in SQL. A little
+          thinking took about 30 seconds and got both right. Counting two
+          thousand rows by hour is reasoning work, and a fast wrong answer is
+          worse than a slow one.</p>
+        <p class="hint">Not every provider takes this. One that refuses is
+          asked plainly instead, which costs one request and is then
+          remembered, so there is nothing to get wrong here.</p>
+      </div>
+      <div class="field">
         <label for="ai_base_url">API address</label>
         <input type="text" id="ai_base_url" name="ai_base_url"
                value="{{ ai.base_url }}" placeholder="https://api.openai.com/v1">

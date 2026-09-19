@@ -505,7 +505,7 @@ def test_the_account_is_pitwatchs_and_the_description_is_a_buildings():
     """
     from pitwatch.schemas import AiSettings, ChatSettings
 
-    assert set(AiSettings.model_fields) == {"api_key", "model", "base_url"}
+    assert set(AiSettings.model_fields) == {"api_key", "model", "base_url", "thinking"}
     assert set(ChatSettings.model_fields) == {"description"}
 
     # Readiness is about the account, so it moved with it.

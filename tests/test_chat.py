@@ -614,3 +614,106 @@ def test_the_budget_is_kept_in_the_units_the_model_counts_in():
     # And in characters that is about 100k too, not 400k, because the table is
     # where the characters are and it is counted at one to one.
     assert len("".join(part["content"] for part in payload)) < 130_000
+
+
+# -- the thinking knob, and withdrawing it ------------------------------------
+
+
+def test_a_little_thinking_is_the_default_rather_than_none():
+    """Measured on a local qwen3.8-27b, and the middle setting wins on both
+    counts that matter.
+
+    Left to itself it spent 25,598 reasoning tokens and 279 seconds on one
+    sentence. Turned off it answered in 16 seconds and got the arithmetic
+    wrong twice out of two, against figures checked in SQL: "157, on
+    2026-09-18 at 13:48:33" for a longest gap that was 33.5 minutes starting
+    2026-09-16 12:26:39. A little thinking took 31 seconds and got it exactly
+    right.
+
+    Counting two thousand rows by hour is reasoning work, and a page that
+    exists to answer questions about data has no use for a fast wrong answer.
+    """
+    assert AiSettings().thinking == "low"
+    assert AiSettings().knobs == {"reasoning_effort": "low"}
+    # Off is still there, and still says what it means to the model.
+    assert AiSettings(thinking="off").knobs == {"chat_template_kwargs": {"enable_thinking": False}}
+
+
+def test_each_family_is_asked_in_its_own_words():
+    """Qwen on vLLM turns thinking off through the chat template; everything
+    with a dial uses reasoning_effort. Neither is understood everywhere."""
+    assert AiSettings(thinking="low").knobs == {"reasoning_effort": "low"}
+    assert AiSettings(thinking="high").knobs == {"reasoning_effort": "high"}
+    assert AiSettings(thinking="as the model likes").knobs == {}
+
+
+async def test_a_provider_that_refuses_the_knob_is_asked_plainly(monkeypatch):
+    """One wasted request, once, and then it is remembered.
+
+    OpenAI refuses `chat_template_kwargs` outright and refuses
+    `reasoning_effort` on a model that has no dial, so sending either hopefully
+    has to come with a way of taking it back. Without this the default setting
+    would break every install pointed at OpenAI.
+    """
+    sent = []
+
+    async def pretend(url, settings, payload, knobs):
+        sent.append(knobs)
+        if knobs:
+            return {
+                "_status": 400,
+                "error": {
+                    "message": "Unsupported parameter: 'reasoning_effort' is not "
+                    "supported with this model."
+                },
+            }
+        return {"_status": 200, "choices": [{"message": {"content": "Both pumps are fine."}}]}
+
+    monkeypatch.setattr(chat, "_post", pretend)
+    chat._PLAIN.clear()
+    account = AiSettings(api_key="sk-test", model="gpt-4o-mini")
+
+    assert await chat.ask(account, [{"role": "user", "content": "how is it?"}]) == (
+        "Both pumps are fine."
+    )
+    assert sent == [{"reasoning_effort": "low"}, {}]
+
+    # And the second question does not spend a request finding out again.
+    sent.clear()
+    assert await chat.ask(account, [{"role": "user", "content": "and now?"}])
+    assert sent == [{}], "it asked plainly straight away"
+    chat._PLAIN.clear()
+
+
+async def test_a_real_failure_is_not_mistaken_for_a_fussy_parameter(monkeypatch):
+    """A refusal about the question must not be retried as though it were about
+    a knob, and must reach the person who asked."""
+    tries = []
+
+    async def pretend(url, settings, payload, knobs):
+        tries.append(knobs)
+        return {"_status": 401, "error": {"message": "Incorrect API key provided"}}
+
+    monkeypatch.setattr(chat, "_post", pretend)
+    chat._PLAIN.clear()
+
+    with pytest.raises(chat.ChatError, match="Incorrect API key"):
+        await chat.ask(AiSettings(api_key="sk-wrong", model="m"), [])
+
+    assert len(tries) == 1, "asked once, not retried"
+    chat._PLAIN.clear()
+
+
+async def test_the_knob_is_actually_on_the_request(monkeypatch):
+    seen = {}
+
+    async def pretend(url, settings, payload, knobs):
+        seen.update(knobs)
+        return {"_status": 200, "choices": [{"message": {"content": "ok"}}]}
+
+    monkeypatch.setattr(chat, "_post", pretend)
+    chat._PLAIN.clear()
+    await chat.ask(AiSettings(api_key="k", model="m", thinking="low"), [])
+
+    assert seen == {"reasoning_effort": "low"}
+    chat._PLAIN.clear()

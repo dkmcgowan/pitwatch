@@ -26,7 +26,7 @@ from pitwatch.domain import alerts as alert_specs
 from pitwatch.domain import diagnostics, series, sites
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
-from pitwatch.schemas import CHAT_WINDOWS, DASHBOARD_ROLES
+from pitwatch.schemas import CHAT_WINDOWS, DASHBOARD_ROLES, THINKING_CHOICES
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -49,6 +49,7 @@ def _context(request: Request, **extra) -> dict:
         # Not every window the history page draws: the chat reads a week or a
         # month, because a model handed one day has nothing to compare it to.
         "windows": [(key, series.WINDOWS[key].title) for key in CHAT_WINDOWS],
+        "thinking_choices": THINKING_CHOICES,
         **extra,
     }
 

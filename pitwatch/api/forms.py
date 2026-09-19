@@ -313,6 +313,7 @@ def ai_from(form: FormData, existing: AiSettings) -> AiSettings:
         key = existing.api_key
 
     return AiSettings(
+        thinking=text(form, "ai_thinking", existing.thinking) or existing.thinking,
         api_key=key,
         model=text(form, "ai_model", existing.model) or existing.model,
         base_url=text(form, "ai_base_url", existing.base_url) or existing.base_url,

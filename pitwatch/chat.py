@@ -508,24 +508,83 @@ class ChatError(RuntimeError):
     """Something a person can act on, ready to put on the page."""
 
 
+# Endpoints that have already refused the extra knobs once.
+#
+# Keyed by URL and held for the life of the process. The fallback below costs
+# one wasted request; remembering means it costs exactly one rather than one per
+# question. Lost on restart, which is right: somebody who has changed provider
+# should get one probe rather than a permanent verdict.
+_PLAIN: set[str] = set()
+
+# What a refusal about a parameter looks like, across the wordings seen in the
+# wild. OpenAI says "Unrecognized request argument supplied: x" for one it has
+# never heard of and "Unsupported parameter: 'x'" for one the model does not
+# take; vLLM and the gateways in front of it say various things containing the
+# name.
+_REFUSALS = ("unrecognized request argument", "unsupported parameter", "extra_forbidden")
+
+
 async def ask(settings: AiSettings, payload: list[dict]) -> str:
     """One call, and whatever it says back.
 
-    Nothing but the model and the messages is sent. Every other knob has been
-    renamed or restricted by one model family or another, and a summary that
-    fails because a temperature was attached to a model that does not take one
-    is a summary that fails for no reason.
+    Almost nothing but the model and the messages is sent. The exception is the
+    thinking control, which is worth a great deal -- twenty times the speed on
+    the model this was built against -- and is spelled differently by every
+    family that has one.
+
+    So it is sent hopefully and withdrawn on refusal. A provider that rejects it
+    costs one wasted request, once, and is then remembered and asked plainly for
+    the rest of the process. That is better than either of the alternatives: not
+    sending it, which leaves the default install four minutes slower than it
+    needs to be, or making the person configuring it work out which spelling
+    their server wants.
     """
     if not settings.ready:
         raise ChatError(NOT_READY)
 
     url = settings.base_url.rstrip("/") + "/chat/completions"
+    knobs = {} if url in _PLAIN else settings.knobs
+
+    body = await _post(url, settings, payload, knobs)
+    if knobs and _refused_a_parameter(body):
+        log.info("%s will not take %s; asking plainly from now on", url, ", ".join(knobs))
+        _PLAIN.add(url)
+        body = await _post(url, settings, payload, {})
+
+    if isinstance(body.get("error"), dict) or body.get("_status", 200) >= 400:
+        said = ""
+        if isinstance(body.get("error"), dict):
+            said = str(body["error"].get("message") or "")
+        raise ChatError(said or f"{url} answered {body.get('_status')}.")
+
+    try:
+        written = body["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        raise ChatError("The reply did not contain an answer.") from None
+
+    written = (written or "").strip()
+    if not written:
+        raise ChatError("The model returned nothing.")
+    return written
+
+
+def _refused_a_parameter(body: dict) -> bool:
+    """Whether that failure was about a knob rather than about the question."""
+    if body.get("_status", 200) < 400:
+        return False
+    error = body.get("error")
+    said = str(error.get("message") if isinstance(error, dict) else error or "").lower()
+    return any(phrase in said for phrase in _REFUSALS)
+
+
+async def _post(url: str, settings: AiSettings, payload: list[dict], knobs: dict) -> dict:
+    """One request. Returns the decoded body with the status alongside it."""
     try:
         async with httpx2.AsyncClient(timeout=TIMEOUT_S) as client:
             response = await client.post(
                 url,
                 headers={"Authorization": f"Bearer {settings.api_key}"},
-                json={"model": settings.model, "messages": payload},
+                json={"model": settings.model, "messages": payload, **knobs},
             )
     except httpx2.TimeoutException as error:
         # Said as a timeout rather than as "could not reach", which is what it
@@ -543,22 +602,10 @@ async def ask(settings: AiSettings, payload: list[dict]) -> str:
         body = response.json()
     except ValueError:
         body = {}
-
-    if response.status_code >= 400:
-        said = ""
-        if isinstance(body.get("error"), dict):
-            said = str(body["error"].get("message") or "")
-        raise ChatError(said or f"{url} answered {response.status_code}.")
-
-    try:
-        written = body["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError):
-        raise ChatError("The reply did not contain a summary.") from None
-
-    written = (written or "").strip()
-    if not written:
-        raise ChatError("The model returned nothing.")
-    return written
+    if not isinstance(body, dict):
+        body = {}
+    body["_status"] = response.status_code
+    return body
 
 
 # One line per call for water, on top of the daily rollups.

@@ -104,6 +104,15 @@ SCHEDULE_DAYS = {"weekly": 7, "monthly": 30}
 # it: nothing can have changed since yesterday that a week would not show, and a
 # paragraph a day about a pump that did what it did yesterday is a paragraph
 # nobody reads by Thursday.
+# How much thinking to ask for, and what each one is called on the page.
+THINKING_CHOICES = (
+    ("off", "Off, answer straight away"),
+    ("low", "A little"),
+    ("medium", "A moderate amount"),
+    ("high", "As much as it wants"),
+    ("as the model likes", "Do not ask, let the model decide"),
+)
+
 # The windows the chat can be pointed at. Not the same list as the history
 # page, which keeps a day because a chart of today is a thing somebody watches
 # while a pump is running. A model handed one day has nothing to compare it
@@ -1280,10 +1289,57 @@ class AiSettings(BaseModel):
     model: str = "gpt-4o-mini"
     base_url: str = "https://api.openai.com/v1"
 
+    # How much the model should think before it answers.
+    #
+    # A little, by default, and the number of measurements behind that is the
+    # reason it is written down here rather than left as a shrug. All of this is
+    # a local qwen3.8-27b reading this application's own prompt.
+    #
+    # Left to itself it spent **25,598 reasoning tokens** and 279 seconds before
+    # writing one sentence. Turned off it answered in 16 seconds. Seventeen
+    # times faster is a serious difference on a page somebody is sitting in
+    # front of, and the first version of this defaulted to off for that reason.
+    #
+    # Then the answers were checked against figures worked out from the same
+    # rows in SQL, and off is fast and **wrong**:
+    #
+    #     question: the longest gap this week, and when did it start
+    #     truth:    33.5 minutes, starting 2026-09-16 12:26:39
+    #     off:      "157, on 2026-09-18 at 13:48:33"          16s   wrong
+    #     low:      "33.5 minutes, starting 12:26:39 on 09-16" 31s   right
+    #
+    #     question: the busiest hour of the day
+    #     off:      "02:00"                                    16s   wrong
+    #     low:      "05:00 on Sep 13, roughly 42 calls"        38s   right (43)
+    #
+    # Two for two each way. Counting two thousand rows by hour *is* reasoning
+    # work, and a tool whose whole purpose is answering questions about data has
+    # no use for a fast wrong answer. Low is the setting that is both quick and
+    # correct; thirty seconds is the honest price.
+    #
+    # "as the model likes" sends nothing at all and is the old behavior, for
+    # anybody whose provider dislikes being told.
+    thinking: Literal["off", "low", "medium", "high", "as the model likes"] = "low"
+
     @field_validator("api_key", "model", "base_url")
     @classmethod
     def trim(cls, value: str) -> str:
         return value.strip()
+
+    @property
+    def knobs(self) -> dict:
+        """The extra body fields this setting asks for, if any.
+
+        Two different spellings, because the two families disagree. Qwen on
+        vLLM turns thinking off through the chat template; everything with a
+        reasoning effort dial uses `reasoning_effort`. Neither is understood
+        everywhere, which is what `pitwatch.chat.ask` retries around.
+        """
+        if self.thinking == "as the model likes":
+            return {}
+        if self.thinking == "off":
+            return {"chat_template_kwargs": {"enable_thinking": False}}
+        return {"reasoning_effort": self.thinking}
 
     @property
     def ready(self) -> bool:

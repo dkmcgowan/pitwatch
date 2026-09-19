@@ -1365,6 +1365,12 @@ class AiSettings(BaseModel):
         if self.thinking not in ("as the model likes",):
             if thinking_off:
                 asked["chat_template_kwargs"] = {"enable_thinking": False}
+            elif self.profile == "qwen3" and self.thinking == "high":
+                # Qwen3 on vLLM calls the top of the dial `xhigh` and refuses
+                # `high` outright: "Unexpected reasoning effort high. Supported
+                # types are xhigh (default), medium, and low." The name is the
+                # sort of family difference this profile exists to absorb.
+                asked["reasoning_effort"] = "xhigh"
             else:
                 asked["reasoning_effort"] = self.thinking
 

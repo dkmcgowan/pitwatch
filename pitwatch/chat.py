@@ -541,7 +541,16 @@ _PLAIN: set[str] = set()
 # never heard of and "Unsupported parameter: 'x'" for one the model does not
 # take; vLLM and the gateways in front of it say various things containing the
 # name.
-_REFUSALS = ("unrecognized request argument", "unsupported parameter", "extra_forbidden")
+_REFUSALS = (
+    "unrecognized request argument",
+    "unsupported parameter",
+    "extra_forbidden",
+    # vLLM behind litellm, refusing a value rather than the parameter itself:
+    # "Unexpected reasoning effort high. Supported types are xhigh (default),
+    # medium, and low." Without this, choosing the top setting raised at the
+    # reader instead of quietly falling back.
+    "unexpected reasoning effort",
+)
 
 
 async def ask(settings: AiSettings, payload: list[dict]) -> str:

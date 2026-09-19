@@ -876,3 +876,43 @@ async def test_neither_a_pending_nor_a_failed_turn_goes_back_to_the_model(pool, 
     assert "the one still going" not in whole
     assert "the one that broke" not in whole, "its answer never came, so the pair is not one"
     assert seen["payload"][-1]["content"] == "the real question"
+
+
+def test_the_top_of_the_dial_is_spelled_differently_by_qwen():
+    """ "Unexpected reasoning effort high. Supported types are xhigh (default),
+    medium, and low." Measured against the real endpoint. The name is the sort
+    of family difference the profile exists to absorb."""
+    assert AiSettings(thinking="high").knobs["reasoning_effort"] == "high"
+    qwen = AiSettings(thinking="high", profile="qwen3")
+    assert qwen.knobs["reasoning_effort"] == "xhigh"
+    # The rest of the dial is spelled the same either way.
+    assert AiSettings(thinking="low", profile="qwen3").knobs["reasoning_effort"] == "low"
+
+
+async def test_a_refused_value_falls_back_like_a_refused_parameter(monkeypatch):
+    """The refusal names the value rather than the parameter, and did not match
+    any of the phrases this watched for, so choosing the top setting raised at
+    the reader instead of quietly asking again without it."""
+    sent = []
+
+    async def pretend(url, settings, payload, knobs):
+        sent.append(knobs)
+        if knobs:
+            return {
+                "_status": 400,
+                "error": {
+                    "message": "litellm.BadRequestError: OpenAIException - Unexpected "
+                    "reasoning effort high. Supported types are xhigh (default), "
+                    "medium, and low."
+                },
+            }
+        return {"_status": 200, "choices": [{"message": {"content": "Steady."}}]}
+
+    monkeypatch.setattr(chat, "_post", pretend)
+    chat._PLAIN.clear()
+
+    said = await chat.ask(AiSettings(api_key="k", model="m", thinking="high"), [])
+
+    assert said == "Steady."
+    assert len(sent) == 2 and sent[1] == {}
+    chat._PLAIN.clear()

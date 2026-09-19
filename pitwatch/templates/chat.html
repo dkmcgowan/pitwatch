@@ -57,6 +57,20 @@
       {% if not ready %}
       <span class="chat-note">{{ not_ready }}</span>
       {% endif %}
+      {# Which model, and how much to read. Two choices about the question, so
+         they sit together under the box rather than in settings: the answer is
+         different depending on both, and both are worth changing between one
+         question and the next. #}
+      {% if models | length > 1 %}
+      <label class="visually-hidden" for="model">Model</label>
+      <select id="model" name="model">
+        {% for choice in models %}
+        <option value="{{ choice.id }}">{{ choice.id }}</option>
+        {% endfor %}
+      </select>
+      {% elif models %}
+      <input type="hidden" name="model" value="{{ models[0].id }}">
+      {% endif %}
       <label class="visually-hidden" for="window">How much to read</label>
       <select id="window" name="window">
         {% for key, title in windows %}

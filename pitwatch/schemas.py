@@ -104,21 +104,6 @@ SCHEDULE_DAYS = {"weekly": 7, "monthly": 30}
 # it: nothing can have changed since yesterday that a week would not show, and a
 # paragraph a day about a pump that did what it did yesterday is a paragraph
 # nobody reads by Thursday.
-# The families whose sampling advice PitWatch knows, on the page.
-PROFILE_CHOICES = (
-    ("generic", "OpenAI and anything else (send nothing extra)"),
-    ("qwen3", "Qwen3 family (use its published sampling defaults)"),
-)
-
-# How much thinking to ask for, and what each one is called on the page.
-THINKING_CHOICES = (
-    ("off", "Off, answer straight away"),
-    ("low", "A little"),
-    ("medium", "A moderate amount"),
-    ("high", "As much as it wants"),
-    ("as the model likes", "Do not ask, let the model decide"),
-)
-
 # The windows the chat can be pointed at. Not the same list as the history
 # page, which keeps a day because a chart of today is a thing somebody watches
 # while a pump is running. A model handed one day has nothing to compare it
@@ -1273,135 +1258,101 @@ class GroundwaterSettings(BaseModel):
         return bool(self.enabled and self.site_no)
 
 
+class ModelChoice(BaseModel):
+    """One model the endpoint offers, and what PitWatch may do with it."""
+
+    id: str
+
+    # Whether anybody signed in may pick it on the chat page.
+    #
+    # Private is the default, and the reason is cost rather than secrecy. A
+    # gateway usually fronts several accounts, some billed by the token to
+    # somebody else, and "which models may the building's people spend" is a
+    # decision worth making one model at a time.
+    public: bool = False
+
+    # How many tokens of this model's context PitWatch will fill.
+    #
+    # Per model because context windows are per model, and nothing here can ask
+    # how big one is: the protocol has no field for it, and behind a gateway the
+    # name says nothing either. So it is typed in once, beside the model it
+    # belongs to.
+    #
+    # It is a fill line rather than the window itself. Leave room for the answer
+    # and for the estimate being wrong: the readings are a table of timestamps,
+    # which cost about a token a character, and that is measured rather than
+    # known. 100,000 against a 160,000 window is the shape to copy.
+    budget: int = 100_000
+
+    @field_validator("id")
+    @classmethod
+    def trim(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("budget")
+    @classmethod
+    def sane(cls, value: int) -> int:
+        # Below about eight thousand there is no room for the readings at all,
+        # and the largest windows today are in the millions.
+        return max(8_000, min(int(value), 2_000_000))
+
+
 class AiSettings(BaseModel):
-    """The account a summary is written through, which is PitWatch's and not a
+    """The account PitWatch asks through, which is PitWatch's and not a
     building's.
 
-    Split out of the summary settings when sites arrived. The description of a
-    pit, the schedule it is read on and whether to send it are all about one
-    building; the key, the model and the address they are sent to are one
-    account serving every building there is. Leaving them together would mean
-    either a key per site or one building's administrator reading another's
-    credentials.
+    A key and an address, and then whatever that endpoint says it can do. The
+    model used to be typed in here, which is how production spent a fortnight
+    pointed at "qwen3.6-27b" while the gateway offered "qwen3.8-27b-nvfp4",
+    failing on every question with nothing on any page to say so.
+
+    There were knobs here too: a thinking control in two spellings, a model
+    family profile carrying published sampling numbers, and a fallback that
+    withdrew the lot from any provider that refused them. All gone. Those belong
+    in the gateway, set per model, where a family's quirks are somebody's
+    deliberate choice rather than this application guessing from a model name.
+    A gateway can offer the same weights twice, thinking and not, and that is a
+    better answer than a dropdown here.
     """
 
     KEY: ClassVar[str] = "ai"
     SCOPE: ClassVar[str] = "app"
 
     api_key: str = ""
-    # Any model name the account can reach. A field rather than a list,
-    # because the list changes faster than this application does and a
-    # dropdown that has gone stale is a page that cannot be used at all.
-    model: str = "gpt-4o-mini"
     base_url: str = "https://api.openai.com/v1"
 
-    # How much the model should think before it answers.
-    #
-    # A little, by default, and the number of measurements behind that is the
-    # reason it is written down here rather than left as a shrug. All of this is
-    # a local qwen3.8-27b reading this application's own prompt.
-    #
-    # Left to itself it spent **25,598 reasoning tokens** and 279 seconds before
-    # writing one sentence. Turned off it answered in 16 seconds. Seventeen
-    # times faster is a serious difference on a page somebody is sitting in
-    # front of, and the first version of this defaulted to off for that reason.
-    #
-    # Then the answers were checked against figures worked out from the same
-    # rows in SQL, and off is fast and **wrong**:
-    #
-    #     question: the longest gap this week, and when did it start
-    #     truth:    33.5 minutes, starting 2026-09-16 12:26:39
-    #     off:      "157, on 2026-09-18 at 13:48:33"          16s   wrong
-    #     low:      "33.5 minutes, starting 12:26:39 on 09-16" 31s   right
-    #
-    #     question: the busiest hour of the day
-    #     off:      "02:00"                                    16s   wrong
-    #     low:      "05:00 on Sep 13, roughly 42 calls"        38s   right (43)
-    #
-    # Two for two each way. Counting two thousand rows by hour *is* reasoning
-    # work, and a tool whose whole purpose is answering questions about data has
-    # no use for a fast wrong answer. Low is the setting that is both quick and
-    # correct; thirty seconds is the honest price.
-    #
-    # "as the model likes" sends nothing at all and is the old behavior, for
-    # anybody whose provider dislikes being told.
-    thinking: Literal["off", "low", "medium", "high", "as the model likes"] = "low"
+    # What the endpoint offered when the list was last refreshed, with what has
+    # been decided about each. Written by the refresh button and by the
+    # checkboxes beside it, never typed.
+    models: list[ModelChoice] = Field(default_factory=list)
 
-    @field_validator("api_key", "model", "base_url")
+    @field_validator("api_key", "base_url")
     @classmethod
     def trim(cls, value: str) -> str:
         return value.strip()
 
-    # Which family's advice to follow about the knobs below the thinking one.
-    #
-    # Sampling defaults are published per model family and they disagree, so
-    # there is no set that suits both. Qwen3 asks for one pair of numbers when
-    # it is thinking and a different pair when it is not; OpenAI's own models
-    # want none of it and reject two of the four outright.
-    #
-    # Generic sends nothing but the thinking control, which is the safe answer
-    # and the right one for anybody on OpenAI.
-    profile: Literal["generic", "qwen3"] = "generic"
-
-    @property
-    def knobs(self) -> dict:
-        """The extra body fields this setting asks for, if any.
-
-        Two spellings for thinking, because the families disagree: Qwen on vLLM
-        turns it off through the chat template, and everything with a dial uses
-        `reasoning_effort`. Neither is understood everywhere, which is what
-        `pitwatch.chat.ask` retries around.
-
-        The sampling numbers are Qwen3's own published recommendations, and
-        they are only sent under that profile. They are not universal advice
-        and two of them are not universal parameters: `top_k` is not in the
-        OpenAI protocol at all, and OpenAI's reasoning models reject
-        `temperature`. Sending them to the wrong place would cost the thinking
-        control as well, since one refusal drops the whole bundle.
-        """
-        asked: dict = {}
-        thinking_off = self.thinking == "off"
-
-        if self.thinking not in ("as the model likes",):
-            if thinking_off:
-                asked["chat_template_kwargs"] = {"enable_thinking": False}
-            elif self.profile == "qwen3" and self.thinking == "high":
-                # Qwen3 on vLLM calls the top of the dial `xhigh` and refuses
-                # `high` outright: "Unexpected reasoning effort high. Supported
-                # types are xhigh (default), medium, and low." The name is the
-                # sort of family difference this profile exists to absorb.
-                asked["reasoning_effort"] = "xhigh"
-            else:
-                asked["reasoning_effort"] = self.thinking
-
-        if self.profile == "qwen3":
-            # Qwen3's published sampling defaults, which differ by mode: the
-            # thinking one is told to stay broad so it does not talk itself
-            # into a corner, the non-thinking one is tightened up.
-            asked.update(
-                {"temperature": 0.7, "top_p": 0.8, "top_k": 20}
-                if thinking_off
-                else {"temperature": 0.6, "top_p": 0.95, "top_k": 20}
-            )
-
-        return asked
-
     @property
     def ready(self) -> bool:
-        """Enough to ask: a key, a model, and somewhere to ask.
+        """Whether a question can be asked at all.
 
-        The key is not optional and is not conditional on where the address
-        points. A server on this network can want one exactly as much as a
-        server on the internet does, which is the case here: llama.cpp speaks
-        the OpenAI protocol and that includes the bearer token. Deciding for
-        somebody that their own hardware needs no credential is deciding
-        something about their setup from the wrong side of it.
+        A key and an address are not enough any more: without a model there is
+        nothing to ask, and the page should say so rather than failing at the
+        far end of a request.
         """
-        return bool(self.api_key and self.model and self.base_url)
+        return bool(self.api_key and self.base_url and self.models)
+
+    def may_use(self, is_owner: bool) -> list[ModelChoice]:
+        """The models to offer this person, in the order the endpoint listed."""
+        return [model for model in self.models if is_owner or model.public]
+
+    def budget_for(self, model_id: str) -> int:
+        """How much context to fill for this model, or the default if unknown."""
+        for model in self.models:
+            if model.id == model_id:
+                return model.budget
+        return int(ModelChoice.model_fields["budget"].default)
 
 
-# Which of the two tables a settings model lives in.
-#
 # `setting` is PitWatch's own: the mail server, the Twilio account, the model
 # key. `site_setting` is one building's: its panel, its pumps, its rules. The
 # split is declared on the model rather than worked out at each call site,

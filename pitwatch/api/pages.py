@@ -27,12 +27,7 @@ from pitwatch.domain import alerts as alert_specs
 from pitwatch.domain import diagnostics, series, sites
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
-from pitwatch.schemas import (
-    CHAT_WINDOWS,
-    DASHBOARD_ROLES,
-    PROFILE_CHOICES,
-    THINKING_CHOICES,
-)
+from pitwatch.schemas import CHAT_WINDOWS, DASHBOARD_ROLES, ModelChoice
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -55,8 +50,6 @@ def _context(request: Request, **extra) -> dict:
         # Not every window the history page draws: the chat reads a week or a
         # month, because a model handed one day has nothing to compare it to.
         "windows": [(key, series.WINDOWS[key].title) for key in CHAT_WINDOWS],
-        "thinking_choices": THINKING_CHOICES,
-        "profile_choices": PROFILE_CHOICES,
         **extra,
     }
 
@@ -342,6 +335,9 @@ async def chat_page(request: Request, user: auth.SignedIn, error: str | None = N
             ready=store.ai.ready,
             not_ready=chats.NOT_READY,
             chosen=chats.WINDOW.key,
+            # Private models are the owner's. Everybody else sees the ones
+            # somebody decided to offer.
+            models=store.ai.may_use(user.is_owner),
             error=error,
         ),
     )
@@ -373,6 +369,12 @@ async def chat_say(request: Request, user: auth.SignedIn):
         wanted if wanted in CHAT_WINDOWS else chats.WINDOW.key, store.site.timezone
     )
 
+    # Checked against what this person may use rather than trusted: the id
+    # arrives from a form, and a private model is private.
+    allowed = [choice.id for choice in store.ai.may_use(user.is_owner)]
+    wanted_model = str(form.get("model") or "")
+    model = wanted_model if wanted_model in allowed else (allowed[0] if allowed else "")
+
     waiting = await chats.accept(request.app.state.pool, store.site_id, user.id, asked)
     # Detached on purpose, and kept on the app so it is not garbage collected
     # mid-thought: asyncio holds only a weak reference to a bare task.
@@ -380,7 +382,7 @@ async def chat_say(request: Request, user: auth.SignedIn):
     if running is None:
         running = request.app.state.chat_tasks = set()
     task = asyncio.create_task(
-        chats.answer(request.app, store, user.id, waiting, window),
+        chats.answer(request.app, store, user.id, waiting, window, model),
         name=f"pitwatch-chat-{waiting}",
     )
     running.add(task)
@@ -565,6 +567,34 @@ async def switch_site(request: Request, user: auth.SignedIn) -> RedirectResponse
     # Back where they were, so switching from the history page keeps them on
     # the history page rather than bouncing them to the dashboard.
     return RedirectResponse(_back_to(request), status_code=303)
+
+
+@router.post("/settings/ai/models", include_in_schema=False)
+async def refresh_models(request: Request, owner: auth.IsOwner) -> RedirectResponse:
+    """Ask the endpoint what it can do, and keep the answer.
+
+    Merged rather than replaced, so the public flag and the context budget
+    somebody set survive a refresh. A model the endpoint has stopped offering
+    drops off the list, which is the point: a name that no longer resolves
+    should stop being offered rather than fail when it is picked.
+    """
+    store: SettingsStore = sites.store_for(request)
+    account = store.ai
+    try:
+        found = await chats.offered(account)
+    except chats.ChatError as error:
+        return RedirectResponse(f"/settings?error={quote(str(error)[:300])}", status_code=303)
+
+    before = {model.id: model for model in account.models}
+    await store.put(
+        account.model_copy(
+            update={
+                "models": [before.get(model_id) or ModelChoice(id=model_id) for model_id in found]
+            }
+        )
+    )
+    log.info("%s refreshed the model list: %d offered", owner.username, len(found))
+    return RedirectResponse("/settings?saved=1", status_code=303)
 
 
 @router.post("/settings/sites/new", include_in_schema=False)

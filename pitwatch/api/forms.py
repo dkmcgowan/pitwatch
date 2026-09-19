@@ -23,6 +23,7 @@ from pitwatch.schemas import (
     ContactInput,
     GroundwaterSettings,
     HealthSource,
+    ModelChoice,
     MqttSettings,
     PanelButtonSettings,
     PumpSettings,
@@ -312,13 +313,36 @@ def ai_from(form: FormData, existing: AiSettings) -> AiSettings:
     elif not key:
         key = existing.api_key
 
+    # The list itself is not edited here. It is whatever the last refresh found,
+    # and what this form carries is the two decisions made about each: who may
+    # pick it, and how much of its context to fill. A model the endpoint has
+    # since dropped is dropped here too, because the checkboxes are drawn from
+    # the same list and one that is gone posts nothing.
+    public = {str(value) for value in form.getlist("ai_public")}
+    models = [
+        ModelChoice(
+            id=known.id,
+            public=known.id in public,
+            budget=int(number(form, f"ai_budget_{_field(known.id)}", known.budget)),
+        )
+        for known in existing.models
+    ]
+
     return AiSettings(
-        profile=text(form, "ai_profile", existing.profile) or existing.profile,
-        thinking=text(form, "ai_thinking", existing.thinking) or existing.thinking,
         api_key=key,
-        model=text(form, "ai_model", existing.model) or existing.model,
         base_url=text(form, "ai_base_url", existing.base_url) or existing.base_url,
+        models=models,
     )
+
+
+def _field(model_id: str) -> str:
+    """A model id as a form field name.
+
+    Ids carry slashes, dots and colons -- "/models/Qwen3.6-27B-Q6_K.gguf" is a
+    real one -- and a name is easier to match back than to escape, so the
+    mapping is done by walking the known list rather than by parsing.
+    """
+    return "".join(character if character.isalnum() else "_" for character in model_id)
 
 
 def _kept_secret(form: FormData, field: str, clear_field: str, existing: str) -> str:

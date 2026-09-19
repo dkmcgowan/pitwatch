@@ -25,6 +25,7 @@ from pitwatch.schemas import (
     AiSettings,
     ChatSettings,
     ClampSource,
+    ModelChoice,
     MqttSettings,
     SiteSettings,
     WeatherSettings,
@@ -184,17 +185,24 @@ def test_a_key_is_needed_wherever_the_model_is():
     includes the bearer token, so deciding that a private address needs no
     credential decides something about somebody's setup from the wrong side of
     it."""
-    on_this_network = AiSettings(model="llama3", base_url="http://127.0.0.1:8080/v1", api_key="")
-    assert not on_this_network.ready
+    here = {"base_url": "http://127.0.0.1:8080/v1", "models": [ModelChoice(id="llama3")]}
 
-    assert AiSettings(model="llama3", base_url="http://127.0.0.1:8080/v1", api_key="a-key").ready
+    assert not AiSettings(api_key="", **here).ready
+    assert AiSettings(api_key="a-key", **here).ready
+
+
+def test_a_key_and_an_address_are_not_enough_without_a_model():
+    """There is nothing to ask. The page should say so rather than failing at
+    the far end of a request, which is what it did when the model was a box
+    somebody typed a stale name into."""
+    assert not AiSettings(api_key="a-key", base_url="https://api.openai.com/v1").ready
 
 
 def test_a_fresh_install_is_not_ready():
-    """The model and the address are filled in by default and the key is the one
-    thing nobody has typed."""
+    """The address is filled in by default; the key and the models are not."""
     assert not AiSettings().ready
-    assert AiSettings().model and AiSettings().base_url
+    assert AiSettings().base_url
+    assert AiSettings().models == []
 
 
 def test_the_instruction_says_which_window_it_is_reading():
@@ -374,10 +382,10 @@ async def test_both_halves_of_a_turn_are_written_down(pool, store, monkeypatch):
     times out leaves the question in the thread rather than losing what
     somebody typed."""
     await _site(store)
-    await store.put(AiSettings(api_key="sk-test", model="m"))
+    await store.put(AiSettings(api_key="sk-test", models=[ModelChoice(id="m")]))
     who = await _a_person(pool, "david")
 
-    async def answer(settings, payload):
+    async def answer(settings, payload, model=""):
         # The readings and the description go ahead of the conversation.
         assert payload[0]["role"] == "system"
         assert "readings" in payload[1]["content"]
@@ -399,10 +407,10 @@ async def test_both_halves_of_a_turn_are_written_down(pool, store, monkeypatch):
 
 async def test_a_question_survives_a_model_that_refuses(pool, store, monkeypatch):
     await _site(store)
-    await store.put(AiSettings(api_key="sk-test", model="m"))
+    await store.put(AiSettings(api_key="sk-test", models=[ModelChoice(id="m")]))
     who = await _a_person(pool, "david")
 
-    async def refuse(settings, payload):
+    async def refuse(settings, payload, model=""):
         raise chat.ChatError("the model said no")
 
     monkeypatch.setattr(chat, "ask", refuse)
@@ -554,7 +562,7 @@ async def test_an_unanswered_question_is_kept_but_not_sent_back(pool, store, mon
     telemetry directly above them.
     """
     await _site(store)
-    await store.put(AiSettings(api_key="sk-test", model="m"))
+    await store.put(AiSettings(api_key="sk-test", models=[ModelChoice(id="m")]))
     who = await _a_person(pool, "david")
 
     # One that failed, and is therefore unanswered.
@@ -562,7 +570,7 @@ async def test_an_unanswered_question_is_kept_but_not_sent_back(pool, store, mon
 
     seen = {}
 
-    async def answer(settings, payload):
+    async def answer(settings, payload, model=""):
         seen["payload"] = payload
         return "Nothing unusual."
 
@@ -628,106 +636,6 @@ def test_the_budget_is_kept_in_the_units_the_model_counts_in():
 # -- the thinking knob, and withdrawing it ------------------------------------
 
 
-def test_a_little_thinking_is_the_default_rather_than_none():
-    """Measured on a local qwen3.8-27b, and the middle setting wins on both
-    counts that matter.
-
-    Left to itself it spent 25,598 reasoning tokens and 279 seconds on one
-    sentence. Turned off it answered in 16 seconds and got the arithmetic
-    wrong twice out of two, against figures checked in SQL: "157, on
-    2026-09-18 at 13:48:33" for a longest gap that was 33.5 minutes starting
-    2026-09-16 12:26:39. A little thinking took 31 seconds and got it exactly
-    right.
-
-    Counting two thousand rows by hour is reasoning work, and a page that
-    exists to answer questions about data has no use for a fast wrong answer.
-    """
-    assert AiSettings().thinking == "low"
-    assert AiSettings().knobs == {"reasoning_effort": "low"}
-    # Off is still there, and still says what it means to the model.
-    assert AiSettings(thinking="off").knobs == {"chat_template_kwargs": {"enable_thinking": False}}
-
-
-def test_each_family_is_asked_in_its_own_words():
-    """Qwen on vLLM turns thinking off through the chat template; everything
-    with a dial uses reasoning_effort. Neither is understood everywhere."""
-    assert AiSettings(thinking="low").knobs == {"reasoning_effort": "low"}
-    assert AiSettings(thinking="high").knobs == {"reasoning_effort": "high"}
-    assert AiSettings(thinking="as the model likes").knobs == {}
-
-
-async def test_a_provider_that_refuses_the_knob_is_asked_plainly(monkeypatch):
-    """One wasted request, once, and then it is remembered.
-
-    OpenAI refuses `chat_template_kwargs` outright and refuses
-    `reasoning_effort` on a model that has no dial, so sending either hopefully
-    has to come with a way of taking it back. Without this the default setting
-    would break every install pointed at OpenAI.
-    """
-    sent = []
-
-    async def pretend(url, settings, payload, knobs):
-        sent.append(knobs)
-        if knobs:
-            return {
-                "_status": 400,
-                "error": {
-                    "message": "Unsupported parameter: 'reasoning_effort' is not "
-                    "supported with this model."
-                },
-            }
-        return {"_status": 200, "choices": [{"message": {"content": "Both pumps are fine."}}]}
-
-    monkeypatch.setattr(chat, "_post", pretend)
-    chat._PLAIN.clear()
-    account = AiSettings(api_key="sk-test", model="gpt-4o-mini")
-
-    assert await chat.ask(account, [{"role": "user", "content": "how is it?"}]) == (
-        "Both pumps are fine."
-    )
-    assert sent == [{"reasoning_effort": "low"}, {}]
-
-    # And the second question does not spend a request finding out again.
-    sent.clear()
-    assert await chat.ask(account, [{"role": "user", "content": "and now?"}])
-    assert sent == [{}], "it asked plainly straight away"
-    chat._PLAIN.clear()
-
-
-async def test_a_real_failure_is_not_mistaken_for_a_fussy_parameter(monkeypatch):
-    """A refusal about the question must not be retried as though it were about
-    a knob, and must reach the person who asked."""
-    tries = []
-
-    async def pretend(url, settings, payload, knobs):
-        tries.append(knobs)
-        return {"_status": 401, "error": {"message": "Incorrect API key provided"}}
-
-    monkeypatch.setattr(chat, "_post", pretend)
-    chat._PLAIN.clear()
-
-    with pytest.raises(chat.ChatError, match="Incorrect API key"):
-        await chat.ask(AiSettings(api_key="sk-wrong", model="m"), [])
-
-    assert len(tries) == 1, "asked once, not retried"
-    chat._PLAIN.clear()
-
-
-async def test_the_knob_is_actually_on_the_request(monkeypatch):
-    seen = {}
-
-    async def pretend(url, settings, payload, knobs):
-        seen.update(knobs)
-        return {"_status": 200, "choices": [{"message": {"content": "ok"}}]}
-
-    monkeypatch.setattr(chat, "_post", pretend)
-    chat._PLAIN.clear()
-    await chat.ask(AiSettings(api_key="k", model="m", thinking="low"), [])
-
-    assert seen == {"reasoning_effort": "low"}
-    chat._PLAIN.clear()
-
-
 # -- an hour is the unit, and the tail is the close up -----------------------
 
 
@@ -789,7 +697,7 @@ async def test_the_close_up_is_the_tail_and_not_the_whole_window(pool, store, mo
     """A month of calls one by one does not fit and would not be read. What
     somebody wants call by call is what just happened."""
     await _site(store)
-    await store.put(AiSettings(api_key="sk-test", model="m"))
+    await store.put(AiSettings(api_key="sk-test", models=[ModelChoice(id="m")]))
     who = await _a_person(pool, "david")
     now = datetime.now(UTC)
     await _a_call(pool, now - timedelta(days=20))
@@ -797,7 +705,7 @@ async def test_the_close_up_is_the_tail_and_not_the_whole_window(pool, store, mo
 
     seen = {}
 
-    async def answer(settings, payload):
+    async def answer(settings, payload, model=""):
         seen["readings"] = payload[1]["content"]
         return "fine"
 
@@ -853,7 +761,7 @@ async def test_neither_a_pending_nor_a_failed_turn_goes_back_to_the_model(pool, 
     Sending either back would be handing the model its own failure as though it
     were something it had said."""
     await _site(store)
-    await store.put(AiSettings(api_key="sk-test", model="m"))
+    await store.put(AiSettings(api_key="sk-test", models=[ModelChoice(id="m")]))
     who = await _a_person(pool, "david")
 
     # A turn that failed, and one still being written by somebody else's tab.
@@ -863,7 +771,7 @@ async def test_neither_a_pending_nor_a_failed_turn_goes_back_to_the_model(pool, 
 
     seen = {}
 
-    async def reply(settings, payload):
+    async def reply(settings, payload, model=""):
         seen["payload"] = payload
         return "fine"
 
@@ -878,41 +786,152 @@ async def test_neither_a_pending_nor_a_failed_turn_goes_back_to_the_model(pool, 
     assert seen["payload"][-1]["content"] == "the real question"
 
 
-def test_the_top_of_the_dial_is_spelled_differently_by_qwen():
-    """ "Unexpected reasoning effort high. Supported types are xhigh (default),
-    medium, and low." Measured against the real endpoint. The name is the sort
-    of family difference the profile exists to absorb."""
-    assert AiSettings(thinking="high").knobs["reasoning_effort"] == "high"
-    qwen = AiSettings(thinking="high", profile="qwen3")
-    assert qwen.knobs["reasoning_effort"] == "xhigh"
-    # The rest of the dial is spelled the same either way.
-    assert AiSettings(thinking="low", profile="qwen3").knobs["reasoning_effort"] == "low"
+# -- the models come from the endpoint ----------------------------------------
 
 
-async def test_a_refused_value_falls_back_like_a_refused_parameter(monkeypatch):
-    """The refusal names the value rather than the parameter, and did not match
-    any of the phrases this watched for, so choosing the top setting raised at
-    the reader instead of quietly asking again without it."""
-    sent = []
+class _Answered:
+    """Enough of an httpx response for `offered` to read."""
 
-    async def pretend(url, settings, payload, knobs):
-        sent.append(knobs)
-        if knobs:
-            return {
-                "_status": 400,
-                "error": {
-                    "message": "litellm.BadRequestError: OpenAIException - Unexpected "
-                    "reasoning effort high. Supported types are xhigh (default), "
-                    "medium, and low."
-                },
-            }
-        return {"_status": 200, "choices": [{"message": {"content": "Steady."}}]}
+    def __init__(self, status, body):
+        self.status_code = status
+        self._body = body
 
-    monkeypatch.setattr(chat, "_post", pretend)
-    chat._PLAIN.clear()
+    def json(self):
+        if self._body is None:
+            raise ValueError("not json")
+        return self._body
 
-    said = await chat.ask(AiSettings(api_key="k", model="m", thinking="high"), [])
 
-    assert said == "Steady."
-    assert len(sent) == 2 and sent[1] == {}
-    chat._PLAIN.clear()
+def _endpoint(monkeypatch, status=200, body=None, boom=None):
+    seen = {}
+
+    class Client:
+        def __init__(self, **kw):
+            seen["timeout"] = kw.get("timeout")
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, headers=None):
+            seen["url"] = url
+            seen["headers"] = headers
+            if boom:
+                raise boom
+            return _Answered(status, body)
+
+    monkeypatch.setattr(chat.httpx2, "AsyncClient", Client)
+    return seen
+
+
+async def test_the_model_list_is_asked_for_rather_than_typed(monkeypatch):
+    """Production spent a fortnight pointed at "qwen3.6-27b" while the gateway
+    offered "qwen3.8-27b-nvfp4", failing on every question with nothing on any
+    page to say so. A list you pick from cannot go stale that quietly."""
+    seen = _endpoint(
+        monkeypatch,
+        body={"data": [{"id": "gpt-6-astra"}, {"id": "claude-opus-5"}, {"id": "gpt-6-astra"}]},
+    )
+
+    found = await chat.offered(
+        AiSettings(api_key="sk-test", base_url="https://llm.example.com/v1/")
+    )
+
+    assert found == ["claude-opus-5", "gpt-6-astra"], "sorted, and each one once"
+    assert seen["url"] == "https://llm.example.com/v1/models"
+    assert seen["headers"]["Authorization"] == "Bearer sk-test"
+
+
+async def test_listing_the_models_says_what_went_wrong(monkeypatch):
+    """Somebody pressed a button and is looking at the page. A blank list is
+    not an answer."""
+    _endpoint(monkeypatch, status=401, body={"error": {"message": "bad key"}})
+    with pytest.raises(chat.ChatError, match="401"):
+        await chat.offered(AiSettings(api_key="k", base_url="https://x/v1"))
+
+    _endpoint(monkeypatch, body={"data": []})
+    with pytest.raises(chat.ChatError, match="listed no models"):
+        await chat.offered(AiSettings(api_key="k", base_url="https://x/v1"))
+
+    with pytest.raises(chat.ChatError, match="Add an API key"):
+        await chat.offered(AiSettings(base_url="https://x/v1"))
+
+
+async def test_listing_waits_a_shorter_time_than_asking_does(monkeypatch):
+    """Nobody is watching a model think here. Somebody pressed a button."""
+    seen = _endpoint(monkeypatch, body={"data": [{"id": "m"}]})
+    await chat.offered(AiSettings(api_key="k", base_url="https://x/v1"))
+
+    assert seen["timeout"] == chat.LIST_TIMEOUT_S < chat.TIMEOUT_S
+
+
+# -- who may pick what, and how much of it ------------------------------------
+
+
+def _account(*models):
+    return AiSettings(
+        api_key="k",
+        base_url="https://x/v1",
+        models=[ModelChoice(**m) if isinstance(m, dict) else m for m in models],
+    )
+
+
+def test_a_private_model_is_the_owners_alone():
+    """Cost rather than secrecy. A gateway usually fronts several accounts,
+    some billed by the token to somebody else."""
+    account = _account({"id": "cheap", "public": True}, {"id": "expensive"})
+
+    assert [m.id for m in account.may_use(is_owner=True)] == ["cheap", "expensive"]
+    assert [m.id for m in account.may_use(is_owner=False)] == ["cheap"]
+
+
+def test_the_context_budget_is_per_model():
+    """Windows are per model and nothing here can ask how big one is: the
+    protocol has no field for it, and behind a gateway the name says nothing
+    either."""
+    account = _account({"id": "small", "budget": 30_000}, {"id": "large", "budget": 900_000})
+
+    assert account.budget_for("small") == 30_000
+    assert account.budget_for("large") == 900_000
+    # And something the endpoint has never mentioned gets the default rather
+    # than nothing, because a budget of zero sends no readings at all.
+    assert account.budget_for("who?") == 100_000
+
+
+def test_a_budget_cannot_be_set_to_something_useless():
+    """Below about eight thousand there is no room for the readings at all."""
+    assert ModelChoice(id="m", budget=10).budget == 8_000
+    assert ModelChoice(id="m", budget=99_000_000).budget == 2_000_000
+
+
+async def test_the_chosen_model_is_the_one_asked(monkeypatch):
+    sent = {}
+
+    class Client:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            sent.update(json)
+            return _Answered(200, {"choices": [{"message": {"content": "Steady."}}]})
+
+    monkeypatch.setattr(chat.httpx2, "AsyncClient", Client)
+    account = _account({"id": "one"}, {"id": "two"})
+
+    assert await chat.ask(account, [{"role": "user", "content": "hi"}], "two") == "Steady."
+    assert sent["model"] == "two"
+    # And nothing else. The knobs went to the gateway.
+    assert set(sent) == {"model", "messages"}
+
+
+async def test_asking_with_no_model_says_so_rather_than_guessing():
+    with pytest.raises(chat.ChatError, match="No model was chosen"):
+        await chat.ask(_account({"id": "one"}), [], "")

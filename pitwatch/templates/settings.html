@@ -594,9 +594,8 @@
   <form method="post" action="/settings/ai" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-    <p class="hint">One account, used by every building's health summary. What
-      each building says about itself, and when it asks, is on its own
-      settings above.</p>
+    <p class="hint">One account, used by every building's chat. What each
+      building says about itself is on its own settings above.</p>
 
     <div class="grid">
       <div class="field">
@@ -610,61 +609,90 @@
         </label>
         {% endif %}
         <p class="hint">Whatever the address below wants. A server on this
-          network usually wants one too: llama.cpp and the rest speak the same
-          protocol, bearer token included.</p>
-      </div>
-      <div class="field">
-        <label for="ai_model">Model</label>
-        <input type="text" id="ai_model" name="ai_model"
-               value="{{ ai.model }}" placeholder="gpt-4o-mini">
-        <p class="hint">Any model the address below can reach. A box rather
-          than a list, because the list changes faster than this application
-          does.</p>
-      </div>
-      <div class="field">
-        <label for="ai_profile">Model family</label>
-        <select id="ai_profile" name="ai_profile">
-          {% for value, label in profile_choices %}
-          <option value="{{ value }}" {% if ai.profile == value %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-        <p class="hint">Sampling defaults are published per family and they
-          disagree, so there is no set that suits both. Qwen3 asks for one pair
-          of numbers when it is thinking and another when it is not. OpenAI
-          wants none of them and rejects two outright: <code>top_k</code> is not
-          in the protocol, and its reasoning models refuse
-          <code>temperature</code>.</p>
-      </div>
-      <div class="field">
-        <label for="ai_thinking">Thinking</label>
-        <select id="ai_thinking" name="ai_thinking">
-          {% for value, label in thinking_choices %}
-          <option value="{{ value }}" {% if ai.thinking == value %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-        <p class="hint">A little, unless you have a reason. Measured on a local
-          qwen3.8-27b against this application's own prompt: left to itself it
-          spent 25,598 reasoning tokens and 279 seconds before writing one
-          sentence. Turned off it answered in 16 seconds and got the arithmetic
-          wrong, twice out of two, against figures checked in SQL. A little
-          thinking took about 30 seconds and got both right. Counting two
-          thousand rows by hour is reasoning work, and a fast wrong answer is
-          worse than a slow one.</p>
-        <p class="hint">Not every provider takes this. One that refuses is
-          asked plainly instead, which costs one request and is then
-          remembered, so there is nothing to get wrong here.</p>
+          network usually wants one too: vLLM, llama.cpp and the gateways in
+          front of them speak the same protocol, bearer token included.</p>
       </div>
       <div class="field">
         <label for="ai_base_url">API address</label>
         <input type="text" id="ai_base_url" name="ai_base_url"
                value="{{ ai.base_url }}" placeholder="https://api.openai.com/v1">
-        <p class="hint">Anything that speaks the same protocol, including
+        <p class="hint">Anything that speaks the OpenAI protocol, including
           something on this network. Point it at your own hardware and nothing
           here leaves the building.</p>
       </div>
     </div>
 
+    {# The models are read from the endpoint rather than typed.
+
+       Production once spent a fortnight pointed at a model name the gateway
+       had never heard of, failing on every question, with nothing on any page
+       to say so. A list you pick from cannot go stale that quietly.
+
+       Nothing about how a model behaves is set here. Thinking, sampling, the
+       lot: that is the gateway's job, one entry per behavior, which is also
+       how you offer the same weights twice with and without thinking. #}
+    <h3 class="section-heading">Models</h3>
+
+    {% if ai.models %}
+    <div class="table-scroll">
+      <table class="users">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th>Anyone signed in</th>
+            <th>Context budget</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for choice in ai.models %}
+          <tr>
+            <td><code>{{ choice.id }}</code></td>
+            <td>
+              <label class="check">
+                <input type="checkbox" name="ai_public" value="{{ choice.id }}"
+                       {% if choice.public %}checked{% endif %}>
+                <span class="visually-hidden">Offer {{ choice.id }} to anyone signed in</span>
+              </label>
+            </td>
+            <td>
+              <label class="visually-hidden" for="ai_budget_{{ choice.id | replace('/', '_') | replace('.', '_') | replace('-', '_') | replace(':', '_') }}">Context budget for {{ choice.id }}</label>
+              <input type="number" min="8000" max="2000000" step="1000"
+                     id="ai_budget_{{ choice.id | replace('/', '_') | replace('.', '_') | replace('-', '_') | replace(':', '_') }}"
+                     name="ai_budget_{{ choice.id | replace('/', '_') | replace('.', '_') | replace('-', '_') | replace(':', '_') }}"
+                     value="{{ choice.budget }}">
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <p class="hint">Unticked is private: only you see it on the chat page.
+      Ticked offers it to anybody signed in, which on a gateway fronting
+      several accounts is a decision about whose tokens get spent.</p>
+
+    <p class="hint">The context budget is how much of that model's window
+      PitWatch will fill, and it is per model because windows are. Leave room
+      for the answer: 100,000 against a 160,000 window is the shape to copy.
+      The readings are a table of timestamps and those cost about a token a
+      character, which is measured rather than known, so the slack is real.</p>
+
     <button type="submit" class="button">Save</button>
+    {% else %}
+    <p class="hint">None yet. Put a key and an address in, save, then press
+      Refresh: the list comes from the endpoint, so it is whatever this key can
+      actually use today.</p>
+    <button type="submit" class="button">Save</button>
+    {% endif %}
+  </form>
+
+  {# Its own form, because it posts somewhere else and forms do not nest. #}
+  <form method="post" action="/settings/ai/models" class="field">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="button secondary">Refresh the model list</button>
+    <p class="hint">Asks the endpoint what this key may use. Anything already
+      here keeps its ticks and its budget; anything the endpoint has stopped
+      offering drops off.</p>
   </form>
   </details>
 </section>

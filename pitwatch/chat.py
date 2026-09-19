@@ -52,6 +52,10 @@ log = logging.getLogger(__name__)
 # measured against real readings came back in 10 and 17 seconds.
 TIMEOUT_S = 85.0
 
+# Listing the models is a different kind of wait. Nobody is watching a model
+# think; somebody pressed a button on a settings page and is looking at it.
+LIST_TIMEOUT_S = 15.0
+
 # The window a check reads when nobody has chosen one. A week is long enough to
 # have a shape and short enough that a change in it is recent.
 WINDOW = series.WINDOWS["7d"]
@@ -106,7 +110,7 @@ def tokens(text: str, dense: bool = False) -> int:
 
 
 # Said in one place, because the page draws it and the post refuses with it.
-NOT_READY = "Add an API key and a model on the settings page first."
+NOT_READY = "Add an API key and an address on the settings page, then refresh the models."
 
 # There was a gate here, holding the button until a week had passed or the
 # description had changed, on the reasoning that the same readings and the same
@@ -528,92 +532,32 @@ class ChatError(RuntimeError):
     """Something a person can act on, ready to put on the page."""
 
 
-# Endpoints that have already refused the extra knobs once.
-#
-# Keyed by URL and held for the life of the process. The fallback below costs
-# one wasted request; remembering means it costs exactly one rather than one per
-# question. Lost on restart, which is right: somebody who has changed provider
-# should get one probe rather than a permanent verdict.
-_PLAIN: set[str] = set()
-
-# What a refusal about a parameter looks like, across the wordings seen in the
-# wild. OpenAI says "Unrecognized request argument supplied: x" for one it has
-# never heard of and "Unsupported parameter: 'x'" for one the model does not
-# take; vLLM and the gateways in front of it say various things containing the
-# name.
-_REFUSALS = (
-    "unrecognized request argument",
-    "unsupported parameter",
-    "extra_forbidden",
-    # vLLM behind litellm, refusing a value rather than the parameter itself:
-    # "Unexpected reasoning effort high. Supported types are xhigh (default),
-    # medium, and low." Without this, choosing the top setting raised at the
-    # reader instead of quietly falling back.
-    "unexpected reasoning effort",
-)
-
-
-async def ask(settings: AiSettings, payload: list[dict]) -> str:
+async def ask(settings: AiSettings, payload: list[dict], model: str) -> str:
     """One call, and whatever it says back.
 
-    Almost nothing but the model and the messages is sent. The exception is the
-    thinking control, which is worth a great deal -- twenty times the speed on
-    the model this was built against -- and is spelled differently by every
-    family that has one.
+    Nothing but the model and the messages is sent, which is where this started
+    and where it has come back to. In between it grew a thinking control, two
+    spellings of it because the families disagree, and a fallback that withdrew
+    the whole bundle from any provider that refused it. All of that is gone: the
+    knobs belong in the gateway, configured per model, where a family's quirks
+    are somebody's deliberate choice rather than this application guessing.
 
-    So it is sent hopefully and withdrawn on refusal. A provider that rejects it
-    costs one wasted request, once, and is then remembered and asked plainly for
-    the rest of the process. That is better than either of the alternatives: not
-    sending it, which leaves the default install four minutes slower than it
-    needs to be, or making the person configuring it work out which spelling
-    their server wants.
+    Which model is asked comes from the page rather than from the account: the
+    endpoint offers several, and which one a question goes to is a choice made
+    beside the question.
     """
     if not settings.ready:
         raise ChatError(NOT_READY)
+    if not model:
+        raise ChatError("No model was chosen.")
 
     url = settings.base_url.rstrip("/") + "/chat/completions"
-    knobs = {} if url in _PLAIN else settings.knobs
-
-    body = await _post(url, settings, payload, knobs)
-    if knobs and _refused_a_parameter(body):
-        log.info("%s will not take %s; asking plainly from now on", url, ", ".join(knobs))
-        _PLAIN.add(url)
-        body = await _post(url, settings, payload, {})
-
-    if isinstance(body.get("error"), dict) or body.get("_status", 200) >= 400:
-        said = ""
-        if isinstance(body.get("error"), dict):
-            said = str(body["error"].get("message") or "")
-        raise ChatError(said or f"{url} answered {body.get('_status')}.")
-
-    try:
-        written = body["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError):
-        raise ChatError("The reply did not contain an answer.") from None
-
-    written = (written or "").strip()
-    if not written:
-        raise ChatError("The model returned nothing.")
-    return written
-
-
-def _refused_a_parameter(body: dict) -> bool:
-    """Whether that failure was about a knob rather than about the question."""
-    if body.get("_status", 200) < 400:
-        return False
-    error = body.get("error")
-    said = str(error.get("message") if isinstance(error, dict) else error or "").lower()
-    return any(phrase in said for phrase in _REFUSALS)
-
-
-async def _post(url: str, settings: AiSettings, payload: list[dict], knobs: dict) -> dict:
-    """One request. Returns the decoded body with the status alongside it."""
     try:
         async with httpx2.AsyncClient(timeout=TIMEOUT_S) as client:
             response = await client.post(
                 url,
                 headers={"Authorization": f"Bearer {settings.api_key}"},
-                json={"model": settings.model, "messages": payload, **knobs},
+                json={"model": model, "messages": payload},
             )
     except httpx2.TimeoutException as error:
         # Said as a timeout rather than as "could not reach", which is what it
@@ -633,8 +577,59 @@ async def _post(url: str, settings: AiSettings, payload: list[dict], knobs: dict
         body = {}
     if not isinstance(body, dict):
         body = {}
-    body["_status"] = response.status_code
-    return body
+
+    if response.status_code >= 400:
+        said = ""
+        if isinstance(body.get("error"), dict):
+            said = str(body["error"].get("message") or "")
+        raise ChatError(said or f"{url} answered {response.status_code}.")
+
+    try:
+        written = body["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        raise ChatError("The reply did not contain an answer.") from None
+
+    written = (written or "").strip()
+    if not written:
+        raise ChatError("The model returned nothing.")
+    return written
+
+
+# What the account can reach, asked of the endpoint rather than typed.
+#
+# Every OpenAI compatible server answers /models, gateways included, so the list
+# is whatever this key can actually use today. Typing a model name by hand is
+# how production spent a fortnight pointed at "qwen3.6-27b" while the gateway
+# offered "qwen3.8-27b-nvfp4", failing every time it was asked.
+async def offered(settings: AiSettings) -> list[str]:
+    """Every model id the endpoint says this key may use, sorted."""
+    if not settings.api_key or not settings.base_url:
+        raise ChatError("Add an API key and an address first.")
+
+    url = settings.base_url.rstrip("/") + "/models"
+    try:
+        async with httpx2.AsyncClient(timeout=LIST_TIMEOUT_S) as client:
+            response = await client.get(
+                url, headers={"Authorization": f"Bearer {settings.api_key}"}
+            )
+    except httpx2.HTTPError as error:
+        raise ChatError(f"Could not reach {url}: {error}") from error
+
+    if response.status_code >= 400:
+        raise ChatError(f"{url} answered {response.status_code}.")
+    try:
+        body = response.json()
+    except ValueError as error:
+        raise ChatError(f"{url} did not answer with JSON.") from error
+
+    found = {
+        str(row.get("id")).strip()
+        for row in (body.get("data") or [])
+        if isinstance(row, dict) and str(row.get("id") or "").strip()
+    }
+    if not found:
+        raise ChatError(f"{url} listed no models.")
+    return sorted(found)
 
 
 # One line per call for water, on top of the daily rollups.
@@ -905,7 +900,9 @@ async def accept(pool: asyncpg.Pool, site_id: int, user_id: int, asked: str) -> 
     )
 
 
-async def answer(app, store: SettingsStore, user_id: int, waiting: int, window=None) -> None:
+async def answer(
+    app, store: SettingsStore, user_id: int, waiting: int, window=None, model: str = ""
+) -> None:
     """Ask the model and fill in the reserved row. Never raises.
 
     Runs detached from the request that started it, so there is nobody left to
@@ -940,7 +937,11 @@ async def answer(app, store: SettingsStore, user_id: int, waiting: int, window=N
                 ],
                 every_call,
                 hours,
+                # Per model, because context windows are per model and this one
+                # was chosen on the page.
+                store.ai.budget_for(model),
             ),
+            model,
         )
     except ChatError as error:
         await _settle(pool, waiting, str(error), failed=True)
@@ -999,6 +1000,7 @@ __all__ = [
     "forget",
     "instructions",
     "messages",
+    "offered",
     "paired",
     "rainfall",
     "remember",

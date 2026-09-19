@@ -1114,14 +1114,13 @@ def test_the_chat_settings_survive_a_save(client):
         "/settings/ai",
         data={
             "ai_api_key": "sk-test-value",
-            "ai_model": "gpt-4o-mini",
             "ai_base_url": "https://api.openai.com/v1",
         },
     )
 
     store = client.app.state.settings
     assert store.ai.api_key == "sk-test-value"
-    assert store.ai.model == "gpt-4o-mini"
+    assert store.ai.base_url == "https://api.openai.com/v1"
     assert store.chat.description.startswith("Two ejector pumps")
     assert not hasattr(store.chat, "api_key"), "the key must not follow the description"
 
@@ -1135,7 +1134,6 @@ def test_the_chat_settings_survive_a_save(client):
         "/settings/ai",
         data={
             "ai_api_key": "",
-            "ai_model": "gpt-4o-mini",
             "ai_base_url": "https://api.openai.com/v1",
         },
     )
@@ -1153,7 +1151,6 @@ def test_the_chat_settings_survive_a_save(client):
         data={
             "ai_api_key": "",
             "ai_clear_key": "on",
-            "ai_model": "gpt-4o-mini",
             "ai_base_url": "https://api.openai.com/v1",
         },
     )

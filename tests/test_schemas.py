@@ -502,16 +502,15 @@ def test_the_account_is_pitwatchs_and_the_description_is_a_buildings():
     The schedule and the notify flag were on the building's half and are gone
     entirely: they described writing a paragraph unasked and mailing it
     somewhere the reply could not go.
+
+    The account's half shrank too. The model is no longer typed in, it is read
+    from the endpoint; and the thinking control and the model family profile
+    went to the gateway, where a family's quirks are somebody's deliberate
+    choice rather than this application guessing from a name.
     """
     from pitwatch.schemas import AiSettings, ChatSettings
 
-    assert set(AiSettings.model_fields) == {
-        "api_key",
-        "model",
-        "base_url",
-        "thinking",
-        "profile",
-    }
+    assert set(AiSettings.model_fields) == {"api_key", "base_url", "models"}
     assert set(ChatSettings.model_fields) == {"description"}
 
     # Readiness is about the account, so it moved with it.

@@ -2329,10 +2329,10 @@ def test_a_check_needs_a_key_before_it_asks_anything():
     from pitwatch.schemas import AiSettings
 
     with pytest.raises(ChatError) as raised:
-        asyncio.run(ask(AiSettings(), [{"role": "user", "content": "hello"}]))
+        asyncio.run(ask(AiSettings(), [{"role": "user", "content": "hello"}], "a-model"))
     assert "settings page" in str(raised.value)
 
-    on_this_network = AiSettings(model="llama3", base_url="http://127.0.0.1:8080/v1")
+    on_this_network = AiSettings(base_url="http://127.0.0.1:8080/v1")
     assert not on_this_network.ready, "no key is no key, whatever the address"
 
 

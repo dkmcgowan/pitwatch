@@ -20,6 +20,7 @@ from unittest import mock
 import pytest
 
 from pitwatch import chat
+from pitwatch.domain import series
 from pitwatch.schemas import (
     AiSettings,
     ChatSettings,
@@ -717,3 +718,87 @@ async def test_the_knob_is_actually_on_the_request(monkeypatch):
 
     assert seen == {"reasoning_effort": "low"}
     chat._PLAIN.clear()
+
+
+# -- an hour is the unit, and the tail is the close up -----------------------
+
+
+async def test_the_hours_carry_the_shape_of_the_window(pool, store):
+    """The bulk of what the model reads. A month of calls one by one is 10,000
+    rows and 330,000 tokens; a month of hours is 720 rows whether the pit is
+    busy or quiet, which is the property the raw table never had."""
+    await _site(store)
+    now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    # Four calls in one hour, three minutes apart, then a long gap.
+    for minutes in (2, 5, 8, 52):
+        await _a_call(pool, now - timedelta(hours=3) + timedelta(minutes=minutes))
+
+    hours = await chat.by_hour(pool, 1, chat.WINDOW, "UTC")
+
+    busy = next(row for row in hours if row["calls"] == 4)
+    assert busy["median_gap_min"] == 3.0
+    assert busy["longest_gap_min"] == 44.0, "the 8 to 52 gap"
+    assert busy["longest_gap_ended"].endswith(":52"), "the time the gap ended"
+    assert busy["hour"].count("-") == 2 and " " in busy["hour"]
+
+
+async def test_an_hour_with_nothing_in_it_is_simply_absent(pool, store):
+    """A row of zeroes per empty hour is 720 rows of nothing on a quiet pit.
+    A gap in the list is a gap in the calls, which the model can read."""
+    await _site(store)
+    await _a_call(pool, datetime.now(UTC) - timedelta(hours=2))
+
+    hours = await chat.by_hour(pool, 1, chat.WINDOW, "UTC")
+
+    assert len(hours) == 1
+
+
+def test_the_hours_go_in_whole_and_the_close_up_gives_way():
+    """The hours are the window. The calls are a luxury on top of them, so when
+    something has to be cut it is the calls."""
+    hours = [
+        {
+            "hour": f"2026-09-{1 + i // 24:02d} {i % 24:02d}",
+            "calls": 14,
+            "median_gap_min": 3.1,
+            "longest_gap_min": 22.4,
+            "longest_gap_ended": "13:05",
+            "both_pumps": 0,
+            "high_water": 0,
+        }
+        for i in range(720)
+    ]
+    payload = chat.messages(ChatSettings(), _numbers(), [], _calls(20_000), hours, budget=100_000)
+
+    readings = payload[1]["content"]
+    assert readings.count("\n2026-09-30 23,") or "2026-09-30" in readings, "the last hour is there"
+    assert chat.HOUR_COLUMNS in readings
+    assert "Only the most recent" in readings, "the calls were what gave way"
+    assert _cost(payload) <= 100_000
+
+
+async def test_the_close_up_is_the_tail_and_not_the_whole_window(pool, store, monkeypatch):
+    """A month of calls one by one does not fit and would not be read. What
+    somebody wants call by call is what just happened."""
+    await _site(store)
+    await store.put(AiSettings(api_key="sk-test", model="m"))
+    who = await _a_person(pool, "david")
+    now = datetime.now(UTC)
+    await _a_call(pool, now - timedelta(days=20))
+    await _a_call(pool, now - timedelta(hours=1))
+
+    seen = {}
+
+    async def answer(settings, payload):
+        seen["readings"] = payload[1]["content"]
+        return "fine"
+
+    monkeypatch.setattr(chat, "ask", answer)
+    await chat.reply(_app(pool, store), store, who, "how is it?", series.WINDOWS["30d"])
+
+    close_up = seen["readings"].split("the close up", 1)[1]
+    assert (now - timedelta(hours=1)).strftime("%Y-%m-%d") in close_up
+    assert (now - timedelta(days=20)).strftime("%Y-%m-%d") not in close_up
+    # But the hourly table still covers the whole month.
+    hourly = seen["readings"].split("the close up", 1)[0]
+    assert (now - timedelta(days=20)).strftime("%Y-%m-%d") in hourly

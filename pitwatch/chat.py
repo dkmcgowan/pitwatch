@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import asyncpg
@@ -36,13 +37,20 @@ log = logging.getLogger(__name__)
 # Long enough for a slow model on a busy afternoon, short enough that a browser
 # waiting on it has not given up first.
 #
-# Raised from 90 when the chat replaced the one shot summary. A summary was one
-# question against two thousand tokens; a chat is an arbitrary question against
-# twenty three thousand, and "has the pit been quieter in the afternoons than at
-# night" is a different amount of work from "summarize the week". Measured on a
-# local qwen3.8-27b: the easy ones came back in thirty to fifty seconds and that
-# one did not come back in ninety.
-TIMEOUT_S = 240.0
+# It went to 240 when the chat replaced the one shot summary, which was wrong
+# for a reason nothing in this process can see: **the browser is behind
+# Cloudflare, and Cloudflare gives up at 100 seconds.** Waiting longer than that
+# does not buy an answer, it buys a 524 page from somebody else with none of
+# this application's wording on it and the question apparently lost. Reported
+# from production on 2026-09-19.
+#
+# So this sits below that line and owns the failure: a timeout here says what
+# happened, and says the question is still in the conversation.
+#
+# There is room. With the hourly table in place of a month of raw calls the
+# prompt is about 21,000 tokens whatever window is chosen, and the two questions
+# measured against real readings came back in 10 and 17 seconds.
+TIMEOUT_S = 85.0
 
 # The window a check reads when nobody has chosen one. A week is long enough to
 # have a shape and short enough that a change in it is recent.
@@ -408,6 +416,7 @@ def messages(
     numbers: dict,
     history: list[dict] | None = None,
     every_call: list[dict] | None = None,
+    hours: list[dict] | None = None,
     budget: int = BUDGET_TOKENS,
 ) -> list[dict]:
     """The whole request: what to be, what is true, and what has been said.
@@ -441,7 +450,18 @@ def messages(
         f"{json.dumps(numbers, indent=1, sort_keys=True)}"
     )
 
-    left = budget - tokens(system) - tokens(preamble)
+    # The hours go in whole and are not negotiable. They are the shape of the
+    # window and they are cheap: 720 rows for a month however busy the pit is.
+    if hours:
+        preamble += (
+            "\n\nEvery hour of the window, one per line, on the building's own "
+            "clock. `median_gap_min` and `longest_gap_min` are the minutes "
+            "between calls inside that hour, and `longest_gap_ended` is the "
+            "time of the call that ended the longest one. Blank means none.\n\n"
+            f"{hour_table(hours)}"
+        )
+
+    left = budget - tokens(system) - tokens(preamble, dense=bool(hours))
 
     # The conversation first, newest backwards, up to its share of what is
     # left. A chat that has forgotten the last thing it said is not a chat.
@@ -460,7 +480,7 @@ def messages(
     listed, dropped = _calls_that_fit(every_call or [], left - ABOUT_THE_TABLE)
     if listed:
         preamble += (
-            "\n\nEvery call for water in the window, one per line. "
+            "\n\nAnd the most recent calls one by one, for the close up. "
             "`gap_min` is the minutes since the call before it, blank on the "
             "first; `ran_s` is how long the pump ran; `both_pumps` and "
             "`high_water` are 1 when true and blank otherwise."
@@ -619,6 +639,49 @@ async def _post(url: str, settings: AiSettings, payload: list[dict], knobs: dict
 # Amp readings are deliberately not here. There are 137,000 of them in a month,
 # about 690,000 tokens, and they say nothing per-reading that the per-run peak
 # and steady figures do not say already.
+# Every hour of the window, with the shape of the calls inside it.
+#
+# This is the bulk of what the model reads, and it replaced sending every call
+# for the whole window. A call is about 33 characters and a table of timestamps
+# costs a token a character, so a month of them is 10,000 rows and 330,000
+# tokens: more than the model will take, and what survived the trimming was a
+# fortnight of raw rows that answered fewer questions than this does.
+#
+# An hour carries what the questions are actually about. How many calls, how
+# closely spaced, the longest gap in it and when that gap began. Thirty days is
+# 720 rows either way, busy pit or quiet one, which is the property the raw
+# table never had.
+BY_HOUR = """
+WITH spaced AS (
+    SELECT started_at, both_ran, high_water,
+           extract(epoch FROM started_at
+                   - lag(started_at) OVER (ORDER BY started_at)) AS gap_s
+    FROM pump_cycle
+    WHERE site_id = $1 AND started_at > now() - $2::interval
+)
+SELECT date_trunc('hour', started_at AT TIME ZONE $3::text) AS hour,
+       count(*)                                              AS calls,
+       round((percentile_cont(0.5) WITHIN GROUP (ORDER BY gap_s) / 60.0)::numeric, 1)
+                                                             AS median_gap_min,
+       round((max(gap_s) / 60.0)::numeric, 1)                AS longest_gap_min,
+       (array_agg(to_char(started_at AT TIME ZONE $3::text, 'HH24:MI')
+                  ORDER BY gap_s DESC NULLS LAST))[1]        AS longest_gap_ended,
+       count(*) FILTER (WHERE both_ran)                      AS both_pumps,
+       count(*) FILTER (WHERE high_water)                    AS high_water
+FROM spaced
+GROUP BY 1 ORDER BY 1
+"""
+
+
+# How much of the tail is still sent call by call.
+#
+# The hourly table answers "which afternoon was quiet" and "when was the
+# longest gap". It cannot answer "what exactly happened between two and three
+# this afternoon", and that is the question somebody asks when they are
+# standing at the panel. Two days of calls is about 700 rows, 23,000 tokens,
+# which is worth it for the one window people ask about in that much detail.
+CLOSE_UP = timedelta(days=2)
+
 EVERY_CALL = """
 SELECT c.started_at,
        round(extract(epoch FROM c.started_at
@@ -635,6 +698,52 @@ LEFT JOIN LATERAL (
 WHERE c.site_id = $1 AND c.started_at > now() - $2::interval
 ORDER BY c.started_at
 """
+
+
+async def by_hour(pool: asyncpg.Pool, site_id: int, window: series.Window, zone: str) -> list[dict]:
+    """Every hour of the window, on the building's clock."""
+    try:
+        rows = await pool.fetch(BY_HOUR, site_id, window.span, zone)
+    except (asyncpg.PostgresError, OSError) as error:
+        log.warning("Could not read the hours for the chat: %s", error)
+        return []
+    return [
+        {
+            "hour": row["hour"].strftime("%Y-%m-%d %H"),
+            "calls": row["calls"],
+            "median_gap_min": None
+            if row["median_gap_min"] is None
+            else float(row["median_gap_min"]),
+            "longest_gap_min": (
+                None if row["longest_gap_min"] is None else float(row["longest_gap_min"])
+            ),
+            "longest_gap_ended": row["longest_gap_ended"],
+            "both_pumps": row["both_pumps"],
+            "high_water": row["high_water"],
+        }
+        for row in rows
+    ]
+
+
+HOUR_COLUMNS = "hour,calls,median_gap_min,longest_gap_min,longest_gap_ended,both_pumps,high_water"
+
+
+def hour_table(rows: list[dict]) -> str:
+    """The hours as a table. Same reasoning as `table` below."""
+    lines = [HOUR_COLUMNS]
+    for row in rows:
+        lines.append(
+            "{},{},{},{},{},{},{}".format(
+                row["hour"],
+                row["calls"],
+                "" if row["median_gap_min"] is None else row["median_gap_min"],
+                "" if row["longest_gap_min"] is None else row["longest_gap_min"],
+                row["longest_gap_ended"] or "",
+                row["both_pumps"] or "",
+                row["high_water"] or "",
+            )
+        )
+    return "\n".join(lines)
 
 
 def table(rows: list[dict]) -> str:
@@ -772,7 +881,13 @@ async def reply(app, store: SettingsStore, user_id: int, asked: str, window=None
     window = window or WINDOW
 
     numbers = await facts(app, store, window)
-    every_call = await calls(pool, site_id, window, store.site.timezone)
+    zone = store.site.timezone
+    hours = await by_hour(pool, site_id, window, zone)
+    # The close up is the last couple of days whatever window was asked for.
+    # A month of calls one by one does not fit and would not be read; what
+    # somebody wants call by call is what just happened.
+    close_up = replace(window, span=min(window.span, CLOSE_UP))
+    every_call = await calls(pool, site_id, close_up, zone)
 
     before = await transcript(pool, site_id, user_id)
     await remember(pool, site_id, user_id, "user", asked)
@@ -787,6 +902,7 @@ async def reply(app, store: SettingsStore, user_id: int, asked: str, window=None
                 {"role": "user", "content": asked},
             ],
             every_call,
+            hours,
         ),
     )
     await remember(pool, site_id, user_id, "assistant", said)

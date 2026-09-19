@@ -12,11 +12,12 @@ has, and is why the README does not suggest putting this on the internet.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import ValidationError
 
 from pitwatch import auth, clock
@@ -26,7 +27,12 @@ from pitwatch.domain import alerts as alert_specs
 from pitwatch.domain import diagnostics, series, sites
 from pitwatch.notify import email as email_sender
 from pitwatch.notify import sms as sms_sender
-from pitwatch.schemas import CHAT_WINDOWS, DASHBOARD_ROLES, THINKING_CHOICES
+from pitwatch.schemas import (
+    CHAT_WINDOWS,
+    DASHBOARD_ROLES,
+    PROFILE_CHOICES,
+    THINKING_CHOICES,
+)
 from pitwatch.settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -50,6 +56,7 @@ def _context(request: Request, **extra) -> dict:
         # month, because a model handed one day has nothing to compare it to.
         "windows": [(key, series.WINDOWS[key].title) for key in CHAT_WINDOWS],
         "thinking_choices": THINKING_CHOICES,
+        "profile_choices": PROFILE_CHOICES,
         **extra,
     }
 
@@ -342,7 +349,17 @@ async def chat_page(request: Request, user: auth.SignedIn, error: str | None = N
 
 @router.post("/chat", include_in_schema=False)
 async def chat_say(request: Request, user: auth.SignedIn):
-    """One question, one answer, both written down."""
+    """Take the question and come straight back.
+
+    The model is not waited for here. It used to be, and behind Cloudflare that
+    is a 524 at a hundred seconds: somebody else's error page, with none of this
+    application's wording on it, and the question apparently lost. It was never
+    lost, which is the part that made it worse.
+
+    So the question and a place for the answer are written down, the asking is
+    handed to a task, and the page is told to reload. It draws the question with
+    a thinking mark under it and watches for the answer.
+    """
     form = await request.form()
     store: SettingsStore = sites.store_for(request)
     asked = str(form.get("asked") or "").strip()
@@ -355,14 +372,43 @@ async def chat_say(request: Request, user: auth.SignedIn):
     window = series.window_for(
         wanted if wanted in CHAT_WINDOWS else chats.WINDOW.key, store.site.timezone
     )
-    try:
-        await chats.reply(request.app, store, user.id, asked, window)
-    except chats.ChatError as error:
-        # Straight back with what went wrong. The one thing somebody needs
-        # after a failed call is the reason, and the model's own message is
-        # nearly always the reason.
-        return RedirectResponse(f"/chat?error={quote(str(error)[:300])}", status_code=303)
+
+    waiting = await chats.accept(request.app.state.pool, store.site_id, user.id, asked)
+    # Detached on purpose, and kept on the app so it is not garbage collected
+    # mid-thought: asyncio holds only a weak reference to a bare task.
+    running = getattr(request.app.state, "chat_tasks", None)
+    if running is None:
+        running = request.app.state.chat_tasks = set()
+    task = asyncio.create_task(
+        chats.answer(request.app, store, user.id, waiting, window),
+        name=f"pitwatch-chat-{waiting}",
+    )
+    running.add(task)
+    task.add_done_callback(running.discard)
+
     return RedirectResponse("/chat", status_code=303)
+
+
+@router.get("/api/chat", include_in_schema=False)
+async def chat_state(request: Request, user: auth.SignedIn) -> JSONResponse:
+    """The thread as it stands, for the page to watch while an answer is written."""
+    store: SettingsStore = sites.store_for(request)
+    said = await chats.transcript(request.app.state.pool, store.site_id, user.id)
+    return JSONResponse(
+        {
+            "said": [
+                {
+                    "id": line["id"],
+                    "role": line["role"],
+                    "content": line["content"],
+                    "pending": line["pending"],
+                    "failed": line["failed"],
+                }
+                for line in said
+            ],
+            "waiting": any(line["pending"] for line in said),
+        }
+    )
 
 
 @router.post("/chat/clear", include_in_schema=False)

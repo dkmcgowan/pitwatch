@@ -814,8 +814,8 @@ async def transcript(
     """The tail of this person's thread in this building, oldest first."""
     rows = await pool.fetch(
         """
-        SELECT role, content, created_at FROM (
-            SELECT id, role, content, created_at FROM chat_message
+        SELECT id, role, content, created_at, pending, failed FROM (
+            SELECT id, role, content, created_at, pending, failed FROM chat_message
             WHERE site_id = $1 AND user_id = $2
             ORDER BY created_at DESC, id DESC LIMIT $3
         ) tail ORDER BY created_at, id
@@ -825,7 +825,15 @@ async def transcript(
         limit,
     )
     return [
-        {"role": row["role"], "content": row["content"], "at": row["created_at"]} for row in rows
+        {
+            "id": row["id"],
+            "role": row["role"],
+            "content": row["content"],
+            "at": row["created_at"],
+            "pending": row["pending"],
+            "failed": row["failed"],
+        }
+        for row in rows
     ]
 
 
@@ -843,9 +851,10 @@ def paired(thread: list[dict]) -> list[dict]:
     So what goes back is complete pairs, and the unanswered ones stay on the
     page where the person who typed them can see them.
     """
+    usable = [line for line in thread if not line.get("pending") and not line.get("failed")]
     kept: list[dict] = []
-    for i, line in enumerate(thread):
-        following = thread[i + 1] if i + 1 < len(thread) else None
+    for i, line in enumerate(usable):
+        following = usable[i + 1] if i + 1 < len(usable) else None
         if line["role"] == "user" and (following is None or following["role"] != "assistant"):
             continue
         kept.append(line)
@@ -869,51 +878,112 @@ async def forget(pool: asyncpg.Pool, site_id: int, user_id: int) -> None:
     )
 
 
-async def reply(app, store: SettingsStore, user_id: int, asked: str, window=None) -> str:
-    """Ask the model, with the readings and the thread, and keep both sides.
+async def accept(pool: asyncpg.Pool, site_id: int, user_id: int, asked: str) -> int:
+    """Write the question down and reserve a place for the answer.
 
-    The question is written down before the call and the answer after it, so a
-    model that times out leaves the question in the thread rather than losing
-    what somebody typed.
+    Returns the id of the reserved row, which is what the page watches. Both
+    rows exist before the model is called, so a question is never lost and a
+    page reloaded mid-thought shows the thinking rather than nothing.
+    """
+    await remember(pool, site_id, user_id, "user", asked)
+    return await pool.fetchval(
+        """
+        INSERT INTO chat_message (site_id, user_id, role, content, pending)
+        VALUES ($1, $2, 'assistant', '', true) RETURNING id
+        """,
+        site_id,
+        user_id,
+    )
+
+
+async def answer(app, store: SettingsStore, user_id: int, waiting: int, window=None) -> None:
+    """Ask the model and fill in the reserved row. Never raises.
+
+    Runs detached from the request that started it, so there is nobody left to
+    hand an exception to. A failure becomes a row somebody can read instead.
     """
     pool: asyncpg.Pool = app.state.pool
     site_id = store.site_id
     window = window or WINDOW
 
-    numbers = await facts(app, store, window)
-    zone = store.site.timezone
-    hours = await by_hour(pool, site_id, window, zone)
-    # The close up is the last couple of days whatever window was asked for.
-    # A month of calls one by one does not fit and would not be read; what
-    # somebody wants call by call is what just happened.
-    close_up = replace(window, span=min(window.span, CLOSE_UP))
-    every_call = await calls(pool, site_id, close_up, zone)
+    try:
+        numbers = await facts(app, store, window)
+        zone = store.site.timezone
+        hours = await by_hour(pool, site_id, window, zone)
+        # The close up is the last couple of days whatever window was asked
+        # for. A month of calls one by one does not fit and would not be read;
+        # what somebody wants call by call is what just happened.
+        close_up = replace(window, span=min(window.span, CLOSE_UP))
+        every_call = await calls(pool, site_id, close_up, zone)
 
-    before = await transcript(pool, site_id, user_id)
-    await remember(pool, site_id, user_id, "user", asked)
+        # Everything before the pair this is answering.
+        before = [line for line in await transcript(pool, site_id, user_id) if line["id"] < waiting]
+        asked = next((line["content"] for line in reversed(before) if line["role"] == "user"), "")
 
-    said = await ask(
-        store.ai,
-        messages(
-            store.chat,
-            numbers,
-            [
-                *paired([{"role": row["role"], "content": row["content"]} for row in before]),
-                {"role": "user", "content": asked},
-            ],
-            every_call,
-            hours,
-        ),
+        said = await ask(
+            store.ai,
+            messages(
+                store.chat,
+                numbers,
+                [
+                    *paired(before[:-1]),
+                    {"role": "user", "content": asked},
+                ],
+                every_call,
+                hours,
+            ),
+        )
+    except ChatError as error:
+        await _settle(pool, waiting, str(error), failed=True)
+        log.warning("Chat for site %s user %s failed: %s", site_id, user_id, error)
+        return
+    except Exception:
+        await _settle(pool, waiting, "Something went wrong writing that answer.", failed=True)
+        log.exception("Chat for site %s user %s fell over", site_id, user_id)
+        return
+
+    await _settle(pool, waiting, said, failed=False)
+    log.info("Chat answer for site %s user %s over %s", site_id, user_id, window.title)
+
+
+async def _settle(pool: asyncpg.Pool, waiting: int, content: str, failed: bool) -> None:
+    await pool.execute(
+        """
+        UPDATE chat_message SET content = $2, pending = false, failed = $3, created_at = now()
+        WHERE id = $1
+        """,
+        waiting,
+        content,
+        failed,
     )
-    await remember(pool, site_id, user_id, "assistant", said)
-    log.info("Chat reply for site %s user %s over %s", site_id, user_id, window.title)
-    return said
+
+
+async def abandon(pool: asyncpg.Pool) -> int:
+    """Give up on answers that were being written when the process stopped.
+
+    Called on every start. A pending row is a promise made by a process that no
+    longer exists, and without this the page would wait on it forever.
+    """
+    rows = await pool.fetch(
+        """
+        UPDATE chat_message
+        SET pending = false, failed = true,
+            content = 'This answer was interrupted by a restart. Ask again.'
+        WHERE pending RETURNING id
+        """
+    )
+    if rows:
+        log.info("Gave up on %d answer(s) interrupted by a restart", len(rows))
+    return len(rows)
 
 
 __all__ = [
     "NOT_READY",
     "REMEMBER",
     "ChatError",
+    "abandon",
+    "accept",
+    "answer",
     "ask",
     "calls",
     "facts",
@@ -923,7 +993,6 @@ __all__ = [
     "paired",
     "rainfall",
     "remember",
-    "reply",
     "table",
     "tide",
     "tokens",

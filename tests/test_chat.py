@@ -386,14 +386,15 @@ async def test_both_halves_of_a_turn_are_written_down(pool, store, monkeypatch):
 
     monkeypatch.setattr(chat, "ask", answer)
 
-    said = await chat.reply(_app(pool, store), store, who, "is it slowing down?")
+    waiting = await chat.accept(pool, 1, who, "is it slowing down?")
+    await chat.answer(_app(pool, store), store, who, waiting)
 
-    assert said == "No, it is steady."
     thread = await chat.transcript(pool, 1, who)
     assert [(line["role"], line["content"]) for line in thread] == [
         ("user", "is it slowing down?"),
         ("assistant", "No, it is steady."),
     ]
+    assert thread[-1]["pending"] is False and thread[-1]["failed"] is False
 
 
 async def test_a_question_survives_a_model_that_refuses(pool, store, monkeypatch):
@@ -406,11 +407,17 @@ async def test_a_question_survives_a_model_that_refuses(pool, store, monkeypatch
 
     monkeypatch.setattr(chat, "ask", refuse)
 
-    with pytest.raises(chat.ChatError):
-        await chat.reply(_app(pool, store), store, who, "what happened Friday?")
+    waiting = await chat.accept(pool, 1, who, "what happened Friday?")
+    # It never raises. There is nobody left to hand an exception to: the
+    # request that started this returned long ago.
+    await chat.answer(_app(pool, store), store, who, waiting)
 
     thread = await chat.transcript(pool, 1, who)
-    assert [line["content"] for line in thread] == ["what happened Friday?"]
+    assert [line["content"] for line in thread] == [
+        "what happened Friday?",
+        "the model said no",
+    ]
+    assert thread[-1]["failed"] is True and thread[-1]["pending"] is False
 
 
 async def test_the_settings_no_longer_carry_a_schedule():
@@ -560,7 +567,8 @@ async def test_an_unanswered_question_is_kept_but_not_sent_back(pool, store, mon
         return "Nothing unusual."
 
     monkeypatch.setattr(chat, "ask", answer)
-    await chat.reply(_app(pool, store), store, who, "and Saturday?")
+    waiting = await chat.accept(pool, 1, who, "and Saturday?")
+    await chat.answer(_app(pool, store), store, who, waiting)
 
     whole = "\n".join(part["content"] for part in seen["payload"])
     assert "what happened Friday?" not in whole, "the unanswered one was sent back"
@@ -794,7 +802,8 @@ async def test_the_close_up_is_the_tail_and_not_the_whole_window(pool, store, mo
         return "fine"
 
     monkeypatch.setattr(chat, "ask", answer)
-    await chat.reply(_app(pool, store), store, who, "how is it?", series.WINDOWS["30d"])
+    waiting = await chat.accept(pool, 1, who, "how is it?")
+    await chat.answer(_app(pool, store), store, who, waiting, series.WINDOWS["30d"])
 
     close_up = seen["readings"].split("the close up", 1)[1]
     assert (now - timedelta(hours=1)).strftime("%Y-%m-%d") in close_up
@@ -802,3 +811,68 @@ async def test_the_close_up_is_the_tail_and_not_the_whole_window(pool, store, mo
     # But the hourly table still covers the whole month.
     hourly = seen["readings"].split("the close up", 1)[0]
     assert (now - timedelta(days=20)).strftime("%Y-%m-%d") in hourly
+
+
+# -- the answer arrives after the request does --------------------------------
+
+
+async def test_a_question_is_accepted_before_the_model_is_called(pool):
+    """The whole point of the split. The request that takes the question does
+    not wait for the model, because behind Cloudflare a wait longer than a
+    hundred seconds is a 524 with none of this application's wording on it and
+    the question apparently lost."""
+    who = await _a_person(pool, "david")
+
+    waiting = await chat.accept(pool, 1, who, "how is it?")
+
+    thread = await chat.transcript(pool, 1, who)
+    assert [line["role"] for line in thread] == ["user", "assistant"]
+    assert thread[-1]["id"] == waiting
+    assert thread[-1]["pending"] is True
+    assert thread[-1]["content"] == "", "a place, not an answer"
+
+
+async def test_an_answer_interrupted_by_a_restart_is_given_up_on(pool):
+    """A pending row is a promise made by a process that no longer exists.
+    Without this the page waits on it forever."""
+    who = await _a_person(pool, "david")
+    await chat.accept(pool, 1, who, "how is it?")
+
+    assert await chat.abandon(pool) == 1
+
+    thread = await chat.transcript(pool, 1, who)
+    assert thread[-1]["pending"] is False
+    assert thread[-1]["failed"] is True
+    assert "restart" in thread[-1]["content"]
+    # And a second sweep has nothing to do.
+    assert await chat.abandon(pool) == 0
+
+
+async def test_neither_a_pending_nor_a_failed_turn_goes_back_to_the_model(pool, store, monkeypatch):
+    """A half written answer is not an answer, and an error is not one either.
+    Sending either back would be handing the model its own failure as though it
+    were something it had said."""
+    await _site(store)
+    await store.put(AiSettings(api_key="sk-test", model="m"))
+    who = await _a_person(pool, "david")
+
+    # A turn that failed, and one still being written by somebody else's tab.
+    failed = await chat.accept(pool, 1, who, "the one that broke")
+    await chat._settle(pool, failed, "the model said no", failed=True)
+    await chat.accept(pool, 1, who, "the one still going")
+
+    seen = {}
+
+    async def reply(settings, payload):
+        seen["payload"] = payload
+        return "fine"
+
+    monkeypatch.setattr(chat, "ask", reply)
+    waiting = await chat.accept(pool, 1, who, "the real question")
+    await chat.answer(_app(pool, store), store, who, waiting)
+
+    whole = "\n".join(part["content"] for part in seen["payload"])
+    assert "the model said no" not in whole
+    assert "the one still going" not in whole
+    assert "the one that broke" not in whole, "its answer never came, so the pair is not one"
+    assert seen["payload"][-1]["content"] == "the real question"

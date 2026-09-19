@@ -12,6 +12,7 @@ looking fine and doing nothing.
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 
 import pytest
@@ -1062,9 +1063,22 @@ def test_a_chat_without_a_key_says_so_rather_than_failing(client):
     page = client.get("/chat").text
     assert "Add an API key" in page
 
+    # The post is accepted and comes straight back, because the asking happens
+    # behind it now. The failure lands in the thread a moment later.
     response = client.post("/chat", data={"asked": "how is it?"}, follow_redirects=False)
     assert response.status_code == 303
-    assert "error=" in response.headers["location"]
+    assert response.headers["location"] == "/chat"
+
+    for _ in range(50):
+        state = client.get("/api/chat").json()
+        if not state["waiting"]:
+            break
+        time.sleep(0.1)
+
+    assert state["waiting"] is False, "it did not sit there pending forever"
+    last = state["said"][-1]
+    assert last["failed"] is True
+    assert "API key" in last["content"]
 
 
 def test_the_chat_can_be_read_and_used_by_anybody_signed_in(client):

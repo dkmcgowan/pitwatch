@@ -104,6 +104,12 @@ SCHEDULE_DAYS = {"weekly": 7, "monthly": 30}
 # it: nothing can have changed since yesterday that a week would not show, and a
 # paragraph a day about a pump that did what it did yesterday is a paragraph
 # nobody reads by Thursday.
+# The families whose sampling advice PitWatch knows, on the page.
+PROFILE_CHOICES = (
+    ("generic", "OpenAI and anything else (send nothing extra)"),
+    ("qwen3", "Qwen3 family (use its published sampling defaults)"),
+)
+
 # How much thinking to ask for, and what each one is called on the page.
 THINKING_CHOICES = (
     ("off", "Off, answer straight away"),
@@ -1326,20 +1332,53 @@ class AiSettings(BaseModel):
     def trim(cls, value: str) -> str:
         return value.strip()
 
+    # Which family's advice to follow about the knobs below the thinking one.
+    #
+    # Sampling defaults are published per model family and they disagree, so
+    # there is no set that suits both. Qwen3 asks for one pair of numbers when
+    # it is thinking and a different pair when it is not; OpenAI's own models
+    # want none of it and reject two of the four outright.
+    #
+    # Generic sends nothing but the thinking control, which is the safe answer
+    # and the right one for anybody on OpenAI.
+    profile: Literal["generic", "qwen3"] = "generic"
+
     @property
     def knobs(self) -> dict:
         """The extra body fields this setting asks for, if any.
 
-        Two different spellings, because the two families disagree. Qwen on
-        vLLM turns thinking off through the chat template; everything with a
-        reasoning effort dial uses `reasoning_effort`. Neither is understood
-        everywhere, which is what `pitwatch.chat.ask` retries around.
+        Two spellings for thinking, because the families disagree: Qwen on vLLM
+        turns it off through the chat template, and everything with a dial uses
+        `reasoning_effort`. Neither is understood everywhere, which is what
+        `pitwatch.chat.ask` retries around.
+
+        The sampling numbers are Qwen3's own published recommendations, and
+        they are only sent under that profile. They are not universal advice
+        and two of them are not universal parameters: `top_k` is not in the
+        OpenAI protocol at all, and OpenAI's reasoning models reject
+        `temperature`. Sending them to the wrong place would cost the thinking
+        control as well, since one refusal drops the whole bundle.
         """
-        if self.thinking == "as the model likes":
-            return {}
-        if self.thinking == "off":
-            return {"chat_template_kwargs": {"enable_thinking": False}}
-        return {"reasoning_effort": self.thinking}
+        asked: dict = {}
+        thinking_off = self.thinking == "off"
+
+        if self.thinking not in ("as the model likes",):
+            if thinking_off:
+                asked["chat_template_kwargs"] = {"enable_thinking": False}
+            else:
+                asked["reasoning_effort"] = self.thinking
+
+        if self.profile == "qwen3":
+            # Qwen3's published sampling defaults, which differ by mode: the
+            # thinking one is told to stay broad so it does not talk itself
+            # into a corner, the non-thinking one is tightened up.
+            asked.update(
+                {"temperature": 0.7, "top_p": 0.8, "top_k": 20}
+                if thinking_off
+                else {"temperature": 0.6, "top_p": 0.95, "top_k": 20}
+            )
+
+        return asked
 
     @property
     def ready(self) -> bool:

@@ -4,76 +4,79 @@
 
 {% block content %}
 
-{% if error %}
-<p class="error" role="alert">{{ error }}</p>
-{% endif %}
+{# No card, no heading, no explanation above the conversation.
 
-<section class="card chat">
-  <div class="card-head">
-    <h2 class="section-heading">Ask the readings</h2>
-    {% if said %}
-    {# A real dialog rather than the browser's box. See wireConfirms in
-       setup.js. Only this person's thread in this building goes. #}
-    <form method="post" action="/chat/clear" class="inline"
-          data-confirm="Clear this conversation? Only yours, and only for this building.">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      {# "Clear conversation" rather than "Start again", which read as a
-         suggestion rather than as the button that deletes the thread. #}
-      <button type="submit" class="button secondary">Clear conversation</button>
-    </form>
-    {% endif %}
-  </div>
-
-  {% if not ready %}
-  <p class="hint">{{ not_ready }}</p>
+   This page is one thing and it is obvious what it is. Everything that used to
+   sit above the thread -- a title, a paragraph about what gets sent, a Clear
+   conversation button -- was furniture between somebody and the answer they
+   came for. What survives of it is one control at the bottom, where a thing you
+   do rarely belongs. #}
+<section class="chat" data-chat>
+  {% if error %}
+  <p class="error" role="alert">{{ error }}</p>
   {% endif %}
 
-  {# The transcript, oldest first, so the newest answer is nearest the box you
-     type in. An empty thread says what this is for rather than nothing: a
-     blank page with a text box is a page nobody knows what to do with. #}
   <div class="chat-thread" data-chat-thread>
     {% if not said %}
     <div class="chat-empty">
-      <p>Nothing asked yet. This sends the readings over the window below,
-        along with what the settings page says about this building, and then
-        answers questions about them.</p>
-      <p class="hint">Things it can see: every call for water with the gap
-        before it, each pump's runs and how long they lasted, the amp draw and
-        how it compares with four weeks ago, the floats and the alarm, and the
-        rain, tide and water table where they are switched on.</p>
+      <p class="chat-empty-title">Ask about the pumps</p>
       <ul class="chat-starters">
-        <li>What does the last week look like, and is anything worth attention?</li>
-        <li>When was the longest gap between calls, and when was the shortest?</li>
-        <li>Is the pit busier at night than during the day?</li>
-        <li>Is either pump drawing more than it used to?</li>
+        <li><button type="button" class="chat-starter" data-starter>How has the pit behaved this week, and is anything worth attention?</button></li>
+        <li><button type="button" class="chat-starter" data-starter>When was the longest gap between calls, and when was the shortest?</button></li>
+        <li><button type="button" class="chat-starter" data-starter>Is the pit busier at night than during the day?</button></li>
+        <li><button type="button" class="chat-starter" data-starter>Is either pump drawing more than it used to?</button></li>
       </ul>
     </div>
     {% endif %}
 
     {% for line in said %}
-    <article class="chat-line chat-{{ line.role }}">
-      <p class="chat-who">{{ "You" if line.role == "user" else "PitWatch" }}</p>
-      <div class="chat-said">{{ line.content }}</div>
+    <article class="chat-line chat-{{ line.role }}{% if line.failed %} chat-failed{% endif %}"
+             data-line="{{ line.id }}">
+      <div class="chat-said">{% if line.pending %}<span class="chat-thinking" aria-label="Thinking"><i></i><i></i><i></i></span>{% else %}{{ line.content }}{% endif %}</div>
     </article>
     {% endfor %}
   </div>
 
   <form method="post" action="/chat" class="chat-ask" data-chat-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label class="visually-hidden" for="asked">Your question</label>
-    <textarea id="asked" name="asked" rows="2" required
-              placeholder="Ask about the readings..."
-              {% if not ready %}disabled{% endif %}></textarea>
-    <div class="chat-ask-foot">
+    <div class="chat-box">
+      <label class="visually-hidden" for="asked">Your question</label>
+      <textarea id="asked" name="asked" rows="1" required
+                placeholder="Ask about the pumps"
+                {% if not ready %}disabled{% endif %}></textarea>
+      <button type="submit" class="chat-send" aria-label="Send"
+              {% if not ready %}disabled{% endif %}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 12h13M12 5l7 7-7 7" fill="none" stroke="currentColor"
+                stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="chat-foot">
+      {% if not ready %}
+      <span class="chat-note">{{ not_ready }}</span>
+      {% endif %}
       <label class="visually-hidden" for="window">How much to read</label>
       <select id="window" name="window">
         {% for key, title in windows %}
         <option value="{{ key }}" {% if key == chosen %}selected{% endif %}>{{ title }}</option>
         {% endfor %}
       </select>
-      <button type="submit" class="button" {% if not ready %}disabled{% endif %}>Ask</button>
+      {% if said %}
+      <button type="submit" class="chat-clear" form="chat-clear-form">Clear conversation</button>
+      {% endif %}
     </div>
   </form>
+
+  {% if said %}
+  {# Its own form, outside the one above, because forms do not nest. The
+     confirmation is a real dialog: see wireConfirms in setup.js. #}
+  <form method="post" action="/chat/clear" id="chat-clear-form" hidden
+        data-confirm="Clear this conversation? Only yours, and only for this building.">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  </form>
+  {% endif %}
 </section>
 
 {% endblock %}

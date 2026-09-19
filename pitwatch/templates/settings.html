@@ -622,6 +622,20 @@
           does.</p>
       </div>
       <div class="field">
+        <label for="ai_profile">Model family</label>
+        <select id="ai_profile" name="ai_profile">
+          {% for value, label in profile_choices %}
+          <option value="{{ value }}" {% if ai.profile == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <p class="hint">Sampling defaults are published per family and they
+          disagree, so there is no set that suits both. Qwen3 asks for one pair
+          of numbers when it is thinking and another when it is not. OpenAI
+          wants none of them and rejects two outright: <code>top_k</code> is not
+          in the protocol, and its reasoning models refuse
+          <code>temperature</code>.</p>
+      </div>
+      <div class="field">
         <label for="ai_thinking">Thinking</label>
         <select id="ai_thinking" name="ai_thinking">
           {% for value, label in thinking_choices %}

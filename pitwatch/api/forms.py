@@ -313,6 +313,7 @@ def ai_from(form: FormData, existing: AiSettings) -> AiSettings:
         key = existing.api_key
 
     return AiSettings(
+        profile=text(form, "ai_profile", existing.profile) or existing.profile,
         thinking=text(form, "ai_thinking", existing.thinking) or existing.thinking,
         api_key=key,
         model=text(form, "ai_model", existing.model) or existing.model,

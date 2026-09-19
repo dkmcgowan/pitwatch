@@ -24,6 +24,7 @@ from jinja2 import pass_context
 from starlette.middleware.sessions import SessionMiddleware
 
 from pitwatch import __version__, auth, csrf
+from pitwatch import chat as chats
 from pitwatch.api import history as history_api
 from pitwatch.api import live as live_api
 from pitwatch.api import pages, stream, users
@@ -163,6 +164,9 @@ def create_app(config: Config | None = None, *, secret_key: str | None = None) -
             # There has to be a way in, so the first boot makes one. It cannot
             # go anywhere until its password is changed; see pitwatch.auth.
             await auth.ensure_default_admin(pool)
+            # An answer left half written by the last process is not coming.
+            # Said so here rather than left for a page to wait on forever.
+            await chats.abandon(pool)
 
             live = LiveState()
             live_io = LiveIo()

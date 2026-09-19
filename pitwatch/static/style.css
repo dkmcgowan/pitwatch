@@ -1319,83 +1319,261 @@ table.diagnostic .note {
 .tide-line-observed { stroke: var(--water); }
 .tide-line-predicted { stroke: var(--text-muted); opacity: 0.45; stroke-dasharray: 3 3; }
 
-/* The chat --------------------------------------------------------------- */
+/* The chat ----------------------------------------------------------------
+ *
+ * Dark, whatever the rest of the application is doing, and deliberately not
+ * PitWatch shaped. Every other page here is a card of numbers somebody scans.
+ * This one is a conversation, it is read top to bottom like a conversation, and
+ * borrowing the furniture of a chat people already use is worth more than
+ * consistency with the dashboard.
+ *
+ * The question is a blue bubble and the answer is plain text on the ground, the
+ * asymmetry doing the work that two colors of bubble would do worse: what you
+ * said is a small thing you said, and what came back is the page.
+ */
+.chat {
+  --chat-bg: #17181c;
+  --chat-ink: #ececf1;
+  --chat-dim: #9aa0aa;
+  --chat-mine: #1f6feb;
+  --chat-edge: #2c2f36;
 
-/* The thread scrolls inside the card rather than the page.
-   A conversation somebody has kept going for a week is longer than a screen,
-   and a page that grows without limit puts the box you type in below the fold
-   on every visit. `contain: paint` for the same reason the wide tables have
-   it: what overflows is this element's business, not the document's. */
+  display: flex;
+  flex-direction: column;
+  /* The header and the footer, so the composer sits on the bottom of the
+     window rather than below the fold. */
+  height: calc(100vh - 8.5rem);
+  min-height: 24rem;
+  background: var(--chat-bg);
+  color: var(--chat-ink);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.chat .error {
+  margin: 0.75rem 1rem 0;
+}
+
+/* The thread scrolls, not the page. A conversation somebody has kept going for
+   a week is longer than a screen, and a composer below the fold is a composer
+   nobody can reach. `contain: paint` for the same reason the wide tables have
+   it: what overflows is this element's business. */
 .chat-thread {
-  max-height: min(60vh, 34rem);
+  flex: 1;
   overflow-y: auto;
   contain: paint;
-  padding-right: 0.25rem;
-  margin-bottom: 1rem;
+  padding: 1.5rem 1rem;
+  scrollbar-color: #40444d var(--chat-bg);
 }
 
-.chat-line { margin-bottom: 1.1rem; }
-
-.chat-who {
-  margin: 0 0 0.2rem;
-  font-size: 0.75rem;
-  font-weight: 650;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+.chat-line {
+  max-width: 48rem;
+  margin: 0 auto 1.4rem;
+  display: flex;
 }
 
-/* Paragraphs as they were written. Rendered as text and nothing else: this
-   came from a model, and a model's output is not markup. */
 .chat-said {
-  margin: 0;
   white-space: pre-wrap;
-  line-height: 1.55;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
-/* The question is tinted and indented so a scan down the thread finds the
-   turns without reading them. Quiet rather than a coloured bubble: this is a
-   page of prose about a pump, not a messaging app. */
+/* Mine: a bubble, on the right, and only as wide as it needs to be. */
+.chat-user { justify-content: flex-end; }
+
 .chat-user .chat-said {
-  padding: 0.6rem 0.8rem;
-  background: var(--surface-2);
-  border-radius: var(--radius);
+  max-width: 85%;
+  padding: 0.65rem 1rem;
+  background: var(--chat-mine);
+  color: #fff;
+  border-radius: 1.15rem;
 }
 
-.chat-empty { color: var(--text-muted); }
+/* The answer: no bubble, no avatar, no label. It is the page. */
+.chat-assistant .chat-said {
+  width: 100%;
+  color: var(--chat-ink);
+}
+
+.chat-failed .chat-said {
+  color: #ff9c8a;
+  font-style: italic;
+}
+
+/* Three dots, because something has to say the question was heard. Animated
+   opacity rather than movement: a bouncing row of dots beside a pump alarm
+   reads as an emergency. */
+.chat-thinking {
+  display: inline-flex;
+  gap: 0.3rem;
+  padding: 0.35rem 0;
+}
+
+.chat-thinking i {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--chat-dim);
+  animation: chat-pulse 1.4s ease-in-out infinite;
+}
+
+.chat-thinking i:nth-child(2) { animation-delay: 0.2s; }
+.chat-thinking i:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes chat-pulse {
+  0%, 60%, 100% { opacity: 0.25; }
+  30% { opacity: 1; }
+}
+
+/* An empty thread says what to ask rather than nothing. The four are buttons
+   rather than text: the first question is the hard one to think of. */
+.chat-empty {
+  max-width: 48rem;
+  margin: auto;
+  padding: 2rem 0;
+  text-align: center;
+}
+
+.chat-empty-title {
+  margin: 0 0 1.25rem;
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--chat-ink);
+}
 
 .chat-starters {
-  margin: 0.5rem 0 0;
-  padding-left: 1.1rem;
-  line-height: 1.7;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
 }
 
-.chat-starters li { color: var(--text-muted); }
-
-/* The box and its two controls. The textarea takes the width and the window
-   picker sits with the button, because how much to read and asking are one
-   decision. */
-.chat-ask textarea {
+.chat-starter {
   width: 100%;
-  padding: 0.6rem 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
+  padding: 0.8rem 1rem;
   font: inherit;
-  resize: vertical;
+  text-align: left;
+  color: var(--chat-dim);
+  background: transparent;
+  border: 1px solid var(--chat-edge);
+  border-radius: 0.9rem;
+  cursor: pointer;
 }
 
-.chat-ask-foot {
+.chat-starter:hover {
+  color: var(--chat-ink);
+  border-color: #464b55;
+}
+
+/* The composer. Pinned to the bottom of the panel, the box and the send button
+   sharing one rounded outline the way every chat box does. */
+.chat-ask {
+  flex: none;
+  padding: 0.5rem 1rem 1rem;
+  background: var(--chat-bg);
+}
+
+.chat-box {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 0.4rem 0.4rem 0.4rem 1rem;
+  background: #24262c;
+  border: 1px solid var(--chat-edge);
+  border-radius: 1.5rem;
+}
+
+/* The ring goes on the box, not on the textarea inside it.
+
+   Not decoration: the global `textarea:focus` rule further down this file
+   outranks `.chat-box textarea` on equal specificity by coming later, so the
+   inner outline was drawn as a blue rectangle inside a gray one. Removing it
+   without putting the focus somewhere visible would be worse than the two
+   rectangles, so it moves out to the edge where the eye already is. */
+.chat-box:focus-within {
+  border-color: var(--chat-mine);
+  box-shadow: 0 0 0 1px var(--chat-mine);
+}
+
+.chat-box textarea:focus { outline: none; }
+
+.chat-box textarea {
+  flex: 1;
+  border: 0;
+  padding: 0.55rem 0;
+  max-height: 200px;
+  color: var(--chat-ink);
+  background: transparent;
+  font: inherit;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+}
+
+.chat-box textarea::placeholder { color: #6d737e; }
+
+.chat-send {
+  flex: none;
+  width: 2.1rem;
+  height: 2.1rem;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--chat-ink);
+  color: #17181c;
+  cursor: pointer;
+}
+
+.chat-send svg { width: 1.05rem; height: 1.05rem; }
+.chat-send:disabled { opacity: 0.35; cursor: default; }
+
+/* Under the box: the window, whether it can be used at all, and the one
+   destructive thing, which lives down here because it is done twice a year. */
+.chat-foot {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  margin-top: 0.5rem;
+  gap: 0.75rem;
+  max-width: 48rem;
+  margin: 0.5rem auto 0;
+  font-size: 0.82rem;
+  color: var(--chat-dim);
 }
 
-.chat-ask-foot select { width: auto; }
+.chat-foot select {
+  width: auto;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.82rem;
+  color: var(--chat-dim);
+  background: transparent;
+  border: 1px solid var(--chat-edge);
+  border-radius: var(--radius);
+}
+
+.chat-note { margin-right: auto; color: #ffb4a2; }
+
+.chat-clear {
+  padding: 0.25rem 0.5rem;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--chat-dim);
+  background: transparent;
+  border: 1px solid var(--chat-edge);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.chat-clear:hover { color: #ff9c8a; border-color: #5a3b38; }
+
+@media (max-width: 30rem) {
+  .chat { height: calc(100vh - 11rem); }
+  .chat-thread { padding: 1rem 0.75rem; }
+  .chat-ask { padding: 0.5rem 0.75rem 0.75rem; }
+}
 
 /* Forms ------------------------------------------------------------------- */
 

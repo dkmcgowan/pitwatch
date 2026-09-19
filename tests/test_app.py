@@ -2494,7 +2494,6 @@ def test_the_chat_page_is_named_for_what_it_does():
     settings = render_settings()
 
     assert "AI chat" in page
-    assert ">Ask<" in page
     assert "AI chat" in settings, "the section that configures it agrees"
     # And the account that pays for it is its own section, app wide.
     assert "AI model" in settings
@@ -2512,10 +2511,9 @@ def test_how_much_to_read_sits_with_the_ask_button():
         error=None,
     )
 
-    foot = page.split('class="chat-ask-foot"', 1)[1]
+    foot = page.split('class="chat-foot"', 1)[1]
     assert 'value="7d" selected' in foot, "a week unless somebody says otherwise"
     assert 'value="30d"' in foot
-    assert ">Ask<" in foot
 
 
 def test_an_empty_thread_says_what_the_page_is_for():
@@ -2530,8 +2528,9 @@ def test_an_empty_thread_says_what_the_page_is_for():
         error=None,
     )
 
-    assert "Nothing asked yet" in page
+    assert "Ask about the pumps" in page
     assert "chat-starters" in page
+    assert page.count("data-starter") >= 4, "the first question is the hard one to think of"
     # No "start again" until there is something to start again from.
     assert "/chat/clear" not in page
 

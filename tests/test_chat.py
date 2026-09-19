@@ -444,8 +444,20 @@ def _calls(n):
     ]
 
 
+HEADER = "at,gap_min,pump,ran_s,both_pumps,high_water"
+
+
 def _cost(payload):
-    return chat.tokens("\n".join(part["content"] for part in payload))
+    """Counted the way the budget counts it, message by message: the table is
+    dense and everything else is prose. A single ratio for both is what made
+    the budget wrong by four times."""
+    total = 0
+    for part in payload:
+        head, found, rows = part["content"].partition(HEADER)
+        total += chat.tokens(head)
+        if found:
+            total += chat.tokens(found + rows, dense=True)
+    return total
 
 
 def test_a_busy_pit_does_not_blow_the_window():
@@ -580,3 +592,25 @@ def test_only_complete_pairs_go_back():
         "three",
         "also answered",
     ]
+
+
+def test_a_table_of_numbers_is_counted_four_times_heavier_than_prose():
+    """Measured against qwen3.8-27b on 2026-09-19: 6,180 characters of English
+    counted as 1,252 tokens, and 79,199 characters of the calls table counted
+    as 76,851. Treating both as four characters to a token is how the budget
+    came to believe a 77,000 token request was 23,000."""
+    rows = chat.table(_calls(2400))
+
+    assert 0.9 < len(rows) / chat.tokens(rows, dense=True) < 1.2
+    assert 3.5 < len("word " * 2000) / chat.tokens("word " * 2000) < 4.5
+
+
+def test_the_budget_is_kept_in_the_units_the_model_counts_in():
+    """The table is what fills a request, so counting it wrong is counting the
+    request wrong."""
+    payload = chat.messages(ChatSettings(), _numbers(), [], _calls(40_000), budget=100_000)
+
+    assert _cost(payload) <= 100_000
+    # And in characters that is about 100k too, not 400k, because the table is
+    # where the characters are and it is counted at one to one.
+    assert len("".join(part["content"] for part in payload)) < 130_000

@@ -61,12 +61,19 @@ WINDOW = series.WINDOWS["7d"]
 # estimate below being wrong by a third.
 BUDGET_TOKENS = 100_000
 
-# Roughly four characters to a token, for English prose and for a table of
-# numbers alike. Deliberately a rule of thumb rather than a tokenizer: the
-# model is whatever the base URL points at, so the exact count is unknowable
-# from here, and the budget's job is to stay well clear of a limit rather than
-# to land exactly on it.
-PER_TOKEN = 4
+# Characters per token, and the two numbers are nothing like each other.
+#
+# "Roughly four characters to a token" is true of English and badly wrong for a
+# table of timestamps and decimals, where a tokenizer gives up and spends a
+# token on almost every character. Measured against qwen3.8-27b on 2026-09-19:
+# 6,180 characters of prose came back counted as 1,252 tokens, which is 4.94 to
+# one; 79,199 characters of the calls table came back as 76,851, which is 1.03.
+#
+# Using four for both is how the budget came to believe a request was 23,000
+# tokens when the model counted 77,000. It fitted anyway, so nothing broke and
+# nothing said so, which is the worst way for a number to be wrong.
+PER_TOKEN_PROSE = 4
+PER_TOKEN_DENSE = 1
 
 # How much of what is left the conversation may take, once the readings are in.
 #
@@ -81,9 +88,13 @@ HISTORY_SHARE = 0.25
 ABOUT_THE_TABLE = 200
 
 
-def tokens(text: str) -> int:
-    """About how many tokens that is. See PER_TOKEN."""
-    return len(text) // PER_TOKEN
+def tokens(text: str, dense: bool = False) -> int:
+    """About how many tokens that is.
+
+    `dense` for a table of numbers and timestamps, which costs about four times
+    what the same length of prose costs. See PER_TOKEN_DENSE.
+    """
+    return len(text) // (PER_TOKEN_DENSE if dense else PER_TOKEN_PROSE)
 
 
 # Said in one place, because the page draws it and the post refuses with it.
@@ -486,7 +497,7 @@ def _calls_that_fit(rows: list[dict], budget: int) -> tuple[list[dict], int]:
         return [], len(rows)
 
     keep = len(rows)
-    while keep and tokens(table(rows[-keep:])) > budget:
+    while keep and tokens(table(rows[-keep:]), dense=True) > budget:
         # Ten percent at a time down to the last few, which converges in about
         # forty passes from twenty thousand rows.
         keep = keep * 9 // 10 if keep > 10 else keep - 1
